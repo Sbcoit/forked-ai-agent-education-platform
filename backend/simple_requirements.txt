@@ -1,0 +1,27 @@
+# Simple CrewAI Education Platform Requirements
+
+# Core Framework
+fastapi==0.104.1
+uvicorn==0.24.0
+
+# Database
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+
+# CrewAI
+crewai==0.28.8
+crewai-tools==0.1.6
+
+# API Tools
+pydantic==2.5.0
+python-multipart==0.0.6
+
+# CORS
+fastapi-cors==0.0.6
+
+# Environment
+python-dotenv==1.0.0
+
+# For deployment
+gunicorn==21.2.0 
+PyYAML==6.0.2

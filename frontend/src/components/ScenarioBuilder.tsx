@@ -238,9 +238,9 @@ const ScenarioBuilder: React.FC<ScenarioBuilderProps> = ({
                   </label>
                   
                   {pdfFile && (
-                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <p className="text-blue-800">Selected: {pdfFile.name}</p>
-                    </div>
+                                    <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <p className="text-gray-800">Selected: {pdfFile.name}</p>
+                </div>
                   )}
                 </div>
               </div>

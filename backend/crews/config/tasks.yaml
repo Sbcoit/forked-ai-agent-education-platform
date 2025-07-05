@@ -1,0 +1,100 @@
+market_analysis_task:
+  description: >
+    Analyze the market opportunity for {scenario_title} in the {industry} industry.
+    
+    Context: {scenario_description}
+    Challenge: {challenge}
+    Student Input: {user_input}
+    
+    Your analysis should include:
+    - Target market identification and size
+    - Competitive landscape analysis
+    - Customer needs and pain points
+    - Market entry strategy recommendations
+    - Pricing considerations
+    
+    Consider the student's input and provide educational insights about market analysis.
+  expected_output: >
+    A comprehensive market analysis report with:
+    - Target market segments and sizing
+    - Competitive analysis with key players
+    - Customer persona and needs analysis
+    - Market entry recommendations
+    - Educational insights for the student
+  agent: marketing_agent
+
+financial_planning_task:
+  description: >
+    Create a financial plan for {scenario_title} based on the market analysis.
+    
+    Context: {scenario_description}
+    Challenge: {challenge}
+    Student Input: {user_input}
+    
+    Your financial plan should include:
+    - Revenue projections and assumptions
+    - Cost structure analysis
+    - Budget allocation recommendations
+    - Break-even analysis
+    - Risk assessment and mitigation
+    
+    Explain your financial reasoning to help the student understand business finance.
+  expected_output: >
+    A detailed financial plan including:
+    - 12-month revenue and cost projections
+    - Budget breakdown by category
+    - Break-even analysis and timeline
+    - Financial risk assessment
+    - Educational explanations of financial concepts
+  agent: finance_agent
+
+product_strategy_task:
+  description: >
+    Develop a product strategy for {scenario_title} that aligns with market needs and budget.
+    
+    Context: {scenario_description}
+    Challenge: {challenge}
+    Student Input: {user_input}
+    
+    Your product strategy should include:
+    - Product feature prioritization
+    - Development roadmap and timeline
+    - Resource requirements
+    - Quality and testing standards
+    - User experience considerations
+    
+    Help the student understand how product decisions impact business success.
+  expected_output: >
+    A comprehensive product strategy with:
+    - Feature prioritization matrix
+    - Development roadmap with milestones
+    - Resource allocation plan
+    - Quality assurance framework
+    - Educational insights about product management
+  agent: product_agent
+
+operations_planning_task:
+  description: >
+    Create an operations plan that ensures efficient execution of {scenario_title}.
+    
+    Context: {scenario_description}
+    Challenge: {challenge}
+    Student Input: {user_input}
+    
+    Your operations plan should include:
+    - Process design and optimization
+    - Resource allocation and management
+    - Quality control systems
+    - Risk management procedures
+    - Performance monitoring metrics
+    
+    Explain how operations decisions affect the overall business performance.
+  expected_output: >
+    A complete operations plan featuring:
+    - Process flows and procedures
+    - Resource allocation matrix
+    - Quality control framework
+    - Risk management protocols
+    - Performance metrics and KPIs
+    - Educational insights about operations management
+  agent: operations_agent 

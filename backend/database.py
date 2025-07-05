@@ -9,7 +9,7 @@ from pathlib import Path
 parent_dir = Path(__file__).parent.parent
 
 class Settings(BaseSettings):
-    database_url: str = os.getenv("DATABASE_URL", "postgresql://user:password@localhost/ai_agent_platform")
+    database_url: str = os.getenv("DATABASE_URL", "sqlite:///./ai_agent_platform.db")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379")

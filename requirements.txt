@@ -17,6 +17,10 @@ anthropic==0.7.7
 langchain==0.0.335
 langchain-openai==0.0.2
 
+# CrewAI Multi-Agent Framework
+crewai==0.28.8
+crewai-tools==0.1.6
+
 # PDF Processing
 PyPDF2==3.0.1
 pdfplumber==0.10.3

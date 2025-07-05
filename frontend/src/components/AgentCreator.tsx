@@ -54,7 +54,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ currentStage, setCurrentSta
       name: 'Taylor', 
       role: 'Product', 
       icon: '⚡', 
-      color: 'bg-blue-100',
+      color: 'bg-slate-100',
       personality: 'Innovative, user-centric, and technically-minded product leader',
       expertise: ['Product Strategy', 'User Experience', 'Feature Development', 'Market Validation', 'Technical Leadership'],
       responsibilities: 'Define product vision, prioritize features, coordinate development, and ensure market fit'
@@ -169,7 +169,7 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ currentStage, setCurrentSta
         {/* Scenario Info */}
         <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
           <div className="flex items-center space-x-4">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+            <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
               <span className="text-2xl">🏢</span>
             </div>
             <div>
@@ -200,8 +200,8 @@ const AgentCreator: React.FC<AgentCreatorProps> = ({ currentStage, setCurrentSta
           )}
 
           {/* Agent Configuration Progress */}
-          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-blue-800">
+          <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <p className="text-gray-800">
               <strong>Progress:</strong> {agents.length} of {defaultAgents.length} agents configured
             </p>
           </div>

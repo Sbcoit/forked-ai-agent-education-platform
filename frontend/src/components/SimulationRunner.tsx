@@ -22,7 +22,7 @@ const SimulationRunner: React.FC<SimulationRunnerProps> = ({ currentStage, setCu
         {/* Header */}
         <div className="gradient-bg text-white rounded-xl p-8 mb-8">
           <h1 className="text-3xl font-bold mb-4">🚀 Business Simulation in Action</h1>
-          <p className="text-lg text-blue-100">
+          <p className="text-lg text-gray-300">
             You are the CEO of SunRGY Shell. Guide your team through critical business decisions.
           </p>
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -55,7 +55,7 @@ const SimulationRunner: React.FC<SimulationRunnerProps> = ({ currentStage, setCu
                     key={index}
                     className={`mb-4 p-4 rounded-lg ${
                       message.type === 'system' 
-                        ? 'bg-blue-50 border-l-4 border-blue-400' 
+                        ? 'bg-gray-50 border-l-4 border-gray-400' 
                         : 'bg-gray-50'
                     }`}
                   >
@@ -87,7 +87,7 @@ const SimulationRunner: React.FC<SimulationRunnerProps> = ({ currentStage, setCu
                 {[
                   { name: 'Alex', role: 'Marketing', status: 'online', color: 'bg-red-100' },
                   { name: 'Morgan', role: 'Finance', status: 'online', color: 'bg-green-100' },
-                  { name: 'Taylor', role: 'Product', status: 'online', color: 'bg-blue-100' },
+                  { name: 'Taylor', role: 'Product', status: 'online', color: 'bg-slate-100' },
                   { name: 'Jordan', role: 'Operations', status: 'online', color: 'bg-purple-100' }
                 ].map((agent) => (
                   <div key={agent.name} className="flex items-center space-x-3">

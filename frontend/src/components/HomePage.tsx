@@ -11,7 +11,7 @@ const HomePage = () => {
             <h1 className="text-5xl md:text-6xl font-bold mb-6">
               🎓 AI Agent Education Platform
             </h1>
-            <p className="text-xl md:text-2xl mb-8 text-blue-100 max-w-3xl mx-auto">
+            <p className="text-xl md:text-2xl mb-8 text-gray-300 max-w-3xl mx-auto">
               Empowering educators to create dynamic business simulations with AI agents. 
               Transform your classroom with interactive, AI-powered learning experiences.
             </p>
@@ -138,7 +138,7 @@ const HomePage = () => {
           <h2 className="text-3xl md:text-4xl font-bold mb-6">
             Ready to revolutionize your classroom?
           </h2>
-          <p className="text-xl text-blue-100 mb-8">
+          <p className="text-xl text-gray-300 mb-8">
             Join educators worldwide who are transforming business education with AI-powered simulations.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">

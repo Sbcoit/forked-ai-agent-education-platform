@@ -39,7 +39,7 @@ Invoke-WebRequest -Uri "http://localhost:8000/health/"
 **Endpoint:** `POST /scenarios/`
 
 ```powershell
-Invoke-WebRequest -Uri "http://localhost:8000/scenarios/" -Method POST -Headers @{"Content-Type"="application/json"} -Body '{"title": "Tech Startup Launch", "description": "Launch a new SaaS product in a competitive market", "industry": "Technology", "challenge": "How to compete with established players while building market share", "learning_objectives": ["Market analysis", "Financial planning", "Product strategy"]}'
+Invoke-WebRequest -Uri "http://localhost:8000/scenarios/" -Method POST -Headers @{"Content-Type"="application/json"} -Body '{"title": "Eco-Friendly Startup Launch", "description": "Launch a new SaaS product in a competitive market", "industry": "Technology", "challenge": "How to compete with established players while building market share", "learning_objectives": ["Market analysis", "Financial planning", "Product strategy"]}'
 ```
 
 **Expected Response:**
@@ -67,7 +67,7 @@ Invoke-WebRequest -Uri "http://localhost:8000/scenarios/"
 **Endpoint:** `POST /simulations/`
 
 ```powershell
-Invoke-WebRequest -Uri "http://localhost:8000/simulations/" -Method POST -Headers @{"Content-Type"="application/json"} -Body '{"scenario_id": 1}'
+Invoke-WebRequest -Uri "http://localhost:8000/simulations/" -Method POST -Headers @{"Content-Type"="application/json"} -Body '{"scenario_id": 5}'
 ```
 
 **Expected Response:**

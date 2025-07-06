@@ -1,0 +1,22 @@
+# Testing dependencies for CrewAI Agent Builder Platform Backend
+
+# Core testing framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+
+# FastAPI testing
+httpx>=0.24.0
+fastapi[all]>=0.104.0
+
+# Database testing
+SQLAlchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# Test utilities
+factory-boy>=3.2.0
+faker>=19.0.0
+
+# Optional: For test reporting
+pytest-html>=3.1.0
+pytest-xdist>=3.0.0  # For parallel test execution 

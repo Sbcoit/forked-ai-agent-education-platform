@@ -1,123 +1,452 @@
 # Architecture Documentation
 
-Welcome to the architecture documentation for the **CrewAI Agent Builder Platform** - a community-driven platform for building, sharing, and running AI agent simulations.
+## Overview
 
-## 📋 Documentation Overview
+Welcome to the comprehensive architecture documentation for the CrewAI Agent Builder Platform. This documentation provides detailed insights into the system design, database architecture, user workflows, and development guidelines.
 
-This folder contains comprehensive architectural documentation including diagrams, schemas, and workflow descriptions.
+## 📚 Documentation Structure
 
-### 📁 Files in this Directory
+### Core Architecture Documents
 
-1. **[system-overview.md](./system-overview.md)** - High-level system architecture
-   - Frontend components (React/TypeScript)
-   - Backend API structure (FastAPI)
-   - Database models (SQLAlchemy)
-   - Feature overview (Community + Core)
+| Document | Description | Key Features |
+|----------|-------------|--------------|
+| **[System Overview](./system-overview.md)** | High-level system architecture and technology stack | Architecture diagrams, scalability considerations, security layers |
+| **[Database Schema](./database-schema.md)** | Complete database design with ERD and relationships | 15+ tables, marketplace features, resource tracking |
+| **[User Workflows](./user-workflow.md)** | Visual user journey flows and interaction patterns | Mermaid diagrams, persona-based workflows, error handling |
 
-2. **[database-schema.md](./database-schema.md)** - Complete database design
-   - Entity Relationship Diagram (ERD)
-   - Table definitions with all fields
-   - Relationships and constraints
-   - Marketplace and community features
+### API & Development
 
-3. **[user-workflow.md](./user-workflow.md)** - User journey flowchart
-   - Agent building process
-   - Marketplace interaction
-   - Scenario creation workflow
-   - Simulation execution flow
-   - Community engagement features
+| Document | Description | Key Features |
+|----------|-------------|--------------|
+| **[API Reference](../API_Reference.md)** | Complete REST API documentation | 25+ endpoints, authentication, examples, SDKs |
+| **[Developer Guide](../Developer_Guide.md)** | Development setup, testing, and deployment | Quick start, testing strategy, code standards |
+| **[API Testing Guide](../API_Testing_Guide.md)** | Practical API testing examples | PowerShell/curl commands, workflow testing |
 
-## 🏗️ Platform Architecture Summary
+## 🚀 Platform Architecture
 
-### Vision
-Transform from a simple agent builder into a **"GitHub for AI Agents"** - a thriving marketplace where users create, share, and collaborate on AI agent solutions.
+### System Components
 
-### Core Components
+```mermaid
+graph TB
+    subgraph "User Interface"
+        WEB[Web Application]
+        MOBILE[Mobile App]
+        API_CLIENTS[API Clients]
+    end
+    
+    subgraph "Application Layer"
+        FASTAPI[FastAPI Backend]
+        REACT[React Frontend]
+        AUTH[Authentication]
+        MIDDLEWARE[Middleware Stack]
+    end
+    
+    subgraph "Business Logic"
+        USER_MGMT[User Management]
+        AGENT_BUILDER[Agent Builder]
+        SIMULATION[Simulation Engine]
+        COMMUNITY[Community Features]
+    end
+    
+    subgraph "AI/ML Layer"
+        CREWAI[CrewAI Framework]
+        OPENAI[OpenAI API]
+        ANTHROPIC[Anthropic API]
+        TOOLS[Custom Tools]
+    end
+    
+    subgraph "Data Layer"
+        POSTGRES[(PostgreSQL)]
+        REDIS[(Redis Cache)]
+        FILES[File Storage]
+    end
+    
+    WEB --> FASTAPI
+    MOBILE --> FASTAPI
+    API_CLIENTS --> FASTAPI
+    FASTAPI --> AUTH
+    FASTAPI --> MIDDLEWARE
+    AUTH --> USER_MGMT
+    USER_MGMT --> AGENT_BUILDER
+    AGENT_BUILDER --> SIMULATION
+    SIMULATION --> COMMUNITY
+    SIMULATION --> CREWAI
+    CREWAI --> OPENAI
+    CREWAI --> ANTHROPIC
+    CREWAI --> TOOLS
+    USER_MGMT --> POSTGRES
+    AGENT_BUILDER --> POSTGRES
+    SIMULATION --> POSTGRES
+    COMMUNITY --> POSTGRES
+    FASTAPI --> REDIS
+    COMMUNITY --> FILES
+```
 
-**Frontend (React/TypeScript)**
-- AgentBuilder: Main agent creation interface
-- Marketplace: Browse and discover community content
-- ScenarioBuilder: Create business scenarios (manual + PDF upload)
-- SimulationRunner: Execute CrewAI simulations
+## 🎯 Key Platform Features
 
-**Backend (FastAPI + PostgreSQL)**
-- RESTful API with comprehensive endpoints
-- Enhanced database schema with marketplace features
-- Community features (ratings, reviews, collections)
-- Version control and attribution system
+### 1. **User Management & Authentication**
+- JWT-based authentication system
+- Role-based access control (user/admin)
+- Profile management with privacy controls
+- Email verification and password reset
 
-**Key Features**
-- 🤖 **Agent Builder**: Create custom agents with role, goal, backstory, tools
-- 🏪 **Marketplace**: Public sharing with ratings, reviews, and discovery
-- 📊 **Scenarios**: Business case scenarios (manual creation + PDF upload)
-- ⚡ **Simulations**: CrewAI-powered multi-agent collaborations
-- 👥 **Community**: Collections, favorites, reputation system
-- 🔄 **Version Control**: Track changes, remixes, and attribution
+### 2. **AI Agent Builder**
+- Visual agent creation interface
+- Custom tool integration
+- Template system for reusable agents
+- Version control and remixing capabilities
 
-## 🚀 Development Phases
+### 3. **Business Scenario Management**
+- Manual scenario creation
+- PDF document processing
+- Learning objectives definition
+- Public/private sharing options
 
-### ✅ Phase 1: Core Agent Builder (COMPLETED)
-- Basic agent creation with database storage
-- User association and private agents
-- Clean architecture foundation
+### 4. **Simulation Engine**
+- CrewAI-powered multi-agent simulations
+- Real-time chat with AI crews
+- Sequential and hierarchical processes
+- Resource tracking and fallback strategies
 
-### 🎯 Phase 2: Public Sharing (NEXT)
-- Agent publishing (`is_public` flag)
-- Basic marketplace view
-- Simple search and filtering
-
-### 🔧 Phase 3: Tool Marketplace
-- Tool creation and sharing system
-- Custom tool code editor
-- Tool verification system
-
-### 👥 Phase 4: Community Features
+### 5. **Community Marketplace**
+- Public sharing of agents, tools, and scenarios
 - Rating and review system
-- User profiles and reputation
-- Favorites and collections
+- Collections and favorites
+- Content discovery and search
 
-### 🧠 Phase 5: Advanced Discovery
-- AI-powered recommendations
-- Trending and analytics
-- Advanced search with filters
+## 📊 Database Architecture
 
-## 🗄️ Database Highlights
+### Core Data Models
 
-- **11 Core Tables**: Users, Agents, Tools, Tasks, Scenarios, Simulations, Reviews, Collections, Templates
-- **Junction Tables**: Many-to-many relationships for flexible content organization
-- **Community Features**: Public sharing, ratings, version control, attribution
-- **Marketplace Support**: Categories, tags, search, discovery
+The platform uses a comprehensive PostgreSQL schema with 15+ interconnected tables:
 
-## 🔄 User Journey
+```mermaid
+erDiagram
+    users ||--o{ agents : creates
+    users ||--o{ scenarios : creates
+    users ||--o{ simulations : participates
+    users ||--o{ collections : manages
+    
+    agents ||--o{ tasks : assigned
+    agents ||--o{ agent_reviews : receives
+    agents ||--o{ simulation_agents : tracked
+    
+    scenarios ||--o{ simulations : used_in
+    simulations ||--o{ simulation_messages : contains
+    simulations ||--o{ simulation_fallbacks : fallbacks
+    
+    collections ||--o{ collection_agents : contains
+    collections ||--o{ collection_tools : contains
+```
 
-1. **Create** → Build custom agents with specific capabilities
-2. **Share** → Publish to community marketplace
-3. **Discover** → Browse and clone community creations
-4. **Collaborate** → Create scenarios with multiple agents
-5. **Simulate** → Run CrewAI-powered business simulations
-6. **Engage** → Rate, review, and curate collections
+### Key Database Features
+- **Marketplace Support**: Public/private content, ratings, reviews
+- **Resource Tracking**: Snapshots for simulation execution
+- **Fallback Strategies**: Handle missing or private resources
+- **Version Control**: Track changes and allow remixing
+- **Community Features**: Collections, favorites, user reputation
 
-## 🎯 Success Metrics
+## 🔧 Technology Stack
 
-### Technical
-- Clean, maintainable codebase
-- Scalable database design
-- Responsive user interface
-- Reliable simulation execution
+### Backend Technologies
+- **FastAPI** - High-performance web framework
+- **SQLAlchemy** - Database ORM with PostgreSQL
+- **CrewAI** - Multi-agent AI framework
+- **Pydantic** - Data validation and serialization
+- **JWT** - Authentication and authorization
 
-### Community
-- Active user creation and sharing
-- High-quality content with good ratings
-- Growing library of agents and tools
-- Collaborative improvement through remixes
+### Frontend Technologies
+- **React 18** - Modern UI framework
+- **TypeScript** - Type-safe JavaScript
+- **Material-UI** - Component library
+- **React Router** - Client-side routing
+- **Axios** - HTTP client
 
-### Platform
-- Network effects driving growth
-- Viral content loops
-- High user retention
-- Sustainable community ecosystem
+### AI/ML Technologies
+- **OpenAI API** - GPT models for text generation
+- **Anthropic API** - Claude models for reasoning
+- **LangChain** - AI application framework
+- **Custom Tools** - Extensible tool system
+
+### Infrastructure
+- **PostgreSQL** - Primary database (Neon cloud)
+- **Redis** - Caching and session storage
+- **Docker** - Containerization
+- **GitHub Actions** - CI/CD pipeline
+
+## 🏗️ Development Workflow
+
+### Quick Start for Developers
+
+```bash
+# 1. Clone and setup backend
+git clone <repo-url>
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env with your database credentials
+
+# 3. Run backend
+uvicorn main:app --reload
+
+# 4. Setup frontend
+cd ../frontend
+npm install
+npm start
+```
+
+### Testing Strategy
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=. --cov-report=html
+
+# Run specific test categories
+pytest unit_tests/auth/
+pytest unit_tests/api/
+pytest unit_tests/core/
+```
+
+## 🎨 User Experience Design
+
+### User Personas
+
+1. **Educator** - Creates educational scenarios for classroom use
+2. **Student** - Participates in simulations for learning
+3. **Developer** - Builds custom agents and tools
+4. **Business Professional** - Uses simulations for training
+
+### User Journey Flow
+
+```mermaid
+graph LR
+    A[Register] --> B[Login]
+    B --> C[Dashboard]
+    C --> D{User Goal}
+    D -->|Create| E[Agent Builder]
+    D -->|Learn| F[Simulation]
+    D -->|Share| G[Community]
+    D -->|Explore| H[Marketplace]
+    E --> I[Publish]
+    F --> J[Learn]
+    G --> K[Collaborate]
+    H --> L[Discover]
+```
+
+## 🔐 Security Architecture
+
+### Authentication & Authorization
+- **JWT Tokens** - Stateless authentication
+- **Role-Based Access** - User/admin permissions
+- **Rate Limiting** - API abuse prevention
+- **Input Validation** - SQL injection prevention
+
+### Data Protection
+- **Password Hashing** - Bcrypt encryption
+- **Data Encryption** - At rest and in transit
+- **Privacy Controls** - User data protection
+- **Audit Logging** - Security event tracking
+
+## 📈 Performance & Scalability
+
+### Optimization Strategies
+- **Database Indexing** - Optimized query performance
+- **Connection Pooling** - Efficient database connections
+- **Caching Layer** - Redis for frequently accessed data
+- **Async Processing** - Non-blocking operations
+
+### Scalability Considerations
+- **Horizontal Scaling** - Multiple server instances
+- **Load Balancing** - Request distribution
+- **Database Sharding** - Data partitioning
+- **CDN Integration** - Static asset delivery
+
+## 🔧 API Architecture
+
+### RESTful API Design
+- **Resource-Based URLs** - `/users/`, `/agents/`, `/simulations/`
+- **HTTP Methods** - GET, POST, PUT, DELETE
+- **Status Codes** - Proper HTTP response codes
+- **Error Handling** - Consistent error responses
+
+### Authentication Flow
+```mermaid
+sequenceDiagram
+    participant User
+    participant Frontend
+    participant API
+    participant Database
+    
+    User->>Frontend: Login credentials
+    Frontend->>API: POST /users/login
+    API->>Database: Validate credentials
+    Database-->>API: User data
+    API->>API: Generate JWT token
+    API-->>Frontend: Token + user info
+    Frontend->>Frontend: Store token
+    Frontend-->>User: Dashboard access
+```
+
+## 📱 Frontend Architecture
+
+### Component Structure
+```
+src/
+├── components/
+│   ├── AgentBuilder/
+│   ├── SimulationRunner/
+│   ├── Community/
+│   └── Common/
+├── services/
+│   ├── api.ts
+│   ├── auth.ts
+│   └── storage.ts
+├── hooks/
+│   ├── useAuth.ts
+│   ├── useApi.ts
+│   └── useSimulation.ts
+└── utils/
+    ├── validation.ts
+    ├── formatting.ts
+    └── constants.ts
+```
+
+### State Management
+- **React Hooks** - Local component state
+- **Context API** - Global state management
+- **Custom Hooks** - Reusable logic
+- **Local Storage** - Client-side persistence
+
+## 🔍 Testing Architecture
+
+### Test Categories
+- **Unit Tests** - Individual component testing
+- **Integration Tests** - Component interaction testing
+- **API Tests** - Endpoint functionality testing
+- **End-to-End Tests** - Complete workflow testing
+
+### Test Structure
+```
+unit_tests/
+├── auth/                    # Authentication tests
+├── api/                     # API endpoint tests
+├── core/                    # Core functionality tests
+└── integration/             # Integration tests
+```
+
+## 🚀 Deployment Architecture
+
+### Environment Structure
+- **Development** - Local development environment
+- **Staging** - Production-like testing environment
+- **Production** - Live production environment
+
+### Deployment Pipeline
+```mermaid
+graph LR
+    A[Git Push] --> B[GitHub Actions]
+    B --> C[Run Tests]
+    C --> D[Build Docker Image]
+    D --> E[Deploy to Staging]
+    E --> F[Integration Tests]
+    F --> G[Deploy to Production]
+    G --> H[Health Checks]
+```
+
+## 📖 Documentation Navigation
+
+### Getting Started
+1. **[Quick Start](../Developer_Guide.md#quick-start)** - Get up and running in 5 minutes
+2. **[API Reference](../API_Reference.md)** - Complete API documentation
+3. **[Database Schema](./database-schema.md)** - Understand the data model
+
+### Development
+1. **[Developer Guide](../Developer_Guide.md)** - Complete development setup
+2. **[Testing Guide](../Developer_Guide.md#testing-strategy)** - Testing strategies and examples
+3. **[API Testing](../API_Testing_Guide.md)** - Practical API testing examples
+
+### Architecture
+1. **[System Overview](./system-overview.md)** - High-level system architecture
+2. **[Database Design](./database-schema.md)** - Complete database schema
+3. **[User Workflows](./user-workflow.md)** - Visual workflow diagrams
+
+## 🛠️ Development Tools
+
+### Required Tools
+- **Python 3.11+** - Backend development
+- **Node.js 18+** - Frontend development
+- **PostgreSQL** - Database (local or Neon cloud)
+- **Git** - Version control
+
+### Recommended Tools
+- **VS Code** - Code editor with extensions
+- **Postman** - API testing
+- **Docker** - Containerization
+- **GitHub Desktop** - Git GUI
+
+## 🔄 Continuous Integration
+
+### CI/CD Pipeline
+- **GitHub Actions** - Automated testing and deployment
+- **Code Quality** - Black formatting, flake8 linting
+- **Security Scanning** - Vulnerability detection
+- **Performance Testing** - Load testing
+
+### Quality Gates
+- **All Tests Pass** - Unit, integration, and API tests
+- **Code Coverage** - Minimum 80% coverage
+- **Security Scan** - No high-severity vulnerabilities
+- **Performance** - Response time under 200ms
+
+## 📊 Monitoring & Analytics
+
+### Application Monitoring
+- **Health Checks** - System status monitoring
+- **Performance Metrics** - Response time tracking
+- **Error Tracking** - Exception monitoring
+- **User Analytics** - Feature usage tracking
+
+### Business Metrics
+- **User Engagement** - Active users, session duration
+- **Content Performance** - Popular agents, scenarios
+- **Community Growth** - User acquisition, retention
+- **Platform Usage** - Simulation frequency, success rates
+
+## 🤝 Contributing
+
+### Development Process
+1. **Fork Repository** - Create your own copy
+2. **Create Feature Branch** - Work on isolated features
+3. **Follow Standards** - Code style and testing requirements
+4. **Submit Pull Request** - Code review process
+
+### Code Standards
+- **Python** - Black formatting, type hints, docstrings
+- **TypeScript** - Strict typing, ESLint rules
+- **Testing** - Minimum 80% test coverage
+- **Documentation** - Update relevant documentation
 
 ---
 
-*Last Updated: January 2025*  
-*Platform Version: 2.0.0* 
+## 📞 Support & Community
+
+### Getting Help
+- **[GitHub Issues](https://github.com/yourusername/crewai-platform/issues)** - Bug reports and feature requests
+- **[Discord Server](https://discord.gg/crewai)** - Community discussions
+- **[Documentation](https://docs.crewai-platform.com)** - Comprehensive guides
+
+### Contributing
+- **[Contributing Guidelines](../CONTRIBUTING.md)** - How to contribute
+- **[Code of Conduct](../CODE_OF_CONDUCT.md)** - Community standards
+- **[Security Policy](../SECURITY.md)** - Security vulnerability reporting
+
+---
+
+This documentation is continuously updated as the platform evolves. For the latest information, please check the [GitHub repository](https://github.com/yourusername/crewai-platform) and join our community discussions. 

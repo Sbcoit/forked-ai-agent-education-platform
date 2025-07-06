@@ -136,6 +136,85 @@ erDiagram
         timestamp updated_at
     }
 
+    %% CrewAI System
+    crew_configurations {
+        integer id PK
+        string name
+        string crew_type
+        text description
+        integer scenario_id FK
+        string process_type
+        integer max_iterations
+        boolean verbose_logging
+        boolean allow_delegation
+        boolean memory_enabled
+        jsonb enabled_tools
+        jsonb custom_tools
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    crew_members {
+        integer id PK
+        integer crew_configuration_id FK
+        integer agent_id FK
+        integer role_priority
+        boolean can_delegate
+        boolean is_manager
+        text backstory_override
+        text goal_override
+        timestamp created_at
+    }
+
+    crew_sessions {
+        integer id PK
+        integer crew_configuration_id FK
+        integer simulation_session_id FK
+        string session_type
+        string status
+        integer total_iterations
+        string current_agent_turn
+        jsonb crew_output
+        jsonb individual_contributions
+        jsonb collaboration_metrics
+        timestamp started_at
+        timestamp completed_at
+    }
+
+    crew_tasks {
+        integer id PK
+        integer crew_session_id FK
+        string task_name
+        text description
+        text expected_output
+        integer assigned_agent_id FK
+        jsonb depends_on_tasks
+        string status
+        text agent_output
+        integer execution_time_seconds
+        jsonb tools_used
+        timestamp created_at
+        timestamp completed_at
+    }
+
+    tool_registry {
+        integer id PK
+        string name UK
+        string display_name
+        text description
+        string category
+        string tool_class
+        string tool_module
+        jsonb configuration_schema
+        boolean is_enabled
+        boolean is_community_contributed
+        jsonb contributor_info
+        integer usage_count
+        timestamp last_used
+        timestamp created_at
+        timestamp updated_at
+    }
+
     %% Simulation System
     simulations {
         integer id PK
@@ -294,11 +373,18 @@ erDiagram
 
     scenarios ||--o{ simulations : used_in
     scenarios ||--o{ scenarios : remixed_from
+    scenarios ||--o{ crew_configurations : configured_for
 
     simulations ||--o{ simulation_messages : contains
     simulations ||--o{ simulation_agents : tracks
     simulations ||--o{ simulation_tasks : tracks
     simulations ||--o{ simulation_fallbacks : fallbacks
+
+    crew_configurations ||--o{ crew_members : includes
+    crew_configurations ||--o{ crew_sessions : executes
+    crew_sessions ||--o{ crew_tasks : contains
+    crew_members ||--o{ agents : references
+    crew_tasks ||--o{ agents : assigned_to
 
     collections ||--o{ collection_agents : contains
     collections ||--o{ collection_tools : contains
@@ -469,6 +555,122 @@ Stores business scenarios for simulations.
 - `idx_scenarios_industry` - Index on industry
 - `idx_scenarios_public` - Index on public flag
 - `idx_scenarios_source_type` - Index on source type
+
+### CrewAI Tables
+
+#### Crew Configurations Table
+Stores reusable crew configurations for different business scenarios.
+
+**Fields:**
+- `id` (Primary Key) - Auto-incrementing crew configuration identifier
+- `name` - Crew configuration name
+- `crew_type` - Type of crew (business_launch, crisis_management, innovation, strategic_planning)
+- `description` - Detailed description of crew purpose
+- `scenario_id` (Foreign Key) - Reference to associated scenario
+- `process_type` - CrewAI process type (sequential, hierarchical, collaborative)
+- `max_iterations` - Maximum number of iterations allowed
+- `verbose_logging` - Whether to enable verbose logging
+- `allow_delegation` - Whether agents can delegate tasks
+- `memory_enabled` - Whether crew memory is enabled
+- `enabled_tools` (JSONB) - Array of enabled tool names
+- `custom_tools` (JSONB) - Custom tool configurations
+- `created_at` - Creation timestamp
+- `updated_at` - Last update timestamp
+
+**Indexes:**
+- `idx_crew_configurations_scenario_id` - Index on scenario
+- `idx_crew_configurations_crew_type` - Index on crew type
+- `idx_crew_configurations_process_type` - Index on process type
+
+#### Crew Members Table
+Defines the agents that belong to each crew configuration.
+
+**Fields:**
+- `id` (Primary Key) - Auto-incrementing crew member identifier
+- `crew_configuration_id` (Foreign Key) - Reference to crew configuration
+- `agent_id` (Foreign Key) - Reference to agent
+- `role_priority` - Priority/order of agent in crew
+- `can_delegate` - Whether this agent can delegate tasks
+- `is_manager` - Whether this agent is a manager in hierarchical process
+- `backstory_override` - Optional backstory override for this crew context
+- `goal_override` - Optional goal override for this crew context
+- `created_at` - Creation timestamp
+
+**Indexes:**
+- `idx_crew_members_crew_configuration_id` - Index on crew configuration
+- `idx_crew_members_agent_id` - Index on agent
+- `idx_crew_members_role_priority` - Index on role priority
+
+#### Crew Sessions Table
+Tracks active crew execution sessions.
+
+**Fields:**
+- `id` (Primary Key) - Auto-incrementing crew session identifier
+- `crew_configuration_id` (Foreign Key) - Reference to crew configuration
+- `simulation_session_id` (Foreign Key) - Reference to simulation session
+- `session_type` - Type of session (full_collaboration, task_based, exploratory)
+- `status` - Session status (active, paused, completed, failed)
+- `total_iterations` - Total number of iterations executed
+- `current_agent_turn` - Current agent's turn in the process
+- `crew_output` (JSONB) - Final crew output/results
+- `individual_contributions` (JSONB) - Individual agent contributions
+- `collaboration_metrics` (JSONB) - Metrics about collaboration quality
+- `started_at` - Session start timestamp
+- `completed_at` - Session completion timestamp
+
+**Indexes:**
+- `idx_crew_sessions_crew_configuration_id` - Index on crew configuration
+- `idx_crew_sessions_simulation_session_id` - Index on simulation session
+- `idx_crew_sessions_status` - Index on status
+
+#### Crew Tasks Table
+Tracks individual tasks executed within crew sessions.
+
+**Fields:**
+- `id` (Primary Key) - Auto-incrementing crew task identifier
+- `crew_session_id` (Foreign Key) - Reference to crew session
+- `task_name` - Name of the task
+- `description` - Detailed task description
+- `expected_output` - Expected output description
+- `assigned_agent_id` (Foreign Key) - Reference to assigned agent
+- `depends_on_tasks` (JSONB) - Array of task IDs this task depends on
+- `status` - Task status (pending, in_progress, completed, failed)
+- `agent_output` - Agent's output for this task
+- `execution_time_seconds` - Time taken to execute task
+- `tools_used` (JSONB) - Array of tools used during task execution
+- `created_at` - Task creation timestamp
+- `completed_at` - Task completion timestamp
+
+**Indexes:**
+- `idx_crew_tasks_crew_session_id` - Index on crew session
+- `idx_crew_tasks_assigned_agent_id` - Index on assigned agent
+- `idx_crew_tasks_status` - Index on status
+
+#### Tool Registry Table
+Manages the registry of available tools for crews.
+
+**Fields:**
+- `id` (Primary Key) - Auto-incrementing tool registry identifier
+- `name` (Unique) - Tool name/identifier
+- `display_name` - Human-readable tool name
+- `description` - Tool description and capabilities
+- `category` - Tool category (analysis, communication, data, finance, etc.)
+- `tool_class` - Python class name for the tool
+- `tool_module` - Python module path for the tool
+- `configuration_schema` (JSONB) - JSON schema for tool configuration
+- `is_enabled` - Whether tool is enabled for use
+- `is_community_contributed` - Whether tool is contributed by community
+- `contributor_info` (JSONB) - Information about community contributor
+- `usage_count` - Number of times tool has been used
+- `last_used` - Last time tool was used
+- `created_at` - Tool registration timestamp
+- `updated_at` - Last update timestamp
+
+**Indexes:**
+- `idx_tool_registry_name` - Unique index on tool name
+- `idx_tool_registry_category` - Index on category
+- `idx_tool_registry_is_enabled` - Index on enabled status
+- `idx_tool_registry_is_community_contributed` - Index on community contribution
 
 ### Simulation Tables
 

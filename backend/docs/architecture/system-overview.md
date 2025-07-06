@@ -4,6 +4,8 @@
 
 The CrewAI Agent Builder Platform is a comprehensive community-driven marketplace and educational platform where users can create, share, and simulate with AI agents. It combines the power of CrewAI framework with a robust community ecosystem, enabling business professionals, educators, and developers to collaborate on AI-powered solutions.
 
+**The platform architecture aligns with [CrewAI's paradigm](https://docs.crewai.com/en/introduction) where scenarios contain tasks, agents provide capabilities, and crews organize collaborative work.** This alignment ensures that tasks are contextual to business scenarios, agents are reusable across different contexts, and collaboration happens naturally through crew coordination.
+
 ## High-Level Architecture
 
 ```mermaid
@@ -31,12 +33,16 @@ graph TB
     subgraph "Backend Services"
         USER_SERVICE[User Management]
         AGENT_SERVICE[Agent Management]
+        CREW_SERVICE[CrewAI Service]
         SIMULATION_SERVICE[Simulation Engine]
+        TOOL_SERVICE[Tool Management]
         COMMUNITY_SERVICE[Community Features]
     end
     
     subgraph "AI/ML Layer"
         CREWAI[CrewAI Framework]
+        CREW_ORCHESTRATOR[Crew Orchestrator]
+        TOOL_MANAGER[Tool Manager]
         OPENAI[OpenAI API]
         ANTHROPIC[Anthropic API]
         EMBEDDING[Embedding Service]
@@ -69,10 +75,15 @@ graph TB
     
     AUTH --> USER_SERVICE
     USER_SERVICE --> AGENT_SERVICE
-    AGENT_SERVICE --> SIMULATION_SERVICE
-    SIMULATION_SERVICE --> COMMUNITY_SERVICE
+    AGENT_SERVICE --> CREW_SERVICE
+    CREW_SERVICE --> SIMULATION_SERVICE
+    SIMULATION_SERVICE --> TOOL_SERVICE
+    TOOL_SERVICE --> COMMUNITY_SERVICE
     
     SIMULATION_SERVICE --> CREWAI
+    CREW_SERVICE --> CREW_ORCHESTRATOR
+    CREW_ORCHESTRATOR --> TOOL_MANAGER
+    TOOL_MANAGER --> CREWAI
     CREWAI --> OPENAI
     CREWAI --> ANTHROPIC
     AGENT_SERVICE --> EMBEDDING
@@ -113,6 +124,14 @@ backend/
 ├── utilities/                   # Shared utilities
 │   ├── __init__.py
 │   └── auth.py                 # Authentication utilities
+│
+├── services/                   # Core business services
+│   ├── __init__.py
+│   ├── ai_service.py          # Individual agent AI service
+│   ├── crewai_service.py      # CrewAI multi-agent orchestration
+│   ├── tool_manager.py        # Extensible tool management
+│   ├── pdf_processor.py       # PDF document processing
+│   └── simulation_engine.py   # Simulation execution engine
 │
 ├── api/                        # API layer organization
 │   └── __init__.py
@@ -235,27 +254,70 @@ graph TD
 
 ```mermaid
 graph TD
-    A[CrewAI Integration] --> B[Agent Configuration]
-    A --> C[Task Definition]
-    A --> D[Crew Assembly]
+    A[CrewAI Service] --> B[Crew Configuration]
+    A --> C[Session Management]
+    A --> D[Tool Integration]
     A --> E[Execution Engine]
     
-    B --> B1[Agent Roles]
-    B --> B2[Agent Goals]
-    B --> B3[Agent Backstories]
-    B --> B4[Agent Tools]
+    B --> B1[Business Launch Crew]
+    B --> B2[Crisis Management Crew]
+    B --> B3[Innovation Crew]
+    B --> B4[Strategic Planning Crew]
     
-    C --> C1[Task Descriptions]
-    C --> C2[Expected Outputs]
-    C --> C3[Task Context]
+    C --> C1[Session Creation]
+    C --> C2[Resource Tracking]
+    C --> C3[Fallback Strategies]
+    C --> C4[State Management]
     
-    D --> D1[Process Type]
-    D --> D2[Agent Assignment]
-    D --> D3[Task Ordering]
+    D --> D1[Core Business Tools]
+    D --> D2[Community Tools]
+    D --> D3[Tool Validation]
+    D --> D4[Dynamic Loading]
     
     E --> E1[Sequential Process]
     E --> E2[Hierarchical Process]
-    E --> E3[Response Generation]
+    E --> E3[Collaborative Process]
+    E --> E4[Response Generation]
+    
+    B1 --> F[Marketing → Finance → Product → Operations]
+    B2 --> G[Operations-led Crisis Response]
+    B3 --> H[Product-led Innovation Pipeline]
+    B4 --> I[Consensus-based Strategic Planning]
+```
+
+### 5. Tool Management Layer
+
+```mermaid
+graph TD
+    A[Tool Manager] --> B[Core Business Tools]
+    A --> C[Community Tools]
+    A --> D[Tool Registry]
+    A --> E[Tool Validation]
+    
+    B --> B1[Market Research Tool]
+    B --> B2[Financial Calculator Tool]
+    B --> B3[SWOT Analysis Tool]
+    B --> B4[Competitor Analysis Tool]
+    
+    C --> C1[Community Loader]
+    C --> C2[Tool Templates]
+    C --> C3[Contribution Framework]
+    C --> C4[Marketplace Integration]
+    
+    D --> D1[Tool Metadata]
+    D --> D2[Version Management]
+    D --> D3[Usage Analytics]
+    D --> D4[Dependency Tracking]
+    
+    E --> E1[Code Validation]
+    E --> E2[Security Scanning]
+    E --> E3[Performance Testing]
+    E --> E4[API Compliance]
+    
+    C1 --> F[Dynamic Tool Loading]
+    C2 --> G[Standardized Tool Structure]
+    C3 --> H[GitHub Integration]
+    C4 --> I[Community Ratings]
 ```
 
 ## Data Flow Architecture
@@ -317,45 +379,63 @@ sequenceDiagram
     F-->>U: Community notification
 ```
 
-### 3. Simulation Execution Flow
+### 3. CrewAI Simulation Execution Flow
 
 ```mermaid
 sequenceDiagram
     participant U as User
     participant F as Frontend
     participant A as API
+    participant CS as CrewAI Service
+    participant TM as Tool Manager
     participant C as CrewAI
     participant DB as Database
     participant AI as AI Models
     
-    U->>F: Start simulation
-    F->>A: POST /simulations/
-    A->>DB: Get scenario & agents
-    DB-->>A: Configuration data
-    A->>DB: Create simulation record
-    A->>C: Initialize crew
-    C->>AI: Setup AI models
+    U->>F: Start crew simulation
+    F->>A: POST /crews/start
+    A->>DB: Get scenario & crew config
+    DB-->>A: Crew configuration data
+    A->>CS: Create crew session
+    CS->>TM: Load enabled tools
+    TM-->>CS: Tool instances
+    CS->>C: Build crew with agents
+    C->>AI: Initialize agent models
     AI-->>C: Models ready
-    C-->>A: Crew initialized
-    A-->>F: Simulation started
+    CS->>DB: Create crew session record
+    CS-->>A: Crew session started
+    A-->>F: Simulation ready
     
-    loop Chat Loop
-        U->>F: Send message
-        F->>A: POST /simulations/{id}/chat
-        A->>C: Process message
-        C->>AI: Generate responses
-        AI-->>C: AI responses
-        C-->>A: Crew response
-        A->>DB: Save conversation
-        A-->>F: Response data
-        F-->>U: Display response
+    loop Crew Collaboration
+        U->>F: Send business challenge
+        F->>A: POST /crews/{id}/interact
+        A->>CS: Process user input
+        CS->>C: Execute crew collaboration
+        
+        Note over C,AI: Multi-Agent Collaboration
+        C->>AI: Marketing Agent analysis
+        AI-->>C: Market insights
+        C->>AI: Finance Agent planning
+        AI-->>C: Financial projections
+        C->>AI: Product Agent strategy
+        AI-->>C: Product recommendations
+        C->>AI: Operations Agent execution
+        AI-->>C: Implementation plan
+        
+        C-->>CS: Collaborative response
+        CS->>DB: Save crew conversation
+        CS-->>A: Crew response data
+        A-->>F: Multi-agent response
+        F-->>U: Display collaboration results
     end
     
     U->>F: Complete simulation
-    F->>A: POST /simulations/{id}/complete
-    A->>DB: Update status
+    F->>A: POST /crews/{id}/complete
+    A->>CS: Finalize session
+    CS->>DB: Update session status
+    CS-->>A: Session completed
     A-->>F: Simulation completed
-    F-->>U: Results summary
+    F-->>U: Collaboration summary
 ```
 
 ## Technology Stack
@@ -381,6 +461,7 @@ sequenceDiagram
 - **OpenAI API** - GPT models for text generation
 - **Anthropic API** - Claude models for advanced reasoning
 - **LangChain** - AI application framework
+- **Custom Tool System** - Extensible business tool framework
 - **Embedding Models** - Vector search and similarity
 
 ### Database & Storage

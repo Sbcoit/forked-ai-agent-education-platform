@@ -90,35 +90,45 @@ graph TB
 - Profile management with privacy controls
 - Email verification and password reset
 
-### 2. **AI Agent Builder**
-- Visual agent creation interface
+### 2. **AI Agent Builder (CrewAI-Aligned)**
+- Visual agent creation interface focused on roles and capabilities
 - Custom tool integration
 - Template system for reusable agents
+- **Agents are reusable across different scenarios**
 - Version control and remixing capabilities
 
-### 3. **Business Scenario Management**
-- Manual scenario creation
-- PDF document processing
-- Learning objectives definition
+### 3. **Business Scenario Management (Task-Centric)**
+- Manual scenario creation with integrated task definition
+- **Tasks are defined within scenarios, not tied to individual agents**
+- PDF document processing with AI task extraction
+- Learning objectives and task dependency configuration
+- **Tasks can be assigned to specific agents or handled collaboratively by crews**
 - Public/private sharing options
 
-### 4. **Simulation Engine**
-- CrewAI-powered multi-agent simulations
-- Real-time chat with AI crews
-- Sequential and hierarchical processes
-- Resource tracking and fallback strategies
+### 4. **CrewAI Multi-Agent System**
+- Business crew templates (Launch, Crisis, Innovation, Strategic Planning)
+- Sequential, hierarchical, and collaborative processes
+- Real-time crew collaboration with role-based interactions
+- Advanced tool ecosystem with community contributions
 
-### 5. **Community Marketplace**
-- Public sharing of agents, tools, and scenarios
+### 5. **Simulation Engine**
+- Individual agent and crew-based simulations
+- Real-time chat with AI crews
+- Resource tracking and fallback strategies
+- Session management and collaboration metrics
+
+### 6. **Community Marketplace**
+- Public sharing of agents, tools, scenarios, and crew configurations
 - Rating and review system
 - Collections and favorites
 - Content discovery and search
+- Community tool contribution framework
 
 ## 📊 Database Architecture
 
 ### Core Data Models
 
-The platform uses a comprehensive PostgreSQL schema with 15+ interconnected tables:
+The platform uses a comprehensive PostgreSQL schema with 20+ interconnected tables:
 
 ```mermaid
 erDiagram
@@ -130,10 +140,19 @@ erDiagram
     agents ||--o{ tasks : assigned
     agents ||--o{ agent_reviews : receives
     agents ||--o{ simulation_agents : tracked
+    agents ||--o{ crew_members : participates
     
     scenarios ||--o{ simulations : used_in
+    scenarios ||--o{ crew_configurations : configured_for
+    
     simulations ||--o{ simulation_messages : contains
     simulations ||--o{ simulation_fallbacks : fallbacks
+    
+    crew_configurations ||--o{ crew_members : includes
+    crew_configurations ||--o{ crew_sessions : executes
+    crew_sessions ||--o{ crew_tasks : contains
+    
+    tool_registry ||--o{ crew_configurations : enables
     
     collections ||--o{ collection_agents : contains
     collections ||--o{ collection_tools : contains
@@ -141,6 +160,8 @@ erDiagram
 
 ### Key Database Features
 - **Marketplace Support**: Public/private content, ratings, reviews
+- **CrewAI Integration**: Crew configurations, sessions, and task tracking
+- **Tool Ecosystem**: Community tool registry and contribution framework
 - **Resource Tracking**: Snapshots for simulation execution
 - **Fallback Strategies**: Handle missing or private resources
 - **Version Control**: Track changes and allow remixing
@@ -230,14 +251,18 @@ graph LR
     A[Register] --> B[Login]
     B --> C[Dashboard]
     C --> D{User Goal}
-    D -->|Create| E[Agent Builder]
-    D -->|Learn| F[Simulation]
-    D -->|Share| G[Community]
-    D -->|Explore| H[Marketplace]
-    E --> I[Publish]
-    F --> J[Learn]
-    G --> K[Collaborate]
-    H --> L[Discover]
+    D -->|Create Agent| E[Agent Builder]
+    D -->|Build Crew| F[Crew Builder]
+    D -->|Develop Tools| G[Tool Development]
+    D -->|Run Simulation| H[Simulation Runner]
+    D -->|Share| I[Community]
+    D -->|Explore| J[Marketplace]
+    E --> K[Publish Agent]
+    F --> L[Configure Crew]
+    G --> M[Submit Tool]
+    H --> N[Collaborate & Learn]
+    I --> O[Share & Review]
+    J --> P[Discover & Clone]
 ```
 
 ## 🔐 Security Architecture

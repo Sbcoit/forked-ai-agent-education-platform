@@ -1,12 +1,30 @@
 import pytest
 import os
+import sys
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 import uuid
+from unittest.mock import Mock, patch
+
+# Mock problematic dependencies before any imports
+mock_modules = {
+    'crewai': Mock(),
+    'crewai.Agent': Mock(),
+    'crewai.Crew': Mock(),
+    'crewai.Task': Mock(),
+    'crewai.Process': Mock(),
+    'crewai.llm': Mock(),
+    'crewai.llm.LLM': Mock(),
+    'chromadb': Mock(),
+    'onnxruntime': Mock(),
+}
+
+# Apply all mocks to sys.modules before importing
+for module_name, mock_module in mock_modules.items():
+    sys.modules[module_name] = mock_module
 
 # Import the app and database components
-import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from main import app

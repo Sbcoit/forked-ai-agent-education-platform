@@ -9,34 +9,23 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { ArrowLeft, Play, Pause, Square, Bot, Clock, CheckCircle, BarChart3, AlertCircle } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
-import { apiClient } from "@/lib/api"
-
-interface Scenario {
-  id: number
-  title: string
-  description: string
-  industry: string
-  challenge: string
-  learning_objectives: string[]
-  source_type: 'manual' | 'pdf'
-  pdf_content?: string
-  is_public: boolean
-  is_template: boolean
-  allow_remixes: boolean
-  usage_count: number
-  clone_count: number
-  created_by: number
-  created_at: string
-  updated_at?: string
-}
+import { apiClient, type Scenario, type Agent, type Task, type SimulationMessage } from "@/lib/api"
 
 interface Simulation {
-  id: string
-  scenario_id: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  results: any
-  created_at: string
-  updated_at: string
+  simulation_id: number
+  scenario: {
+    id: number
+    title: string
+    description: string
+    industry: string
+    challenge: string
+  }
+  status: string // Allow any status string from the API
+  results?: any
+  message?: string
+  messages?: SimulationMessage[]
+  created_at?: string
+  updated_at?: string
 }
 
 interface SimulationStep {
@@ -128,7 +117,7 @@ export default function SimulationRunner() {
     const pollInterval = setInterval(async () => {
       try {
         const data = await apiClient.getSimulationHistory(simulationId)
-        setSimulation(data)
+        setSimulation(data as Simulation)
         
         // Update progress based on simulation status
         if (data.status === 'completed') {
@@ -288,7 +277,7 @@ export default function SimulationRunner() {
                           className="bg-gray-900/50 border-gray-700 hover:border-yellow-500/50 transition-colors cursor-pointer"
                         >
                           <CardHeader>
-                            <CardTitle className="text-lg">{scenario.name}</CardTitle>
+                            <CardTitle className="text-lg">{scenario.title}</CardTitle>
                             <CardDescription className="text-gray-400">{scenario.description}</CardDescription>
                           </CardHeader>
                           <CardContent className="space-y-4">
@@ -346,7 +335,7 @@ export default function SimulationRunner() {
                                     : "bg-gray-400"
                           }`}
                         />
-                        {selectedScenario?.name}
+                        {selectedScenario?.title}
                       </CardTitle>
                       <CardDescription>{selectedScenario?.description}</CardDescription>
                     </div>

@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from pydantic_settings import BaseSettings
@@ -29,16 +29,39 @@ print(f"🤖 OpenAI API Key: {'✅ Set' if settings.openai_api_key else '❌ Mis
 print(f"🔑 Secret Key: {'✅ Set' if settings.secret_key else '❌ Missing'}")
 print(f"🌍 Environment: {settings.environment}")
 
-# Database setup
-engine = create_engine(settings.database_url)
+# Database setup with SSL and connection pooling
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,  # Verify connections before use
+    pool_recycle=300,    # Recycle connections every 5 minutes
+    pool_size=5,         # Number of connections to maintain
+    max_overflow=10,     # Maximum connections beyond pool_size
+    connect_args={
+        "sslmode": "require",  # Require SSL connection
+        "connect_timeout": 30,  # Connection timeout
+        "application_name": "AOM_2025_Backend"
+    }
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
 def get_db():
-    """Database dependency"""
+    """Database dependency with connection retry logic"""
     db = SessionLocal()
     try:
+        # Test the connection
+        db.execute(text("SELECT 1"))
         yield db
+    except Exception as e:
+        db.close()
+        # Retry once with a new connection
+        try:
+            db = SessionLocal()
+            db.execute(text("SELECT 1"))
+            yield db
+        except Exception as retry_e:
+            db.close()
+            raise retry_e
     finally:
         db.close() 

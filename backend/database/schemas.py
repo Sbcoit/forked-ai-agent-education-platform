@@ -15,7 +15,6 @@ class ScenarioCreate(BaseModel):
     is_public: bool = False
     is_template: bool = False
     allow_remixes: bool = True
-    created_by: Optional[int] = None
 
 class ScenarioResponse(BaseModel):
     id: int
@@ -64,7 +63,6 @@ class AgentCreate(BaseModel):
     allow_remixes: bool = True
     version: str = "1.0.0"
     version_notes: Optional[str] = None
-    created_by: Optional[int] = None
 
 class AgentResponse(BaseModel):
     id: int
@@ -128,7 +126,6 @@ class ToolCreate(BaseModel):
     allow_remixes: bool = True
     version: str = "1.0.0"
     version_notes: Optional[str] = None
-    created_by: Optional[int] = None
 
 class ToolResponse(BaseModel):
     id: int
@@ -188,7 +185,6 @@ class TaskCreate(BaseModel):
     is_public: bool = False
     is_template: bool = False
     allow_remixes: bool = True
-    created_by: Optional[int] = None
 
 class TaskResponse(BaseModel):
     id: int
@@ -227,7 +223,6 @@ class TaskUpdate(BaseModel):
 # --- SIMULATION SCHEMAS ---
 class SimulationCreate(BaseModel):
     scenario_id: int
-    user_id: Optional[int] = None
     crew_configuration: Optional[Dict[str, Any]] = None
     process_type: str = "sequential"
 
@@ -257,7 +252,6 @@ class SimulationFallbackCreate(BaseModel):
     fallback_agents: List[int] = []
     fallback_tasks: List[int] = []
     fallback_strategy: str = "substitute"  # substitute, skip, fail
-    created_by: Optional[int] = None
 
 class SimulationFallbackResponse(BaseModel):
     id: int
@@ -280,7 +274,6 @@ class AgentReviewCreate(BaseModel):
     pros: List[str] = []
     cons: List[str] = []
     use_case: Optional[str] = None
-    reviewer_id: Optional[int] = None
 
 class AgentReviewResponse(BaseModel):
     id: int
@@ -305,7 +298,6 @@ class ToolReviewCreate(BaseModel):
     pros: List[str] = []
     cons: List[str] = []
     use_case: Optional[str] = None
-    reviewer_id: Optional[int] = None
 
 class ToolReviewResponse(BaseModel):
     id: int
@@ -401,7 +393,6 @@ class CollectionCreate(BaseModel):
     scenarios: List[int] = []
     is_public: bool = False
     tags: List[str] = []
-    created_by: Optional[int] = None
 
 class CollectionResponse(BaseModel):
     id: int

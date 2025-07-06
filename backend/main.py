@@ -7,16 +7,17 @@ import uvicorn
 from datetime import datetime, timedelta
 
 from database.connection import get_db, engine
-from database.models import Base, User, Scenario, Simulation, SimulationMessage, Agent
+from database.models import Base, User, Scenario, Simulation, SimulationMessage, Agent, Task
 from database.schemas import (
     ScenarioCreate, SimulationCreate, ChatMessage, AgentCreate, AgentResponse, AgentUpdate,
-    UserRegister, UserLogin, UserLoginResponse, UserResponse, UserUpdate, PasswordChange
+    UserRegister, UserLogin, UserLoginResponse, UserResponse, UserUpdate, PasswordChange,
+    TaskCreate, TaskResponse, TaskUpdate
 )
 from utilities.auth import (
     get_password_hash, authenticate_user, create_access_token, get_current_user, 
     get_current_user_optional, require_admin
 )
-# from crews.business_crew import BusinessCrew  # Temporarily disabled for agent builder testing
+from services.crew_executor import CrewExecutor
 
 # Create database tables (only if they don't exist)
 Base.metadata.create_all(bind=engine)
@@ -42,15 +43,12 @@ async def root():
 
 # --- SCENARIO MANAGEMENT ---
 @app.post("/scenarios/")
-async def create_scenario(scenario: ScenarioCreate, db: Session = Depends(get_db)):
-    """Create a new business scenario"""
-    # Check if user exists if created_by is provided
-    created_by = None
-    if scenario.created_by:
-        user = db.query(User).filter(User.id == scenario.created_by).first()
-        if user:
-            created_by = scenario.created_by
-    
+async def create_scenario(
+    scenario: ScenarioCreate, 
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new business scenario (requires authentication)"""
     db_scenario = Scenario(
         title=scenario.title,
         description=scenario.description,
@@ -62,7 +60,7 @@ async def create_scenario(scenario: ScenarioCreate, db: Session = Depends(get_db
         is_public=scenario.is_public,
         is_template=scenario.is_template,
         allow_remixes=scenario.allow_remixes,
-        created_by=created_by  # Will be None if user doesn't exist
+        created_by=current_user.id  # Automatically link to authenticated user
     )
     db.add(db_scenario)
     db.commit()
@@ -71,21 +69,39 @@ async def create_scenario(scenario: ScenarioCreate, db: Session = Depends(get_db
 
 @app.get("/scenarios/")
 async def get_scenarios(db: Session = Depends(get_db)):
-    """Get all scenarios"""
-    return db.query(Scenario).all()
+    """Get all scenarios with their agents and tasks"""
+    from sqlalchemy.orm import joinedload
+    
+    scenarios = db.query(Scenario)\
+        .options(joinedload(Scenario.agents))\
+        .options(joinedload(Scenario.tasks))\
+        .all()
+    
+    return scenarios
 
 @app.get("/scenarios/{scenario_id}")
 async def get_scenario(scenario_id: int, db: Session = Depends(get_db)):
-    """Get a specific scenario"""
-    scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+    """Get a specific scenario with its agents and tasks"""
+    from sqlalchemy.orm import joinedload
+    
+    scenario = db.query(Scenario)\
+        .options(joinedload(Scenario.agents))\
+        .options(joinedload(Scenario.tasks))\
+        .filter(Scenario.id == scenario_id)\
+        .first()
+    
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
     return scenario
 
 # --- SIMULATION MANAGEMENT ---
 @app.post("/simulations/")
-async def start_simulation(simulation: SimulationCreate, db: Session = Depends(get_db)):
-    """Start a new CrewAI simulation"""
+async def start_simulation(
+    simulation: SimulationCreate, 
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Start a new CrewAI simulation (requires authentication)"""
     # Get the scenario
     scenario = db.query(Scenario).filter(
         Scenario.id == simulation.scenario_id
@@ -97,7 +113,7 @@ async def start_simulation(simulation: SimulationCreate, db: Session = Depends(g
     # Create simulation session
     db_simulation = Simulation(
         scenario_id=simulation.scenario_id,
-        user_id=simulation.user_id,  # Will be None if not provided
+        user_id=current_user.id,  # Automatically link to authenticated user
         status="created"
     )
     
@@ -124,7 +140,7 @@ async def chat_with_crew(
     chat_message: ChatMessage, 
     db: Session = Depends(get_db)
 ):
-    """Chat with the CrewAI business team"""
+    """Chat with the CrewAI business team using real agents and tasks"""
     # Get simulation
     simulation = db.query(Simulation).filter(
         Simulation.id == simulation_id
@@ -136,41 +152,75 @@ async def chat_with_crew(
     if simulation.status not in ["created", "running"]:
         raise HTTPException(status_code=400, detail="Simulation is not active")
     
-    # Get scenario context
-    scenario = simulation.scenario
-    scenario_context = {
-        'title': scenario.title,
-        'description': scenario.description,
-        'industry': scenario.industry,
-        'challenge': scenario.challenge
-    }
-    
     try:
-        # TODO: Implement crew functionality after installing CrewAI
-        # For now, return a placeholder response
-        crew_response = f"Agent builder mode: Received your message '{chat_message.message}' for scenario '{scenario.title}'. CrewAI simulation will be implemented once dependencies are installed."
+        # Initialize CrewExecutor
+        crew_executor = CrewExecutor(db)
         
-        # Save the conversation
+        # Execute the crew simulation
+        result = await crew_executor.execute_crew_simulation(
+            simulation_id=simulation_id,
+            user_message=chat_message.message
+        )
+        
+        if result["success"]:
+            # Save the conversation with crew output
+            db_message = SimulationMessage(
+                simulation_id=simulation_id,
+                user_message=chat_message.message,
+                crew_response=result["crew_output"]
+            )
+            db.add(db_message)
+            
+            # Save individual agent outputs as separate messages
+            for output in result["individual_outputs"]:
+                agent_message = SimulationMessage(
+                    simulation_id=simulation_id,
+                    user_message="",
+                    crew_response=f"**{output['agent_name']}**: {output['output']}",
+                    message_type="agent_output"
+                )
+                db.add(agent_message)
+            
+            db.commit()
+            
+            return {
+                "simulation_id": simulation_id,
+                "user_message": chat_message.message,
+                "crew_response": result["crew_output"],
+                "individual_outputs": result["individual_outputs"],
+                "agents_used": result["agents_used"],
+                "tasks_completed": result["tasks_completed"],
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            # Handle execution failure
+            error_message = f"Crew execution failed: {result['error']}"
+            
+            db_message = SimulationMessage(
+                simulation_id=simulation_id,
+                user_message=chat_message.message,
+                crew_response=error_message,
+                message_type="error"
+            )
+            db.add(db_message)
+            db.commit()
+            
+            raise HTTPException(status_code=500, detail=error_message)
+        
+    except Exception as e:
+        # Handle unexpected errors
+        error_message = f"Simulation error: {str(e)}"
+        
         db_message = SimulationMessage(
             simulation_id=simulation_id,
             user_message=chat_message.message,
-            crew_response=crew_response
+            crew_response=error_message,
+            message_type="error"
         )
         db.add(db_message)
-        
-        # Update simulation
-        simulation.crew_output = crew_response
         db.commit()
         
-        return {
-            "simulation_id": simulation_id,
-            "user_message": chat_message.message,
-            "crew_response": crew_response,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Crew execution failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=error_message)
 
 @app.get("/simulations/{simulation_id}/history/")
 async def get_simulation_history(simulation_id: int, db: Session = Depends(get_db)):
@@ -215,17 +265,73 @@ async def complete_simulation(simulation_id: int, db: Session = Depends(get_db))
     
     return {"message": "Simulation completed successfully"}
 
+@app.post("/simulations/{simulation_id}/human-input/")
+async def provide_human_input(
+    simulation_id: int, 
+    human_input: ChatMessage,
+    db: Session = Depends(get_db)
+):
+    """Provide human input when CrewAI requests it"""
+    simulation = db.query(Simulation).filter(
+        Simulation.id == simulation_id
+    ).first()
+    
+    if not simulation:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    # Save human input response
+    db_message = SimulationMessage(
+        simulation_id=simulation_id,
+        user_message=human_input.message,
+        crew_response="[HUMAN INPUT PROVIDED]",
+        message_type="human_input_response"
+    )
+    db.add(db_message)
+    db.commit()
+    
+    return {
+        "simulation_id": simulation_id,
+        "human_input": human_input.message,
+        "message": "Human input received. Crew will continue execution.",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/simulations/{simulation_id}/status/")
+async def get_simulation_status(simulation_id: int, db: Session = Depends(get_db)):
+    """Get current simulation status including human input requests"""
+    simulation = db.query(Simulation).filter(
+        Simulation.id == simulation_id
+    ).first()
+    
+    if not simulation:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    # Check for pending human input requests
+    pending_human_input = db.query(SimulationMessage).filter(
+        SimulationMessage.simulation_id == simulation_id,
+        SimulationMessage.message_type == "human_input_request"
+    ).order_by(SimulationMessage.timestamp.desc()).first()
+    
+    return {
+        "simulation_id": simulation_id,
+        "status": simulation.status,
+        "started_at": simulation.started_at,
+        "completed_at": simulation.completed_at,
+        "pending_human_input": pending_human_input is not None,
+        "human_input_request": {
+            "message": pending_human_input.crew_response,
+            "timestamp": pending_human_input.timestamp
+        } if pending_human_input else None
+    }
+
 # --- AGENT MANAGEMENT ---
 @app.post("/agents/", response_model=AgentResponse)
-async def create_agent(agent: AgentCreate, db: Session = Depends(get_db)):
-    """Create a new AI agent"""
-    # Check if user exists if created_by is provided
-    created_by = None
-    if agent.created_by:
-        user = db.query(User).filter(User.id == agent.created_by).first()
-        if user:
-            created_by = agent.created_by
-    
+async def create_agent(
+    agent: AgentCreate, 
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new AI agent (requires authentication)"""
     db_agent = Agent(
         name=agent.name,
         role=agent.role,
@@ -242,7 +348,7 @@ async def create_agent(agent: AgentCreate, db: Session = Depends(get_db)):
         allow_remixes=agent.allow_remixes,
         version=agent.version,
         version_notes=agent.version_notes,
-        created_by=created_by  # Will be None if user doesn't exist
+        created_by=current_user.id  # Automatically link to authenticated user
     )
     db.add(db_agent)
     db.commit()
@@ -292,6 +398,82 @@ async def delete_agent(agent_id: int, db: Session = Depends(get_db)):
 async def get_user_agents(user_id: int, db: Session = Depends(get_db)):
     """Get all agents created by a specific user"""
     return db.query(Agent).filter(Agent.created_by == user_id).all()
+
+# --- TASK MANAGEMENT ---
+@app.post("/tasks/", response_model=TaskResponse)
+async def create_task(
+    task: TaskCreate, 
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new task (requires authentication)"""
+    db_task = Task(
+        title=task.title,
+        description=task.description,
+        expected_output=task.expected_output,
+        tools=task.tools,
+        context=task.context,
+        agent_id=task.agent_id,
+        category=task.category,
+        tags=task.tags,
+        is_public=task.is_public,
+        is_template=task.is_template,
+        allow_remixes=task.allow_remixes,
+        created_by=current_user.id  # Automatically link to authenticated user
+    )
+    db.add(db_task)
+    db.commit()
+    db.refresh(db_task)
+    return db_task
+
+@app.get("/tasks/", response_model=List[TaskResponse])
+async def get_tasks(db: Session = Depends(get_db)):
+    """Get all tasks"""
+    return db.query(Task).all()
+
+@app.get("/tasks/{task_id}", response_model=TaskResponse)
+async def get_task(task_id: int, db: Session = Depends(get_db)):
+    """Get a specific task"""
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+@app.put("/tasks/{task_id}", response_model=TaskResponse)
+async def update_task(task_id: int, task_update: TaskUpdate, db: Session = Depends(get_db)):
+    """Update an existing task"""
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # Update only provided fields
+    for field, value in task_update.model_dump(exclude_unset=True).items():
+        setattr(task, field, value)
+    
+    db.commit()
+    db.refresh(task)
+    return task
+
+@app.delete("/tasks/{task_id}")
+async def delete_task(task_id: int, db: Session = Depends(get_db)):
+    """Delete a task"""
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    db.delete(task)
+    db.commit()
+    return {"message": "Task deleted successfully"}
+
+@app.get("/tasks/user/{user_id}", response_model=List[TaskResponse])
+async def get_user_tasks(user_id: int, db: Session = Depends(get_db)):
+    """Get all tasks created by a specific user"""
+    return db.query(Task).filter(Task.created_by == user_id).all()
+
+@app.get("/tasks/agent/{agent_id}", response_model=List[TaskResponse])
+async def get_agent_tasks(agent_id: int, db: Session = Depends(get_db)):
+    """Get all tasks assigned to a specific agent"""
+    return db.query(Task).filter(Task.agent_id == agent_id).all()
 
 # --- USER AUTHENTICATION & MANAGEMENT ---
 @app.post("/users/register", response_model=UserResponse)

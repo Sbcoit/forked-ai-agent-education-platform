@@ -6,35 +6,11 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
-import { ArrowLeft, Play, Pause, Square, Bot, Clock, CheckCircle, BarChart3, AlertCircle } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Checkbox } from "@/components/ui/checkbox"
+import { ArrowLeft, Play, Bot, CheckCircle, Users, Settings, Zap } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
-import { apiClient, type Scenario, type Agent, type Task, type SimulationMessage } from "@/lib/api"
-
-interface Simulation {
-  simulation_id: number
-  scenario: {
-    id: number
-    title: string
-    description: string
-    industry: string
-    challenge: string
-  }
-  status: string // Allow any status string from the API
-  results?: any
-  message?: string
-  messages?: SimulationMessage[]
-  created_at?: string
-  updated_at?: string
-}
-
-interface SimulationStep {
-  id: number
-  name: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  agent: string
-  message: string
-}
+import { apiClient, type Scenario, type Agent } from "@/lib/api"
 
 export default function SimulationRunner() {
   const router = useRouter()
@@ -42,13 +18,12 @@ export default function SimulationRunner() {
   
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null)
-  const [simulation, setSimulation] = useState<Simulation | null>(null)
-  const [simulationStatus, setSimulationStatus] = useState<"idle" | "running" | "paused" | "completed" | "failed">("idle")
-  const [progress, setProgress] = useState(0)
-  const [currentStep, setCurrentStep] = useState(0)
+  const [availableAgents, setAvailableAgents] = useState<Agent[]>([])
+  const [selectedAgents, setSelectedAgents] = useState<Agent[]>([])
+  const [processType, setProcessType] = useState<"sequential" | "hierarchical" | "collaborative">("sequential")
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [simulationSteps, setSimulationSteps] = useState<SimulationStep[]>([])
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -57,121 +32,86 @@ export default function SimulationRunner() {
     }
   }, [user, router, loading])
 
-  // Fetch scenarios on component mount
+  // Fetch scenarios and agents on component mount
   useEffect(() => {
-    const fetchScenarios = async () => {
+    const fetchData = async () => {
       if (!isAuthenticated) return
       
       try {
-        const data = await apiClient.getScenarios()
-        setScenarios(data)
+        const [scenariosData, agentsData] = await Promise.all([
+          apiClient.getScenarios(),
+          apiClient.getAgents()
+        ])
+        setScenarios(scenariosData)
+        setAvailableAgents(agentsData)
       } catch (err) {
-        console.error('Error fetching scenarios:', err)
-        setError('Failed to load scenarios')
+        console.error('Error fetching data:', err)
+        setError('Failed to load scenarios and agents')
       } finally {
         setLoading(false)
       }
     }
 
     if (isAuthenticated) {
-      fetchScenarios()
+      fetchData()
     }
   }, [isAuthenticated])
 
-  const startSimulation = async (scenario: Scenario) => {
-    if (!isAuthenticated) return
+  const selectScenario = (scenario: Scenario) => {
+    setSelectedScenario(scenario)
+    setCurrentStep(2)
+    setError(null)
+  }
+
+  const toggleAgent = (agent: Agent) => {
+    setSelectedAgents(prev => {
+      const exists = prev.find(a => a.id === agent.id)
+      if (exists) {
+        return prev.filter(a => a.id !== agent.id)
+      } else {
+        return [...prev, agent]
+      }
+    })
+  }
+
+  const proceedToProcessSelection = () => {
+    if (selectedAgents.length === 0) {
+      setError('Please select at least one agent')
+      return
+    }
+    setCurrentStep(3)
+    setError(null)
+  }
+
+  const startSimulation = async () => {
+    if (!selectedScenario || selectedAgents.length === 0) return
     
     try {
-      setSelectedScenario(scenario)
-      setSimulationStatus("running")
-      setProgress(0)
-      setCurrentStep(0)
-      setError(null)
-
-      // Initialize simulation steps based on scenario learning objectives
-      const steps: SimulationStep[] = scenario.learning_objectives.map((objective, index) => ({
-        id: index + 1,
-        name: objective,
-        status: index === 0 ? 'running' : 'pending',
-        agent: `Agent ${index + 1}`,
-        message: `Processing: ${objective}`,
-      }))
-      setSimulationSteps(steps)
-
-      // Create simulation via API
-      const simulationData = await apiClient.startSimulation(scenario.id)
-      setSimulation(simulationData)
+      // For now, use the existing API endpoint
+      // In the future, this will call the dynamic simulation endpoint
+      const simulationData = await apiClient.startSimulation(selectedScenario.id)
       
-      // Start polling for simulation status
-      pollSimulationStatus(simulationData.simulation_id)
+      // Show success message and redirect to simulation view
+      alert(`🎉 Crew Assembled Successfully!\n\nScenario: ${selectedScenario.title}\nAgents: ${selectedAgents.map(a => a.name).join(', ')}\nProcess: ${processType}\n\nSimulation ID: ${simulationData.simulation_id}`)
+      
+      // Reset form
+      setSelectedScenario(null)
+      setSelectedAgents([])
+      setProcessType("sequential")
+      setCurrentStep(1)
+      
     } catch (err) {
       console.error('Error starting simulation:', err)
       setError('Failed to start simulation')
-      setSimulationStatus("failed")
     }
   }
 
-  const pollSimulationStatus = async (simulationId: number) => {
-    if (!isAuthenticated) return
-    
-    const pollInterval = setInterval(async () => {
-      try {
-        const data = await apiClient.getSimulationHistory(simulationId)
-        setSimulation(data as Simulation)
-        
-        // Update progress based on simulation status
-        if (data.status === 'completed') {
-          setProgress(100)
-          setSimulationStatus("completed")
-          clearInterval(pollInterval)
-          
-          // Update all steps to completed
-          setSimulationSteps(prev => prev.map(step => ({
-            ...step,
-            status: 'completed',
-            message: 'Task completed successfully'
-          })))
-        } else if (data.status === 'failed') {
-          setSimulationStatus("failed")
-          clearInterval(pollInterval)
-          setError('Simulation failed')
-        } else if (data.status === 'running') {
-          // Simulate progress
-          setProgress(prev => Math.min(prev + 10, 90))
-        }
-      } catch (err) {
-        console.error('Error polling simulation status:', err)
-        clearInterval(pollInterval)
-        setError('Failed to get simulation status')
-      }
-    }, 2000)
-  }
-
-  const pauseSimulation = async () => {
-    if (!simulation || !isAuthenticated) return
-    
-    try {
-      // Note: This would require backend support for pausing simulations
-      setSimulationStatus("paused")
-    } catch (err) {
-      console.error('Error pausing simulation:', err)
-    }
-  }
-
-  const stopSimulation = async () => {
-    if (!simulation || !isAuthenticated) return
-    
-    try {
-      // Note: This would require backend support for stopping simulations
-      setSimulationStatus("idle")
-      setProgress(0)
-      setCurrentStep(0)
-      setSelectedScenario(null)
-      setSimulation(null)
-      setSimulationSteps([])
-    } catch (err) {
-      console.error('Error stopping simulation:', err)
-    }
+  const resetWorkflow = () => {
+    setSelectedScenario(null)
+    setSelectedAgents([])
+    setProcessType("sequential")
+    setCurrentStep(1)
+    setError(null)
   }
 
   if (loading) {
@@ -179,7 +119,7 @@ export default function SimulationRunner() {
       <div className="min-h-screen bg-black text-white flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p>Loading scenarios...</p>
+          <p>Loading scenarios and agents...</p>
         </div>
       </div>
     )
@@ -203,332 +143,326 @@ export default function SimulationRunner() {
             </Button>
             <div className="flex items-center space-x-2">
               <Play className="h-6 w-6 text-yellow-500" />
-              <span className="text-xl font-bold">Simulation Runner</span>
+              <span className="text-xl font-bold">Dynamic Crew Simulation</span>
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            {simulationStatus === "running" && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={pauseSimulation}
-                  className="border-yellow-500/30 text-yellow-500 bg-transparent"
-                >
-                  <Pause className="h-4 w-4 mr-2" />
-                  Pause
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={stopSimulation}
-                  className="border-red-500/30 text-red-400 bg-transparent"
-                >
-                  <Square className="h-4 w-4 mr-2" />
-                  Stop
-                </Button>
-              </>
-            )}
-          </div>
+          {currentStep > 1 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resetWorkflow}
+              className="border-gray-600 text-gray-300 bg-transparent"
+            >
+              Start Over
+            </Button>
+          )}
         </div>
       </header>
 
       <div className="container mx-auto px-4 py-8">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-4xl mx-auto">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">Run Agent Simulations</h1>
-            <p className="text-gray-400">Test your AI agents in realistic scenarios and analyze their performance</p>
+            <h1 className="text-3xl font-bold mb-2">Run Dynamic Crew Simulation</h1>
+            <p className="text-gray-400">Select scenario → Pick agents → Choose process → Auto-assemble crew</p>
+          </div>
+
+          {/* Progress Steps */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between">
+              {[
+                { step: 1, title: "Select Scenario", icon: Bot },
+                { step: 2, title: "Pick Agents", icon: Users },
+                { step: 3, title: "Choose Process", icon: Settings }
+              ].map(({ step, title, icon: Icon }, index) => (
+                <div key={step} className="flex items-center">
+                  <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 ${
+                    currentStep >= step 
+                      ? "border-yellow-500 bg-yellow-500 text-black" 
+                      : "border-gray-600 text-gray-400"
+                  }`}>
+                    {currentStep > step ? (
+                      <CheckCircle className="h-5 w-5" />
+                    ) : (
+                      <Icon className="h-5 w-5" />
+                    )}
+                  </div>
+                  <span className={`ml-3 font-medium ${
+                    currentStep >= step ? "text-yellow-500" : "text-gray-400"
+                  }`}>
+                    {title}
+                  </span>
+                  {index < 2 && (
+                    <div className={`mx-4 h-0.5 w-16 ${
+                      currentStep > step + 1 ? "bg-yellow-500" : "bg-gray-600"
+                    }`} />
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {error && (
             <Card className="mb-6 bg-red-500/10 border-red-500/30">
               <CardContent className="pt-6">
-                <div className="flex items-center space-x-2 text-red-400">
-                  <AlertCircle className="h-5 w-5" />
-                  <p>{error}</p>
-                </div>
+                <p className="text-red-400">{error}</p>
               </CardContent>
             </Card>
           )}
 
-          {simulationStatus === "idle" ? (
-            // Scenario Selection
+          {/* Step 1: Select Scenario */}
+          {currentStep === 1 && (
+            <Card className="bg-black border-yellow-500/20">
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <Bot className="h-5 w-5 mr-2 text-yellow-500" />
+                  Step 1: Select a Scenario
+                </CardTitle>
+                <CardDescription>Choose a scenario with defined tasks for your agents to collaborate on</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {scenarios.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <Bot className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No scenarios available</p>
+                    <p className="text-sm mb-4">Create a scenario first to run simulations</p>
+                    <Button asChild className="bg-yellow-500 text-black hover:bg-yellow-400">
+                      <Link href="/scenario-builder">Create Scenario</Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid md:grid-cols-2 gap-6">
+                    {scenarios.map((scenario) => (
+                      <Card
+                        key={scenario.id}
+                        className="bg-gray-900/50 border-gray-700 hover:border-yellow-500/50 transition-colors cursor-pointer"
+                        onClick={() => selectScenario(scenario)}
+                      >
+                        <CardHeader>
+                          <CardTitle className="text-lg">{scenario.title}</CardTitle>
+                          <CardDescription className="text-gray-400">{scenario.description}</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="flex items-center justify-between text-sm">
+                            <Badge variant="outline" className="border-blue-400/30 text-blue-400">
+                              {scenario.industry}
+                            </Badge>
+                            <span className="text-gray-400">
+                              {scenario.tasks?.length || 0} tasks
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-400">{scenario.challenge}</p>
+                          <Button
+                            className="w-full bg-yellow-500 text-black hover:bg-yellow-400"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              selectScenario(scenario)
+                            }}
+                          >
+                            Select Scenario
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Step 2: Pick Agents */}
+          {currentStep === 2 && selectedScenario && (
             <div className="space-y-6">
-              <Card className="bg-black border-yellow-500/20">
+              <Card className="bg-black border-blue-500/20">
                 <CardHeader>
-                  <CardTitle>Select a Scenario</CardTitle>
-                  <CardDescription>Choose a scenario to run with your AI agents</CardDescription>
+                  <CardTitle className="flex items-center">
+                    <CheckCircle className="h-5 w-5 mr-2 text-green-400" />
+                    Selected Scenario: {selectedScenario.title}
+                  </CardTitle>
+                  <CardDescription>{selectedScenario.description}</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {scenarios.length === 0 ? (
+                  <div className="text-sm text-gray-400">
+                    <p><strong>Industry:</strong> {selectedScenario.industry}</p>
+                    <p><strong>Challenge:</strong> {selectedScenario.challenge}</p>
+                    <p><strong>Tasks:</strong> {selectedScenario.tasks?.length || 0} defined</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-black border-yellow-500/20">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Users className="h-5 w-5 mr-2 text-yellow-500" />
+                    Step 2: Pick Agents ({selectedAgents.length} selected)
+                  </CardTitle>
+                  <CardDescription>Choose agents to form your crew for this scenario</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {availableAgents.length === 0 ? (
                     <div className="text-center py-8 text-gray-400">
-                      <Bot className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                      <p>No scenarios available</p>
-                      <p className="text-sm mb-4">Create a scenario first to run simulations</p>
+                      <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p>No agents available</p>
+                      <p className="text-sm mb-4">Create agents first to run simulations</p>
                       <Button asChild className="bg-yellow-500 text-black hover:bg-yellow-400">
-                        <Link href="/scenario-builder">Create Scenario</Link>
+                        <Link href="/agent-builder">Create Agent</Link>
                       </Button>
                     </div>
                   ) : (
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {scenarios.map((scenario) => (
-                        <Card
-                          key={scenario.id}
-                          className="bg-gray-900/50 border-gray-700 hover:border-yellow-500/50 transition-colors cursor-pointer"
+                    <div className="space-y-4">
+                      <div className="grid md:grid-cols-2 gap-4">
+                        {availableAgents.map((agent) => (
+                          <div
+                            key={agent.id}
+                            className={`p-4 rounded-lg border cursor-pointer transition-colors ${
+                              selectedAgents.find(a => a.id === agent.id)
+                                ? "border-yellow-500 bg-yellow-500/10"
+                                : "border-gray-700 hover:border-gray-600"
+                            }`}
+                            onClick={() => toggleAgent(agent)}
+                          >
+                            <div className="flex items-start justify-between mb-2">
+                              <div>
+                                <h4 className="font-medium">{agent.name}</h4>
+                                <p className="text-sm text-gray-400">{agent.role}</p>
+                              </div>
+                              <Checkbox
+                                checked={!!selectedAgents.find(a => a.id === agent.id)}
+                                onChange={() => toggleAgent(agent)}
+                              />
+                            </div>
+                            <p className="text-sm text-gray-400 mb-2">{agent.goal}</p>
+                            <div className="flex flex-wrap gap-1">
+                              <Badge variant="outline" className="border-purple-400/30 text-purple-400 text-xs">
+                                {agent.category}
+                              </Badge>
+                              {agent.tools.slice(0, 2).map((tool) => (
+                                <Badge key={tool} variant="outline" className="border-green-400/30 text-green-400 text-xs">
+                                  {tool}
+                                </Badge>
+                              ))}
+                              {agent.tools.length > 2 && (
+                                <Badge variant="outline" className="border-gray-400/30 text-gray-400 text-xs">
+                                  +{agent.tools.length - 2} more
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      <div className="flex justify-end pt-4">
+                        <Button 
+                          onClick={proceedToProcessSelection}
+                          className="bg-yellow-500 text-black hover:bg-yellow-400"
+                          disabled={selectedAgents.length === 0}
                         >
-                          <CardHeader>
-                            <CardTitle className="text-lg">{scenario.title}</CardTitle>
-                            <CardDescription className="text-gray-400">{scenario.description}</CardDescription>
-                          </CardHeader>
-                          <CardContent className="space-y-4">
-                            <div className="flex justify-between text-sm">
-                              <div className="flex items-center space-x-1">
-                                <Bot className="h-4 w-4 text-blue-400" />
-                                <span>{scenario.agents.length} agents</span>
-                              </div>
-                              <div className="flex items-center space-x-1">
-                                <CheckCircle className="h-4 w-4 text-green-400" />
-                                <span>{scenario.tasks.length} tasks</span>
-                              </div>
-                            </div>
-                            <div className="flex justify-between text-sm text-gray-400">
-                              <div className="flex items-center space-x-1">
-                                <Clock className="h-4 w-4" />
-                                <span>Est. {scenario.tasks.length * 2}-{scenario.tasks.length * 3} min</span>
-                              </div>
-                              <span>Created: {new Date(scenario.created_at).toLocaleDateString()}</span>
-                            </div>
-                            <Button
-                              onClick={() => startSimulation(scenario)}
-                              className="w-full bg-yellow-500 text-black hover:bg-yellow-400"
-                            >
-                              <Play className="h-4 w-4 mr-2" />
-                              Run Simulation
-                            </Button>
-                          </CardContent>
-                        </Card>
-                      ))}
+                          Continue with {selectedAgents.length} Agent{selectedAgents.length !== 1 ? 's' : ''}
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </CardContent>
               </Card>
             </div>
-          ) : (
-            // Simulation Running
+          )}
+
+          {/* Step 3: Choose Process */}
+          {currentStep === 3 && selectedScenario && selectedAgents.length > 0 && (
             <div className="space-y-6">
-              {/* Simulation Header */}
-              <Card className="bg-black border-yellow-500/20">
+              <Card className="bg-black border-blue-500/20">
                 <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="flex items-center">
-                        <div
-                          className={`w-3 h-3 rounded-full mr-3 ${
-                            simulationStatus === "running"
-                              ? "bg-green-400 animate-pulse"
-                              : simulationStatus === "paused"
-                                ? "bg-yellow-500"
-                                : simulationStatus === "completed"
-                                  ? "bg-blue-400"
-                                  : simulationStatus === "failed"
-                                    ? "bg-red-400"
-                                    : "bg-gray-400"
-                          }`}
-                        />
-                        {selectedScenario?.title}
-                      </CardTitle>
-                      <CardDescription>{selectedScenario?.description}</CardDescription>
-                    </div>
-                    <Badge
-                      variant={
-                        simulationStatus === "running"
-                          ? "default"
-                          : simulationStatus === "paused"
-                            ? "secondary"
-                            : simulationStatus === "completed"
-                              ? "outline"
-                              : simulationStatus === "failed"
-                                ? "destructive"
-                                : "secondary"
-                      }
-                      className={
-                        simulationStatus === "running"
-                          ? "bg-green-500/20 text-green-400"
-                          : simulationStatus === "paused"
-                            ? "bg-yellow-500/20 text-yellow-500"
-                            : simulationStatus === "completed"
-                              ? "bg-blue-500/20 text-blue-400"
-                              : simulationStatus === "failed"
-                                ? "bg-red-500/20 text-red-400"
-                                : ""
-                      }
-                    >
-                      {simulationStatus.charAt(0).toUpperCase() + simulationStatus.slice(1)}
-                    </Badge>
-                  </div>
+                  <CardTitle className="flex items-center">
+                    <CheckCircle className="h-5 w-5 mr-2 text-green-400" />
+                    Crew Summary
+                  </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between text-sm">
-                      <span>Progress</span>
-                      <span>{progress}%</span>
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div>
+                      <h4 className="font-medium text-yellow-500 mb-2">Scenario</h4>
+                      <p className="font-medium">{selectedScenario.title}</p>
+                      <p className="text-sm text-gray-400">{selectedScenario.industry}</p>
                     </div>
-                    <Progress value={progress} className="h-2" />
-                    <div className="flex justify-between text-sm text-gray-400">
-                      <span>Est. time: {selectedScenario?.tasks.length || 0 * 2}-{selectedScenario?.tasks.length || 0 * 3} min</span>
-                      <span>Step {currentStep + 1} of {simulationSteps.length}</span>
+                    <div>
+                      <h4 className="font-medium text-yellow-500 mb-2">Selected Agents</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedAgents.map((agent) => (
+                          <Badge key={agent.id} variant="outline" className="border-blue-400/30 text-blue-400">
+                            {agent.name}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <div className="grid lg:grid-cols-2 gap-6">
-                {/* Live Activity */}
-                <Card className="bg-black border-blue-500/20">
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Bot className="h-5 w-5 mr-2 text-blue-400" />
-                      Live Activity
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4 max-h-96 overflow-y-auto">
-                      {simulationSteps.map((step) => (
+              <Card className="bg-black border-yellow-500/20">
+                <CardHeader>
+                  <CardTitle className="flex items-center">
+                    <Settings className="h-5 w-5 mr-2 text-yellow-500" />
+                    Step 3: Choose Process Type
+                  </CardTitle>
+                  <CardDescription>Select how your agents will collaborate on tasks</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="space-y-4">
+                    <div className="grid md:grid-cols-3 gap-4">
+                      {[
+                        {
+                          value: "sequential",
+                          title: "Sequential",
+                          description: "Agents work one after another in order",
+                          icon: "→"
+                        },
+                        {
+                          value: "hierarchical",
+                          title: "Hierarchical",
+                          description: "Manager agent delegates tasks to team",
+                          icon: "↓"
+                        },
+                        {
+                          value: "collaborative",
+                          title: "Collaborative",
+                          description: "All agents work together simultaneously",
+                          icon: "◆"
+                        }
+                      ].map((process) => (
                         <div
-                          key={step.id}
-                          className={`p-3 rounded-lg border ${
-                            step.status === "completed"
-                              ? "border-green-500/30 bg-green-500/10"
-                              : step.status === "running"
-                                ? "border-yellow-500/30 bg-yellow-500/10"
-                                : step.status === "failed"
-                                  ? "border-red-500/30 bg-red-500/10"
-                                  : "border-gray-700 bg-gray-900/50"
+                          key={process.value}
+                          className={`p-4 rounded-lg border cursor-pointer transition-colors ${
+                            processType === process.value
+                              ? "border-yellow-500 bg-yellow-500/10"
+                              : "border-gray-700 hover:border-gray-600"
                           }`}
+                          onClick={() => setProcessType(process.value as any)}
                         >
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center space-x-2">
-                              {step.status === "completed" && <CheckCircle className="h-4 w-4 text-green-400" />}
-                              {step.status === "running" && (
-                                <div className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
-                              )}
-                              {step.status === "failed" && <AlertCircle className="h-4 w-4 text-red-400" />}
-                              {step.status === "pending" && (
-                                <div className="w-4 h-4 border border-gray-600 rounded-full" />
-                              )}
-                              <span className="font-medium">{step.name}</span>
-                            </div>
-                            <Badge variant="outline" className="border-blue-400/30 text-blue-400 text-xs">
-                              {step.agent}
-                            </Badge>
+                          <div className="text-center">
+                            <div className="text-2xl mb-2">{process.icon}</div>
+                            <h4 className="font-medium mb-1">{process.title}</h4>
+                            <p className="text-sm text-gray-400">{process.description}</p>
                           </div>
-                          <p className="text-sm text-gray-400">{step.message}</p>
                         </div>
                       ))}
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
 
-                {/* Simulation Results */}
-                <Card className="bg-black border-purple-500/20">
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <BarChart3 className="h-5 w-5 mr-2 text-purple-400" />
-                      Simulation Results
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {simulation?.results ? (
-                      <div className="space-y-4">
-                        <div className="p-3 rounded-lg bg-gray-900/50">
-                          <h4 className="font-medium mb-2">Performance Metrics</h4>
-                          <div className="grid grid-cols-2 gap-4 text-sm">
-                            <div>
-                              <span className="text-gray-400">Success Rate:</span>
-                              <span className="ml-2 text-green-400">
-                                {simulation.results.success_rate || 'N/A'}%
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-400">Avg Response Time:</span>
-                              <span className="ml-2 text-blue-400">
-                                {simulation.results.avg_response_time || 'N/A'}s
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {simulation.results.agent_performance && (
-                          <div className="space-y-2">
-                            <h4 className="font-medium">Agent Performance</h4>
-                            {Object.entries(simulation.results.agent_performance).map(([agent, metrics]: [string, any]) => (
-                              <div key={agent} className="p-2 bg-gray-900/50 rounded">
-                                <div className="flex justify-between text-sm">
-                                  <span>{agent}</span>
-                                  <span className="text-green-400">{metrics.accuracy || 'N/A'}%</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8 text-gray-400">
-                        <BarChart3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>Results will appear here</p>
-                        <p className="text-sm">during simulation execution</p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-
-              {simulationStatus === "completed" && (
-                <Card className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 border-blue-500/30">
-                  <CardHeader>
-                    <CardTitle className="flex items-center text-blue-400">
-                      <CheckCircle className="h-6 w-6 mr-2" />
-                      Simulation Completed Successfully
-                    </CardTitle>
-                    <CardDescription>Your agents have completed all tasks in the scenario</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex space-x-4">
-                      <Button className="bg-blue-500 text-white hover:bg-blue-400">
-                        View Detailed Results
-                      </Button>
-                      <Button variant="outline" className="border-blue-400/30 text-blue-400 bg-transparent">
-                        Export Report
-                      </Button>
-                      <Button variant="ghost" onClick={stopSimulation} className="text-gray-400">
-                        Run Another Simulation
+                  <div className="border-t border-gray-700 pt-6">
+                    <div className="flex justify-center">
+                      <Button 
+                        onClick={startSimulation}
+                        className="bg-gradient-to-r from-yellow-500 to-orange-500 text-black hover:from-yellow-400 hover:to-orange-400 px-8 py-3 text-lg font-medium"
+                      >
+                        <Zap className="h-5 w-5 mr-2" />
+                        Auto-Assemble Crew & Start Simulation
                       </Button>
                     </div>
-                  </CardContent>
-                </Card>
-              )}
-
-              {simulationStatus === "failed" && (
-                <Card className="bg-gradient-to-r from-red-500/10 to-orange-500/10 border-red-500/30">
-                  <CardHeader>
-                    <CardTitle className="flex items-center text-red-400">
-                      <AlertCircle className="h-6 w-6 mr-2" />
-                      Simulation Failed
-                    </CardTitle>
-                    <CardDescription>There was an error during simulation execution</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex space-x-4">
-                      <Button variant="outline" className="border-red-400/30 text-red-400 bg-transparent">
-                        View Error Details
-                      </Button>
-                      <Button variant="ghost" onClick={stopSimulation} className="text-gray-400">
-                        Try Again
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
+                    <p className="text-center text-sm text-gray-400 mt-2">
+                      This will create a dynamic crew and begin the simulation
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           )}
         </div>

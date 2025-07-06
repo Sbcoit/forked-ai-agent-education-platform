@@ -34,22 +34,7 @@ export default function AgentBuilder() {
   const [allowDelegation, setAllowDelegation] = useState(false)
   const [reasoning, setReasoning] = useState(true)
   
-  // Task fields
-  const [tasks, setTasks] = useState<Array<{
-    id: string;
-    title: string;
-    description: string;
-    expected_output: string;
-    tools: string[];
-    category: string;
-    human_input: boolean;
-  }>>([])
-  const [taskTitle, setTaskTitle] = useState("")
-  const [taskDescription, setTaskDescription] = useState("")
-  const [taskExpectedOutput, setTaskExpectedOutput] = useState("")
-  const [taskTools, setTaskTools] = useState<string[]>([])
-  const [taskCategory, setTaskCategory] = useState("")
-  const [taskHumanInput, setTaskHumanInput] = useState(false)
+  // Task creation removed - tasks now belong to scenarios
   
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -85,17 +70,7 @@ export default function AgentBuilder() {
     "business"
   ]
 
-  const taskCategories = [
-    "analysis",
-    "research",
-    "planning",
-    "execution",
-    "communication",
-    "data_processing",
-    "content_creation",
-    "decision_making",
-    "monitoring"
-  ]
+  // Task categories removed - tasks now belong to scenarios
 
   const addTag = () => {
     if (newTag && !tags.includes(newTag)) {
@@ -112,41 +87,7 @@ export default function AgentBuilder() {
     setSelectedTools((prev) => (prev.includes(toolId) ? prev.filter((id) => id !== toolId) : [...prev, toolId]))
   }
 
-  const toggleTaskTool = (toolId: string) => {
-    setTaskTools((prev) => (prev.includes(toolId) ? prev.filter((id) => id !== toolId) : [...prev, toolId]))
-  }
-
-  const addTask = () => {
-    if (!taskTitle || !taskDescription || !taskExpectedOutput) {
-      setError("Please fill in all required task fields")
-      return
-    }
-
-    const newTask = {
-      id: Date.now().toString(),
-      title: taskTitle,
-      description: taskDescription,
-      expected_output: taskExpectedOutput,
-      tools: taskTools,
-      category: taskCategory,
-      human_input: taskHumanInput
-    }
-
-    setTasks([...tasks, newTask])
-    
-    // Clear form
-    setTaskTitle("")
-    setTaskDescription("")
-    setTaskExpectedOutput("")
-    setTaskTools([])
-    setTaskCategory("")
-    setTaskHumanInput(false)
-    setError("")
-  }
-
-  const removeTask = (taskId: string) => {
-    setTasks(tasks.filter(task => task.id !== taskId))
-  }
+  // Task management functions removed - tasks now belong to scenarios
 
   const handleSave = async () => {
     if (!user) return
@@ -156,10 +97,7 @@ export default function AgentBuilder() {
       return
     }
 
-    if (tasks.length === 0) {
-      setError("Please add at least one task. CrewAI agents need tasks to be functional.")
-      return
-    }
+    // Task validation removed - agents are now independent, tasks belong to scenarios
 
     setLoading(true)
     setError("")
@@ -184,23 +122,8 @@ export default function AgentBuilder() {
         version_notes: "Initial release"
       })
 
-      // Create tasks and link them to the agent
-      for (const task of tasks) {
-        await apiClient.createTask({
-          title: task.title,
-          description: task.description,
-          expected_output: task.expected_output,
-          tools: task.tools,
-          agent_id: createdAgent.id,
-          category: task.category,
-          tags: [],
-          is_public: isPublic,
-          allow_remixes: allowRemixes,
-          context: task.human_input ? { human_input: true } : undefined
-        })
-      }
-
-      setSuccess("Agent and tasks created successfully!")
+      // Task creation removed - agents are now independent of tasks
+      setSuccess("Agent created successfully!")
       
       // Reset form or redirect
       setTimeout(() => {
@@ -284,7 +207,7 @@ export default function AgentBuilder() {
             <p className="text-gray-400">Define your agent's personality, capabilities, and behavior</p>
             <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
               <p className="text-blue-400 text-sm">
-                <strong>Note:</strong> CrewAI agents require tasks to be functional. Make sure to add at least one task in the Tasks tab.
+                <strong>Note:</strong> Agents are now independent entities. Tasks are defined in scenarios and assigned to agents during simulation.
               </p>
             </div>
           </div>
@@ -302,15 +225,12 @@ export default function AgentBuilder() {
           )}
 
           <Tabs defaultValue="basic" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-5 bg-gray-900">
+            <TabsList className="grid w-full grid-cols-4 bg-gray-900">
               <TabsTrigger value="basic" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
                 Basic Info
               </TabsTrigger>
               <TabsTrigger value="tools" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
                 Tools & Capabilities
-              </TabsTrigger>
-              <TabsTrigger value="tasks" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
-                Tasks
               </TabsTrigger>
               <TabsTrigger
                 value="settings"
@@ -341,14 +261,14 @@ export default function AgentBuilder() {
                         placeholder="e.g., Customer Support Assistant"
                         value={agentName}
                         onChange={(e) => setAgentName(e.target.value)}
-                        className="bg-gray-900 border-gray-700 focus:border-yellow-500"
+                        className="bg-gray-900 border-gray-700 focus:border-yellow-500 text-white placeholder:text-gray-400"
                         required
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="agent-category">Category *</Label>
                       <Select value={agentCategory} onValueChange={setAgentCategory}>
-                        <SelectTrigger className="bg-gray-900 border-gray-700 focus:border-yellow-500">
+                        <SelectTrigger className="bg-gray-900 border-gray-700 focus:border-yellow-500 text-white">
                           <SelectValue placeholder="Select category" />
                         </SelectTrigger>
                         <SelectContent className="bg-gray-900 border-gray-700">
@@ -369,7 +289,7 @@ export default function AgentBuilder() {
                       placeholder="e.g., Senior Customer Support Specialist"
                       value={agentRole}
                       onChange={(e) => setAgentRole(e.target.value)}
-                      className="bg-gray-900 border-gray-700 focus:border-yellow-500"
+                      className="bg-gray-900 border-gray-700 focus:border-yellow-500 text-white placeholder:text-gray-400"
                       required
                     />
                   </div>
@@ -381,7 +301,7 @@ export default function AgentBuilder() {
                       placeholder="e.g., Provide exceptional customer support by resolving issues quickly and efficiently"
                       value={agentGoal}
                       onChange={(e) => setAgentGoal(e.target.value)}
-                      className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[80px]"
+                      className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[80px] text-white placeholder:text-gray-400"
                       required
                     />
                   </div>
@@ -393,7 +313,7 @@ export default function AgentBuilder() {
                       placeholder="e.g., You are an experienced customer support specialist with 5+ years of experience..."
                       value={agentBackstory}
                       onChange={(e) => setAgentBackstory(e.target.value)}
-                      className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[120px]"
+                      className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[120px] text-white placeholder:text-gray-400"
                       required
                     />
                     <div className="flex items-center space-x-2 text-sm text-gray-400">
@@ -437,157 +357,7 @@ export default function AgentBuilder() {
               </Card>
             </TabsContent>
 
-            <TabsContent value="tasks" className="space-y-6">
-              <Card className="bg-black border-yellow-500/20">
-                <CardHeader>
-                  <CardTitle>Agent Tasks</CardTitle>
-                  <CardDescription>
-                    Define what tasks your agent will perform. CrewAI agents need tasks to be functional.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Current Tasks */}
-                  {tasks.length > 0 && (
-                    <div className="space-y-4">
-                      <h4 className="font-medium text-yellow-500">Current Tasks ({tasks.length})</h4>
-                      <div className="space-y-3">
-                        {tasks.map((task) => (
-                          <div key={task.id} className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-                            <div className="flex justify-between items-start mb-2">
-                              <h5 className="font-medium">{task.title}</h5>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeTask(task.id)}
-                                className="text-red-400 hover:text-red-300"
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                            <p className="text-sm text-gray-400 mb-2">{task.description}</p>
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              {task.category && (
-                                <Badge variant="outline" className="border-purple-400/30 text-purple-400">
-                                  {task.category}
-                                </Badge>
-                              )}
-                              {task.human_input && (
-                                <Badge variant="outline" className="border-orange-400/30 text-orange-400">
-                                  Human Input Required
-                                </Badge>
-                              )}
-                              {task.tools.map((tool) => (
-                                <Badge key={tool} variant="outline" className="border-blue-400/30 text-blue-400">
-                                  {availableTools.find(t => t.id === tool)?.name || tool}
-                                </Badge>
-                              ))}
-                            </div>
-                            <p className="text-xs text-gray-500">Expected: {task.expected_output}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Add New Task */}
-                  <div className="border-t border-gray-700 pt-6">
-                    <h4 className="font-medium text-yellow-500 mb-4">Add New Task</h4>
-                    <div className="space-y-4">
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="task-title">Task Title *</Label>
-                          <Input
-                            id="task-title"
-                            placeholder="e.g., Market Research Analysis"
-                            value={taskTitle}
-                            onChange={(e) => setTaskTitle(e.target.value)}
-                            className="bg-gray-900 border-gray-700 focus:border-yellow-500"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="task-category">Task Category</Label>
-                          <Select value={taskCategory} onValueChange={setTaskCategory}>
-                            <SelectTrigger className="bg-gray-900 border-gray-700 focus:border-yellow-500">
-                              <SelectValue placeholder="Select category" />
-                            </SelectTrigger>
-                            <SelectContent className="bg-gray-900 border-gray-700">
-                              {taskCategories.map((category) => (
-                                <SelectItem key={category} value={category}>
-                                  {category.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="task-description">Task Description *</Label>
-                        <Textarea
-                          id="task-description"
-                          placeholder="e.g., Research current market trends and competitor analysis..."
-                          value={taskDescription}
-                          onChange={(e) => setTaskDescription(e.target.value)}
-                          className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[80px]"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="task-expected-output">Expected Output *</Label>
-                        <Textarea
-                          id="task-expected-output"
-                          placeholder="e.g., A comprehensive market analysis report with competitor insights..."
-                          value={taskExpectedOutput}
-                          onChange={(e) => setTaskExpectedOutput(e.target.value)}
-                          className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[80px]"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Task-Specific Tools</Label>
-                        <div className="grid md:grid-cols-2 gap-2">
-                          {availableTools.map((tool) => (
-                            <div
-                              key={tool.id}
-                              className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                                taskTools.includes(tool.id)
-                                  ? "border-blue-500 bg-blue-500/10"
-                                  : "border-gray-700 hover:border-gray-600"
-                              }`}
-                              onClick={() => toggleTaskTool(tool.id)}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="font-medium text-sm">{tool.name}</span>
-                                {taskTools.includes(tool.id) && (
-                                  <Badge className="bg-blue-500 text-white text-xs">Selected</Badge>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-2">
-                          <Switch checked={taskHumanInput} onCheckedChange={setTaskHumanInput} />
-                          <div>
-                            <Label className="text-sm font-medium">Human Input Required</Label>
-                            <p className="text-xs text-gray-400">Task will pause for human review/approval</p>
-                          </div>
-                        </div>
-                        <Button
-                          onClick={addTask}
-                          className="bg-yellow-500 text-black hover:bg-yellow-400"
-                        >
-                          <Plus className="h-4 w-4 mr-2" />
-                          Add Task
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+            {/* Tasks tab removed - tasks now belong to scenarios */}
 
             <TabsContent value="settings" className="space-y-6">
               <Card className="bg-black border-yellow-500/20">
@@ -614,7 +384,7 @@ export default function AgentBuilder() {
                         value={newTag}
                         onChange={(e) => setNewTag(e.target.value)}
                         onKeyPress={(e) => e.key === "Enter" && addTag()}
-                        className="bg-gray-900 border-gray-700 focus:border-yellow-500"
+                        className="bg-gray-900 border-gray-700 focus:border-yellow-500 text-white placeholder:text-gray-400"
                       />
                       <Button
                         onClick={addTag}
@@ -766,46 +536,7 @@ export default function AgentBuilder() {
                     </div>
                   </div>
 
-                  {/* Tasks Preview */}
-                  <div>
-                    <h4 className="font-medium text-yellow-500 mb-2">Tasks ({tasks.length})</h4>
-                    {tasks.length > 0 ? (
-                      <div className="space-y-3">
-                        {tasks.map((task) => (
-                          <div key={task.id} className="bg-gray-900/50 p-3 rounded-lg">
-                            <div className="flex justify-between items-start mb-1">
-                              <h5 className="font-medium text-sm">{task.title}</h5>
-                              <div className="flex gap-1">
-                                {task.category && (
-                                  <Badge variant="outline" className="border-purple-400/30 text-purple-400 text-xs">
-                                    {task.category}
-                                  </Badge>
-                                )}
-                                {task.human_input && (
-                                  <Badge variant="outline" className="border-orange-400/30 text-orange-400 text-xs">
-                                    Human Input
-                                  </Badge>
-                                )}
-                              </div>
-                            </div>
-                            <p className="text-xs text-gray-400 mb-2">{task.description}</p>
-                            <p className="text-xs text-green-400">Expected: {task.expected_output}</p>
-                            {task.tools.length > 0 && (
-                              <div className="flex flex-wrap gap-1 mt-2">
-                                {task.tools.map((tool) => (
-                                  <Badge key={tool} variant="outline" className="border-blue-400/30 text-blue-400 text-xs">
-                                    {availableTools.find(t => t.id === tool)?.name || tool}
-                                  </Badge>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-red-400 text-sm">No tasks defined. Please add at least one task.</p>
-                    )}
-                  </div>
+                  {/* Tasks preview removed - tasks now belong to scenarios */}
 
                   {agentBackstory && (
                     <div>

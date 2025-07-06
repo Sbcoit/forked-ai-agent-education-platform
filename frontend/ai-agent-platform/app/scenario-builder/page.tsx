@@ -26,6 +26,27 @@ export default function ScenarioBuilder() {
   const [scenarioChallenge, setScenarioChallenge] = useState("")
   const [learningObjectives, setLearningObjectives] = useState<string[]>([])
   const [newObjective, setNewObjective] = useState("")
+  
+  // Task management state
+  const [scenarioTasks, setScenarioTasks] = useState<Array<{
+    id: string;
+    title: string;
+    description: string;
+    expected_output: string;
+    assigned_agent_role?: string;
+    execution_order: number;
+    depends_on_tasks: string[];
+    category?: string;
+    tools: string[];
+  }>>([])
+  const [taskTitle, setTaskTitle] = useState("")
+  const [taskDescription, setTaskDescription] = useState("")
+  const [taskExpectedOutput, setTaskExpectedOutput] = useState("")
+  const [taskAgentRole, setTaskAgentRole] = useState("")
+  const [taskCategory, setTaskCategory] = useState("")
+  const [taskTools, setTaskTools] = useState<string[]>([])
+  const [taskDependencies, setTaskDependencies] = useState<string[]>([])
+  
   const [availableAgents, setAvailableAgents] = useState<Agent[]>([])
   const [selectedAgents, setSelectedAgents] = useState<Agent[]>([])
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
@@ -38,6 +59,21 @@ export default function ScenarioBuilder() {
   const industries = [
     "Technology", "Finance", "Healthcare", "Education", "Manufacturing", 
     "Retail", "E-commerce", "Real Estate", "Marketing", "Consulting"
+  ]
+
+  const taskCategories = [
+    "analysis", "research", "planning", "execution", "communication",
+    "data_processing", "content_creation", "decision_making", "monitoring"
+  ]
+
+  const agentRoles = [
+    "marketing", "finance", "product", "operations", "sales", 
+    "customer_service", "hr", "legal", "technical", "strategy"
+  ]
+
+  const availableTools = [
+    "web_search", "calculator", "email", "database_query", "file_reader",
+    "api_caller", "data_analysis", "report_generator", "social_media"
   ]
 
   // Redirect to login if not authenticated
@@ -121,6 +157,65 @@ export default function ScenarioBuilder() {
     setLearningObjectives(learningObjectives.filter((_, i) => i !== index))
   }
 
+  // Task management functions
+  const addTask = () => {
+    if (!taskTitle.trim() || !taskDescription.trim() || !taskExpectedOutput.trim()) {
+      setError('Please fill in all required task fields')
+      return
+    }
+
+    const newTask = {
+      id: Date.now().toString(),
+      title: taskTitle.trim(),
+      description: taskDescription.trim(),
+      expected_output: taskExpectedOutput.trim(),
+      assigned_agent_role: taskAgentRole || undefined,
+      execution_order: scenarioTasks.length + 1,
+      depends_on_tasks: taskDependencies,
+      category: taskCategory || undefined,
+      tools: taskTools
+    }
+
+    setScenarioTasks([...scenarioTasks, newTask])
+    
+    // Clear task form
+    setTaskTitle("")
+    setTaskDescription("")
+    setTaskExpectedOutput("")
+    setTaskAgentRole("")
+    setTaskCategory("")
+    setTaskTools([])
+    setTaskDependencies([])
+    setError(null)
+  }
+
+  const removeTask = (taskId: string) => {
+    setScenarioTasks(scenarioTasks.filter(task => task.id !== taskId))
+    // Remove this task from dependencies of other tasks
+    setScenarioTasks(prevTasks => 
+      prevTasks.map(task => ({
+        ...task,
+        depends_on_tasks: task.depends_on_tasks.filter(depId => depId !== taskId)
+      }))
+    )
+  }
+
+  const toggleTaskTool = (toolId: string) => {
+    setTaskTools(prev => 
+      prev.includes(toolId) 
+        ? prev.filter(id => id !== toolId)
+        : [...prev, toolId]
+    )
+  }
+
+  const toggleTaskDependency = (taskId: string) => {
+    setTaskDependencies(prev => 
+      prev.includes(taskId) 
+        ? prev.filter(id => id !== taskId)
+        : [...prev, taskId]
+    )
+  }
+
   const applySuggestion = (suggestion: any) => {
     if (suggestion.type === "scenario") {
       setScenarioTitle(suggestion.title)
@@ -141,6 +236,11 @@ export default function ScenarioBuilder() {
 
     if (learningObjectives.length === 0) {
       setError('Please add at least one learning objective')
+      return
+    }
+
+    if (scenarioTasks.length === 0) {
+      setError('Please add at least one task to the scenario')
       return
     }
 
@@ -284,15 +384,18 @@ export default function ScenarioBuilder() {
           )}
 
           <Tabs defaultValue="source" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-4 bg-gray-900">
+            <TabsList className="grid w-full grid-cols-5 bg-gray-900">
               <TabsTrigger value="source" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
                 Scenario Source
               </TabsTrigger>
               <TabsTrigger value="details" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
                 Scenario Details
               </TabsTrigger>
+              <TabsTrigger value="tasks" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
+                Define Tasks
+              </TabsTrigger>
               <TabsTrigger value="agents" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
-                Select Agents
+                Suggested Agents
               </TabsTrigger>
               <TabsTrigger value="review" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
                 Review & Save
@@ -493,6 +596,193 @@ export default function ScenarioBuilder() {
                         ))}
                       </div>
                     )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="tasks" className="space-y-6">
+              <Card className="bg-black border-yellow-500/20">
+                <CardHeader>
+                  <CardTitle>Scenario Tasks</CardTitle>
+                  <CardDescription>
+                    Define the tasks that agents will collaborate on to complete this scenario
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Current Tasks */}
+                  {scenarioTasks.length > 0 && (
+                    <div className="space-y-4">
+                      <h4 className="font-medium text-yellow-500">Current Tasks ({scenarioTasks.length})</h4>
+                      <div className="space-y-3">
+                        {scenarioTasks.map((task, index) => (
+                          <div key={task.id} className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
+                            <div className="flex justify-between items-start mb-2">
+                              <div className="flex items-center space-x-2">
+                                <Badge variant="outline" className="border-yellow-400/30 text-yellow-400">
+                                  #{index + 1}
+                                </Badge>
+                                <h5 className="font-medium">{task.title}</h5>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeTask(task.id)}
+                                className="text-red-400 hover:text-red-300"
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                            <p className="text-sm text-gray-400 mb-2">{task.description}</p>
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {task.assigned_agent_role && (
+                                <Badge variant="outline" className="border-blue-400/30 text-blue-400">
+                                  Role: {task.assigned_agent_role}
+                                </Badge>
+                              )}
+                              {task.category && (
+                                <Badge variant="outline" className="border-purple-400/30 text-purple-400">
+                                  {task.category}
+                                </Badge>
+                              )}
+                              {task.tools.map((tool) => (
+                                <Badge key={tool} variant="outline" className="border-green-400/30 text-green-400">
+                                  {tool}
+                                </Badge>
+                              ))}
+                            </div>
+                            <p className="text-xs text-gray-500">Expected: {task.expected_output}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Add New Task */}
+                  <div className="border-t border-gray-700 pt-6">
+                    <h4 className="font-medium text-yellow-500 mb-4">Add New Task</h4>
+                    <div className="space-y-4">
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="task-title">Task Title *</Label>
+                          <Input
+                            id="task-title"
+                            placeholder="e.g., Market Analysis"
+                            value={taskTitle}
+                            onChange={(e) => setTaskTitle(e.target.value)}
+                            className="bg-gray-900 border-gray-700 focus:border-yellow-500"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="task-category">Category</Label>
+                          <Select value={taskCategory} onValueChange={setTaskCategory}>
+                            <SelectTrigger className="bg-gray-900 border-gray-700 focus:border-yellow-500">
+                              <SelectValue placeholder="Select category" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-gray-900 border-gray-700">
+                              {taskCategories.map((category) => (
+                                <SelectItem key={category} value={category}>
+                                  {category.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="task-description">Task Description *</Label>
+                        <Textarea
+                          id="task-description"
+                          placeholder="Describe what this task involves..."
+                          value={taskDescription}
+                          onChange={(e) => setTaskDescription(e.target.value)}
+                          className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[100px]"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="task-expected">Expected Output *</Label>
+                        <Textarea
+                          id="task-expected"
+                          placeholder="What should this task produce?"
+                          value={taskExpectedOutput}
+                          onChange={(e) => setTaskExpectedOutput(e.target.value)}
+                          className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[80px]"
+                        />
+                      </div>
+
+                      <div className="grid md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Assigned Agent Role (Optional)</Label>
+                          <Select value={taskAgentRole} onValueChange={setTaskAgentRole}>
+                            <SelectTrigger className="bg-gray-900 border-gray-700 focus:border-yellow-500">
+                              <SelectValue placeholder="Any agent can handle" />
+                            </SelectTrigger>
+                            <SelectContent className="bg-gray-900 border-gray-700">
+                              {agentRoles.map((role) => (
+                                <SelectItem key={role} value={role}>
+                                  {role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Task Dependencies</Label>
+                          <div className="text-sm text-gray-400 mb-2">
+                            Select tasks that must be completed before this one:
+                          </div>
+                          {scenarioTasks.length > 0 ? (
+                            <div className="space-y-2 max-h-32 overflow-y-auto">
+                              {scenarioTasks.map((task) => (
+                                <div key={task.id} className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    id={`dep-${task.id}`}
+                                    checked={taskDependencies.includes(task.id)}
+                                    onChange={() => toggleTaskDependency(task.id)}
+                                    className="rounded border-gray-600 bg-gray-800"
+                                  />
+                                  <label htmlFor={`dep-${task.id}`} className="text-sm text-gray-300">
+                                    {task.title}
+                                  </label>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-sm text-gray-500">No tasks created yet</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>Required Tools</Label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {availableTools.map((tool) => (
+                            <div
+                              key={tool}
+                              className={`p-2 rounded border cursor-pointer text-sm transition-colors ${
+                                taskTools.includes(tool)
+                                  ? "border-yellow-500 bg-yellow-500/10 text-yellow-400"
+                                  : "border-gray-700 hover:border-gray-600 text-gray-300"
+                              }`}
+                              onClick={() => toggleTaskTool(tool)}
+                            >
+                              {tool.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <Button 
+                        onClick={addTask}
+                        className="bg-yellow-500 text-black hover:bg-yellow-400"
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Task
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

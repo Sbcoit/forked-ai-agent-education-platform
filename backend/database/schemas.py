@@ -172,14 +172,17 @@ class ToolUpdate(BaseModel):
     version: Optional[str] = None
     version_notes: Optional[str] = None
 
-# --- TASK SCHEMAS ---
+# --- TASK SCHEMAS (CrewAI-Aligned: Tasks belong to scenarios) ---
 class TaskCreate(BaseModel):
     title: str
     description: str
     expected_output: str
+    scenario_id: int  # Tasks belong to scenarios, not agents
     tools: List[str] = []
     context: Optional[Dict[str, Any]] = None
-    agent_id: Optional[int] = None
+    assigned_agent_role: Optional[str] = None  # Optional role-based assignment (e.g., "marketing", "finance")
+    execution_order: int = 0
+    depends_on_tasks: List[int] = []  # Task dependencies
     category: Optional[str] = None
     tags: List[str] = []
     is_public: bool = False
@@ -191,9 +194,12 @@ class TaskResponse(BaseModel):
     title: str
     description: str
     expected_output: str
+    scenario_id: int
     tools: Optional[List[str]]
     context: Optional[Dict[str, Any]]
-    agent_id: Optional[int]
+    assigned_agent_role: Optional[str]
+    execution_order: int
+    depends_on_tasks: Optional[List[int]]
     category: Optional[str]
     tags: Optional[List[str]]
     is_public: bool
@@ -214,13 +220,21 @@ class TaskUpdate(BaseModel):
     expected_output: Optional[str] = None
     tools: Optional[List[str]] = None
     context: Optional[Dict[str, Any]] = None
-    agent_id: Optional[int] = None
+    assigned_agent_role: Optional[str] = None
+    execution_order: Optional[int] = None
+    depends_on_tasks: Optional[List[int]] = None
     category: Optional[str] = None
     tags: Optional[List[str]] = None
     is_public: Optional[bool] = None
     allow_remixes: Optional[bool] = None
 
-# --- SIMULATION SCHEMAS ---
+# --- SIMULATION SCHEMAS (Dynamic Crew Assembly) ---
+class DynamicSimulationCreate(BaseModel):
+    scenario_id: int
+    selected_agent_ids: List[int]  # Agents chosen for this simulation
+    agent_role_assignments: Optional[Dict[int, str]] = None  # Map agent_id -> role (e.g., {1: "marketing", 2: "finance"})
+    process_type: str = "sequential"  # sequential, hierarchical, collaborative
+
 class SimulationCreate(BaseModel):
     scenario_id: int
     crew_configuration: Optional[Dict[str, Any]] = None
@@ -230,8 +244,10 @@ class SimulationResponse(BaseModel):
     id: int
     scenario_id: int
     user_id: Optional[int]
-    crew_configuration: Optional[Dict[str, Any]]
+    selected_agent_ids: Optional[List[int]]
+    agent_role_assignments: Optional[Dict[int, str]]
     process_type: str
+    crew_configuration: Optional[Dict[str, Any]]
     status: str
     crew_output: Optional[str]
     execution_log: Optional[Dict[str, Any]]

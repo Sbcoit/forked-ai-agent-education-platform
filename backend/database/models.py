@@ -15,13 +15,7 @@ scenario_agents = Table(
     Column('created_at', DateTime(timezone=True), server_default=func.now())
 )
 
-scenario_tasks = Table(
-    'scenario_tasks', 
-    Base.metadata,
-    Column('scenario_id', Integer, ForeignKey('scenarios.id'), primary_key=True),
-    Column('task_id', Integer, ForeignKey('tasks.id'), primary_key=True),
-    Column('created_at', DateTime(timezone=True), server_default=func.now())
-)
+# Removed scenario_tasks table - tasks now directly belong to scenarios
 
 # Junction tables for simulation execution tracking
 simulation_agents = Table(
@@ -30,7 +24,8 @@ simulation_agents = Table(
     Column('simulation_id', Integer, ForeignKey('simulations.id'), primary_key=True),
     Column('agent_id', Integer, ForeignKey('agents.id'), primary_key=True),
     Column('agent_snapshot', JSON, nullable=True),  # Store agent config at time of simulation
-    Column('execution_order', Integer, default=0),  # Order in which agents execute
+    Column('assigned_role', String, nullable=True),  # Role assigned in this simulation (e.g., "marketing", "finance")
+    Column('execution_order', Integer, default=0),   # Order in which agents execute
     Column('status', String, default='pending'),     # pending, running, completed, failed
     Column('created_at', DateTime(timezone=True), server_default=func.now())
 )
@@ -140,10 +135,10 @@ class Scenario(Base):
     # Relationships
     creator = relationship("User", back_populates="scenarios")
     simulations = relationship("Simulation", back_populates="scenario")
+    tasks = relationship("Task", back_populates="scenario", cascade="all, delete-orphan")  # Direct relationship
     
-    # Many-to-many relationships
-    agents = relationship("Agent", secondary=scenario_agents, back_populates="scenarios")
-    tasks = relationship("Task", secondary=scenario_tasks, back_populates="scenarios")
+    # Many-to-many relationships (for suggested agents, not required)
+    suggested_agents = relationship("Agent", secondary=scenario_agents, back_populates="scenarios")
 
 class Agent(Base):
     __tablename__ = "agents"
@@ -185,12 +180,11 @@ class Agent(Base):
     
     # Relationships
     creator = relationship("User", back_populates="agents")
-    tasks = relationship("Task", back_populates="agent")
     reviews = relationship("AgentReview", back_populates="agent")
     original_agent = relationship("Agent", remote_side=[id])  # Self-referential for remixes
     
     # Many-to-many relationships
-    scenarios = relationship("Scenario", secondary=scenario_agents, back_populates="agents")
+    scenarios = relationship("Scenario", secondary=scenario_agents, back_populates="suggested_agents")
     favorited_by = relationship("User", secondary=user_favorite_agents, back_populates="favorite_agents")
     simulations_used_in = relationship("Simulation", secondary=simulation_agents, back_populates="executed_agents")
 
@@ -254,8 +248,15 @@ class Task(Base):
     tools = Column(JSON, nullable=True)  # Specific tools for this task
     context = Column(JSON, nullable=True)  # Additional context or constraints
     
-    # Agent assignment
-    agent_id = Column(Integer, ForeignKey("agents.id"), nullable=True)
+    # Scenario assignment (tasks belong to scenarios, not agents)
+    scenario_id = Column(Integer, ForeignKey("scenarios.id"), nullable=False)
+    
+    # Optional agent assignment (for pre-configured scenarios)
+    assigned_agent_role = Column(String, nullable=True)  # e.g., "marketing", "finance" (role-based, not specific agent)
+    
+    # Task execution order and dependencies
+    execution_order = Column(Integer, default=0)  # Order within scenario
+    depends_on_tasks = Column(JSON, nullable=True)  # Array of task IDs this depends on
     
     # Task categorization
     category = Column(String, nullable=True)  # analysis, research, planning, execution
@@ -277,10 +278,9 @@ class Task(Base):
     
     # Relationships
     creator = relationship("User", back_populates="tasks")
-    agent = relationship("Agent", back_populates="tasks")
+    scenario = relationship("Scenario", back_populates="tasks")
     
-    # Many-to-many relationships
-    scenarios = relationship("Scenario", secondary=scenario_tasks, back_populates="tasks")
+    # Simulations where this task was executed
     simulations_used_in = relationship("Simulation", secondary=simulation_tasks, back_populates="executed_tasks")
 
 class AgentReview(Base):
@@ -336,9 +336,11 @@ class Simulation(Base):
     scenario_id = Column(Integer, ForeignKey("scenarios.id"))
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
-    # Simulation configuration
-    crew_configuration = Column(JSON)  # Stores the actual CrewAI crew setup
-    process_type = Column(String, default="sequential")  # sequential, hierarchical, consensus
+    # Dynamic crew configuration
+    selected_agent_ids = Column(JSON)  # Array of agent IDs selected for this simulation
+    agent_role_assignments = Column(JSON)  # Map of agent_id -> role (e.g., {1: "marketing", 2: "finance"})
+    process_type = Column(String, default="sequential")  # sequential, hierarchical, collaborative
+    crew_configuration = Column(JSON, nullable=True)  # Stores the actual CrewAI crew setup (generated dynamically)
     
     # Execution details
     status = Column(String, default="created")  # created, running, completed, failed, failed_missing_resources

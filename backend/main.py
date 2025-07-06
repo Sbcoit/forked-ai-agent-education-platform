@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from database.connection import get_db, engine
 from database.models import Base, User, Scenario, Simulation, SimulationMessage, Agent, Task
 from database.schemas import (
-    ScenarioCreate, SimulationCreate, ChatMessage, AgentCreate, AgentResponse, AgentUpdate,
+    ScenarioCreate, SimulationCreate, DynamicSimulationCreate, ChatMessage, AgentCreate, AgentResponse, AgentUpdate,
     UserRegister, UserLogin, UserLoginResponse, UserResponse, UserUpdate, PasswordChange,
     TaskCreate, TaskResponse, TaskUpdate
 )
@@ -81,18 +81,41 @@ async def get_scenarios(db: Session = Depends(get_db)):
 
 @app.get("/scenarios/{scenario_id}")
 async def get_scenario(scenario_id: int, db: Session = Depends(get_db)):
-    """Get a specific scenario with its agents and tasks"""
-    from sqlalchemy.orm import joinedload
-    
-    scenario = db.query(Scenario)\
-        .options(joinedload(Scenario.agents))\
-        .options(joinedload(Scenario.tasks))\
-        .filter(Scenario.id == scenario_id)\
-        .first()
+    """Get a specific scenario with its tasks"""
+    scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
     
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
-    return scenario
+    
+    # Get scenario tasks
+    tasks = db.query(Task).filter(Task.scenario_id == scenario_id).order_by(Task.execution_order).all()
+    
+    return {
+        "id": scenario.id,
+        "title": scenario.title,
+        "description": scenario.description,
+        "industry": scenario.industry,
+        "challenge": scenario.challenge,
+        "learning_objectives": scenario.learning_objectives,
+        "source_type": scenario.source_type,
+        "is_public": scenario.is_public,
+        "usage_count": scenario.usage_count,
+        "created_by": scenario.created_by,
+        "created_at": scenario.created_at,
+        "tasks": [
+            {
+                "id": task.id,
+                "title": task.title,
+                "description": task.description,
+                "expected_output": task.expected_output,
+                "assigned_agent_role": task.assigned_agent_role,
+                "execution_order": task.execution_order,
+                "depends_on_tasks": task.depends_on_tasks,
+                "category": task.category,
+                "tools": task.tools
+            } for task in tasks
+        ]
+    }
 
 # --- SIMULATION MANAGEMENT ---
 @app.post("/simulations/")
@@ -265,6 +288,95 @@ async def complete_simulation(simulation_id: int, db: Session = Depends(get_db))
     
     return {"message": "Simulation completed successfully"}
 
+# --- DYNAMIC CREW SIMULATION (CrewAI-Aligned) ---
+@app.post("/simulations/dynamic/")
+async def start_dynamic_simulation(
+    simulation: DynamicSimulationCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Start a new simulation with dynamic crew assembly (CrewAI-aligned workflow)"""
+    
+    # Get the scenario with its tasks
+    scenario = db.query(Scenario).filter(
+        Scenario.id == simulation.scenario_id
+    ).first()
+    
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    
+    # Get scenario tasks
+    scenario_tasks = db.query(Task).filter(
+        Task.scenario_id == simulation.scenario_id
+    ).all()
+    
+    if not scenario_tasks:
+        raise HTTPException(status_code=400, detail="Scenario has no tasks defined")
+    
+    # Get selected agents
+    agents = db.query(Agent).filter(
+        Agent.id.in_(simulation.selected_agent_ids)
+    ).all()
+    
+    if len(agents) != len(simulation.selected_agent_ids):
+        raise HTTPException(status_code=400, detail="One or more selected agents not found")
+    
+    # Validate process type
+    valid_processes = ["sequential", "hierarchical", "collaborative"]
+    if simulation.process_type not in valid_processes:
+        raise HTTPException(status_code=400, detail=f"Invalid process type. Must be one of: {valid_processes}")
+    
+    # Create simulation record
+    db_simulation = Simulation(
+        scenario_id=simulation.scenario_id,
+        user_id=current_user.id,
+        selected_agent_ids=simulation.selected_agent_ids,
+        agent_role_assignments=simulation.agent_role_assignments or {},
+        process_type=simulation.process_type,
+        status="created"
+    )
+    
+    db.add(db_simulation)
+    db.commit()
+    db.refresh(db_simulation)
+    
+    # Return simulation details with crew composition
+    return {
+        "simulation_id": db_simulation.id,
+        "scenario": {
+            "id": scenario.id,
+            "title": scenario.title,
+            "description": scenario.description,
+            "industry": scenario.industry,
+            "challenge": scenario.challenge,
+            "tasks": [
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "description": task.description,
+                    "expected_output": task.expected_output,
+                    "assigned_agent_role": task.assigned_agent_role,
+                    "execution_order": task.execution_order
+                } for task in scenario_tasks
+            ]
+        },
+        "crew": {
+            "agents": [
+                {
+                    "id": agent.id,
+                    "name": agent.name,
+                    "role": agent.role,
+                    "assigned_role": simulation.agent_role_assignments.get(str(agent.id)) if simulation.agent_role_assignments else None
+                } for agent in agents
+            ],
+            "process_type": simulation.process_type,
+            "total_agents": len(agents),
+            "total_tasks": len(scenario_tasks)
+        },
+        "status": "ready",
+        "message": f"Dynamic crew assembled! {len(agents)} agents ready to tackle {len(scenario_tasks)} tasks using {simulation.process_type} process."
+    }
+
 @app.post("/simulations/{simulation_id}/human-input/")
 async def provide_human_input(
     simulation_id: int, 
@@ -399,32 +511,59 @@ async def get_user_agents(user_id: int, db: Session = Depends(get_db)):
     """Get all agents created by a specific user"""
     return db.query(Agent).filter(Agent.created_by == user_id).all()
 
-# --- TASK MANAGEMENT ---
-@app.post("/tasks/", response_model=TaskResponse)
-async def create_task(
+# --- TASK MANAGEMENT (CrewAI-Aligned: Tasks belong to scenarios) ---
+@app.post("/scenarios/{scenario_id}/tasks/", response_model=TaskResponse)
+async def create_scenario_task(
+    scenario_id: int,
     task: TaskCreate, 
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Create a new task (requires authentication)"""
+    """Create a new task for a specific scenario (requires authentication)"""
+    
+    # Verify scenario exists and user has access
+    scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    
+    # Check if user owns the scenario or if it's public
+    if scenario.created_by != current_user.id and not scenario.is_public:
+        raise HTTPException(status_code=403, detail="Not authorized to add tasks to this scenario")
+    
+    # Ensure task belongs to the correct scenario
+    if task.scenario_id != scenario_id:
+        raise HTTPException(status_code=400, detail="Task scenario_id must match URL parameter")
+    
     db_task = Task(
         title=task.title,
         description=task.description,
         expected_output=task.expected_output,
+        scenario_id=task.scenario_id,
         tools=task.tools,
         context=task.context,
-        agent_id=task.agent_id,
+        assigned_agent_role=task.assigned_agent_role,
+        execution_order=task.execution_order,
+        depends_on_tasks=task.depends_on_tasks,
         category=task.category,
         tags=task.tags,
         is_public=task.is_public,
         is_template=task.is_template,
         allow_remixes=task.allow_remixes,
-        created_by=current_user.id  # Automatically link to authenticated user
+        created_by=current_user.id
     )
     db.add(db_task)
     db.commit()
     db.refresh(db_task)
     return db_task
+
+@app.post("/tasks/", response_model=TaskResponse)  
+async def create_task_legacy(
+    task: TaskCreate, 
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new task (legacy endpoint - redirects to scenario-based creation)"""
+    return await create_scenario_task(task.scenario_id, task, current_user, db)
 
 @app.get("/tasks/", response_model=List[TaskResponse])
 async def get_tasks(db: Session = Depends(get_db)):
@@ -470,10 +609,10 @@ async def get_user_tasks(user_id: int, db: Session = Depends(get_db)):
     """Get all tasks created by a specific user"""
     return db.query(Task).filter(Task.created_by == user_id).all()
 
-@app.get("/tasks/agent/{agent_id}", response_model=List[TaskResponse])
-async def get_agent_tasks(agent_id: int, db: Session = Depends(get_db)):
-    """Get all tasks assigned to a specific agent"""
-    return db.query(Task).filter(Task.agent_id == agent_id).all()
+@app.get("/scenarios/{scenario_id}/tasks/", response_model=List[TaskResponse])
+async def get_scenario_tasks(scenario_id: int, db: Session = Depends(get_db)):
+    """Get all tasks for a specific scenario"""
+    return db.query(Task).filter(Task.scenario_id == scenario_id).order_by(Task.execution_order).all()
 
 # --- USER AUTHENTICATION & MANAGEMENT ---
 @app.post("/users/register", response_model=UserResponse)

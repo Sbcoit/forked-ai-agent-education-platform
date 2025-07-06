@@ -107,7 +107,13 @@ async def start_simulation(simulation: SimulationCreate, db: Session = Depends(g
     
     return {
         "simulation_id": db_simulation.id,
-        "scenario": scenario,
+        "scenario": {
+            "id": scenario.id,
+            "title": scenario.title,
+            "description": scenario.description,
+            "industry": scenario.industry,
+            "challenge": scenario.challenge
+        },
         "status": "ready",
         "message": "Simulation started! Send your first message to interact with the crew."
     }
@@ -182,7 +188,13 @@ async def get_simulation_history(simulation_id: int, db: Session = Depends(get_d
     
     return {
         "simulation_id": simulation_id,
-        "scenario": simulation.scenario,
+        "scenario": {
+            "id": simulation.scenario.id,
+            "title": simulation.scenario.title,
+            "description": simulation.scenario.description,
+            "industry": simulation.scenario.industry,
+            "challenge": simulation.scenario.challenge
+        },
         "messages": messages,
         "status": simulation.status
     }

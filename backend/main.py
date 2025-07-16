@@ -17,7 +17,8 @@ from utilities.auth import (
     get_password_hash, authenticate_user, create_access_token, get_current_user, 
     get_current_user_optional, require_admin
 )
-from services.crew_executor import CrewExecutor
+# from services.crew_executor import CrewExecutor
+from api.parse_pdf import router as parse_pdf_router
 
 # Create database tables (only if they don't exist)
 Base.metadata.create_all(bind=engine)
@@ -36,6 +37,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(parse_pdf_router)
 
 @app.get("/")
 async def root():
@@ -177,58 +180,58 @@ async def chat_with_crew(
     
     try:
         # Initialize CrewExecutor
-        crew_executor = CrewExecutor(db)
+        # crew_executor = CrewExecutor(db)
         
         # Execute the crew simulation
-        result = await crew_executor.execute_crew_simulation(
-            simulation_id=simulation_id,
-            user_message=chat_message.message
-        )
+        # result = await crew_executor.execute_crew_simulation(
+        #     simulation_id=simulation_id,
+        #     user_message=chat_message.message
+        # )
         
-        if result["success"]:
+        # if result["success"]:
             # Save the conversation with crew output
-            db_message = SimulationMessage(
-                simulation_id=simulation_id,
-                user_message=chat_message.message,
-                crew_response=result["crew_output"]
-            )
-            db.add(db_message)
+        db_message = SimulationMessage(
+            simulation_id=simulation_id,
+            user_message=chat_message.message,
+            crew_response=f"CrewAI simulation is currently disabled. This endpoint will be re-enabled when CrewAI is integrated."
+        )
+        db.add(db_message)
             
             # Save individual agent outputs as separate messages
-            for output in result["individual_outputs"]:
-                agent_message = SimulationMessage(
-                    simulation_id=simulation_id,
-                    user_message="",
-                    crew_response=f"**{output['agent_name']}**: {output['output']}",
-                    message_type="agent_output"
-                )
-                db.add(agent_message)
+        # for output in result["individual_outputs"]:
+        #     agent_message = SimulationMessage(
+        #         simulation_id=simulation_id,
+        #         user_message="",
+        #         crew_response=f"**{output['agent_name']}**: {output['output']}",
+        #         message_type="agent_output"
+        #     )
+        #     db.add(agent_message)
             
-            db.commit()
+        db.commit()
             
-            return {
-                "simulation_id": simulation_id,
-                "user_message": chat_message.message,
-                "crew_response": result["crew_output"],
-                "individual_outputs": result["individual_outputs"],
-                "agents_used": result["agents_used"],
-                "tasks_completed": result["tasks_completed"],
-                "timestamp": datetime.now().isoformat()
-            }
-        else:
-            # Handle execution failure
-            error_message = f"Crew execution failed: {result['error']}"
+        return {
+            "simulation_id": simulation_id,
+            "user_message": chat_message.message,
+            "crew_response": f"CrewAI simulation is currently disabled. This endpoint will be re-enabled when CrewAI is integrated.",
+            "individual_outputs": [],
+            "agents_used": [],
+            "tasks_completed": [],
+            "timestamp": datetime.now().isoformat()
+        }
+        # else:
+        #     # Handle execution failure
+        #     error_message = f"Crew execution failed: {result['error']}"
             
-            db_message = SimulationMessage(
-                simulation_id=simulation_id,
-                user_message=chat_message.message,
-                crew_response=error_message,
-                message_type="error"
-            )
-            db.add(db_message)
-            db.commit()
+        #     db_message = SimulationMessage(
+        #         simulation_id=simulation_id,
+        #         user_message=chat_message.message,
+        #         crew_response=error_message,
+        #         message_type="error"
+        #     )
+        #     db.add(db_message)
+        #     db.commit()
             
-            raise HTTPException(status_code=500, detail=error_message)
+        #     raise HTTPException(status_code=500, detail=error_message)
         
     except Exception as e:
         # Handle unexpected errors

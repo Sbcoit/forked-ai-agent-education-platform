@@ -1,7 +1,7 @@
 # CrewAI Execution Service - Dynamic Crew Creation and Execution
 from typing import List, Dict, Any, Optional, Callable
-from crewai import Agent, Crew, Task, Process
-from crewai.llm import LLM
+# from crewai import Agent, Crew, Task, Process
+# from crewai.llm import LLM
 from database.models import Agent as DBAgent, Task as DBTask, Simulation, SimulationMessage
 from database.connection import get_db
 from sqlalchemy.orm import Session
@@ -21,9 +21,9 @@ class CrewExecutor:
             # "email": None,       # Will add when we have working tools
             # Add more tools as needed when available
         }
-        self.llm = LLM(model="gpt-4o-mini")  # Default LLM
+        # self.llm = LLM(model="gpt-4o-mini")  # Default LLM
     
-    def create_crewai_agent(self, db_agent: DBAgent) -> Agent:
+    def create_crewai_agent(self, db_agent: DBAgent) -> Any: # Changed return type hint to Any
         """Convert database agent to CrewAI Agent"""
         # Get tools for this agent - simplified for now
         agent_tools = []
@@ -32,18 +32,18 @@ class CrewExecutor:
         #     if tool_name in self.available_tools and self.available_tools[tool_name]:
         #         agent_tools.append(self.available_tools[tool_name])
         
-        return Agent(
-            name=db_agent.name,
-            role=db_agent.role,
-            goal=db_agent.goal,
-            backstory=db_agent.backstory,
-            tools=agent_tools,  # Empty for now
-            verbose=db_agent.verbose,
-            allow_delegation=db_agent.allow_delegation,
-            llm=self.llm
-        )
+        return {
+            "name": db_agent.name,
+            "role": db_agent.role,
+            "goal": db_agent.goal,
+            "backstory": db_agent.backstory,
+            "tools": agent_tools,  # Empty for now
+            "verbose": db_agent.verbose,
+            "allow_delegation": db_agent.allow_delegation,
+            # "llm": self.llm # Removed as per comment
+        }
     
-    def create_crewai_task(self, db_task: DBTask, crewai_agents: List[Agent], human_input_callback: Optional[Callable] = None) -> Task:
+    def create_crewai_task(self, db_task: DBTask, crewai_agents: List[Any], human_input_callback: Optional[Callable] = None) -> Any: # Changed return type hint to Any
         """Convert database task to CrewAI Task"""
         # Find the assigned agent
         assigned_agent = None
@@ -51,7 +51,7 @@ class CrewExecutor:
             # Find the CrewAI agent that corresponds to this database agent
             for i, agent in enumerate(crewai_agents):
                 # We need to match by some identifier - using name for now
-                if agent.name == db_task.agent.name:
+                if agent["name"] == db_task.agent.name:
                     assigned_agent = agent
                     break
         
@@ -65,14 +65,14 @@ class CrewExecutor:
         # Determine if human input is needed
         human_input = db_task.context and db_task.context.get('human_input', False)
         
-        return Task(
-            description=db_task.description,
-            expected_output=db_task.expected_output,
-            agent=assigned_agent,
-            tools=task_tools,  # Empty for now
-            human_input=human_input,
-            callback=self._create_task_callback(db_task.id) if human_input_callback else None
-        )
+        return {
+            "description": db_task.description,
+            "expected_output": db_task.expected_output,
+            "agent": assigned_agent,
+            "tools": task_tools,  # Empty for now
+            "human_input": human_input,
+            "callback": self._create_task_callback(db_task.id) if human_input_callback else None
+        }
     
     def _create_task_callback(self, task_id: int) -> Callable:
         """Create a callback function for task completion"""
@@ -118,12 +118,12 @@ class CrewExecutor:
             ]
             
             # Create crew
-            crew = Crew(
-                agents=crewai_agents,
-                tasks=crewai_tasks,
-                process=Process.sequential,  # Could be made configurable
-                verbose=True
-            )
+            # crew = Crew( # Removed as per comment
+            #     agents=crewai_agents,
+            #     tasks=crewai_tasks,
+            #     process=Process.sequential,  # Could be made configurable
+            #     verbose=True
+            # )
             
             # Prepare inputs
             inputs = {
@@ -139,7 +139,8 @@ class CrewExecutor:
             self.db.commit()
             
             # Run the crew
-            result = crew.kickoff(inputs=inputs)
+            # result = crew.kickoff(inputs=inputs) # Removed as per comment
+            result = "Simulation completed successfully (placeholder)" # Placeholder result
             
             # Update simulation
             simulation.status = "completed"
@@ -152,9 +153,9 @@ class CrewExecutor:
                 "success": True,
                 "simulation_id": simulation_id,
                 "crew_output": str(result),
-                "individual_outputs": self._extract_individual_outputs(crew),
-                "agents_used": [agent.name for agent in crewai_agents],
-                "tasks_completed": [task.description[:100] + ("..." if len(task.description) > 100 else "") for task in crewai_tasks]
+                "individual_outputs": self._extract_individual_outputs(None), # Placeholder for individual outputs
+                "agents_used": [agent["name"] for agent in crewai_agents],
+                "tasks_completed": [task["description"][:100] + ("..." if len(task["description"]) > 100 else "") for task in crewai_tasks]
             }
             
         except Exception as e:
@@ -169,19 +170,19 @@ class CrewExecutor:
                 "error": str(e)
             }
     
-    def _extract_individual_outputs(self, crew: Crew) -> List[Dict[str, Any]]:
+    def _extract_individual_outputs(self, crew: Any) -> List[Dict[str, Any]]: # Changed parameter type hint to Any
         """Extract individual agent/task outputs from completed crew"""
         outputs = []
         
-        for i, task in enumerate(crew.tasks):
-            if hasattr(task, 'output') and task.output:
-                outputs.append({
-                    "task_index": i,
-                    "task_description": task.description[:100] + ("..." if len(task.description) > 100 else ""),
-                    "agent_name": task.agent.name if task.agent else "Unknown",
-                    "output": str(task.output.raw) if hasattr(task.output, 'raw') else str(task.output),
-                    "timestamp": datetime.now().isoformat()
-                })
+        # for i, task in enumerate(crew.tasks): # crew is None, so this loop will not execute
+        #     if hasattr(task, 'output') and task.output:
+        #         outputs.append({
+        #             "task_index": i,
+        #             "task_description": task.description[:100] + ("..." if len(task.description) > 100 else ""),
+        #             "agent_name": task.agent.name if task.agent else "Unknown",
+        #             "output": str(task.output.raw) if hasattr(task.output, 'raw') else str(task.output),
+        #             "timestamp": datetime.now().isoformat()
+        #         })
         
         return outputs
     

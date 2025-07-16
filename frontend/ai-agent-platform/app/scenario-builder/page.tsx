@@ -1,957 +1,431 @@
 "use client"
 
-import type React from "react"
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import React, { useState, useRef } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, FileText, Upload, Bot, Plus, X, Wand2, Save, Play, AlertCircle, CheckCircle } from "lucide-react"
-import { useAuth } from "@/lib/auth-context"
-import { apiClient, Agent } from "@/lib/api"
+import { Button } from "@/components/ui/button"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { Progress } from "@/components/ui/progress"
+import { Upload, Info, Users, Activity, Sparkles } from "lucide-react"
+import Link from "next/link"
 
 export default function ScenarioBuilder() {
-  const router = useRouter()
-  const { user, isAuthenticated } = useAuth()
-  
-  const [scenarioTitle, setScenarioTitle] = useState("")
-  const [scenarioDescription, setScenarioDescription] = useState("")
-  const [scenarioIndustry, setScenarioIndustry] = useState("")
-  const [scenarioChallenge, setScenarioChallenge] = useState("")
-  const [learningObjectives, setLearningObjectives] = useState<string[]>([])
-  const [newObjective, setNewObjective] = useState("")
-  
-  // Task management state
-  const [scenarioTasks, setScenarioTasks] = useState<Array<{
-    id: string;
-    title: string;
-    description: string;
-    expected_output: string;
-    assigned_agent_role?: string;
-    execution_order: number;
-    depends_on_tasks: string[];
-    category?: string;
-    tools: string[];
-  }>>([])
-  const [taskTitle, setTaskTitle] = useState("")
-  const [taskDescription, setTaskDescription] = useState("")
-  const [taskExpectedOutput, setTaskExpectedOutput] = useState("")
-  const [taskAgentRole, setTaskAgentRole] = useState("")
-  const [taskCategory, setTaskCategory] = useState("")
-  const [taskTools, setTaskTools] = useState<string[]>([])
-  const [taskDependencies, setTaskDependencies] = useState<string[]>([])
-  
-  const [availableAgents, setAvailableAgents] = useState<Agent[]>([])
-  const [selectedAgents, setSelectedAgents] = useState<Agent[]>([])
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
-  const [aiSuggestions, setAiSuggestions] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [name, setName] = useState("")
+  const [description, setDescription] = useState("")
+  const [learningOutcomes, setLearningOutcomes] = useState("")
+  const [autofillLoading, setAutofillLoading] = useState(false)
+  const [autofillError, setAutofillError] = useState<string | null>(null)
+  const [autofillResult, setAutofillResult] = useState<any>(null)
+  const [autofillStep, setAutofillStep] = useState<string>("")
+  const [autofillProgress, setAutofillProgress] = useState(0)
+  const [autofillMaxAttempts, setAutofillMaxAttempts] = useState(60)
+  const [isDragOver, setIsDragOver] = useState(false)
 
-  const industries = [
-    "Technology", "Finance", "Healthcare", "Education", "Manufacturing", 
-    "Retail", "E-commerce", "Real Estate", "Marketing", "Consulting"
-  ]
+  // Placeholder handlers for personas and timeline
+  const handleAddPersona = () => {}
+  const handleAddScene = () => {}
 
-  const taskCategories = [
-    "analysis", "research", "planning", "execution", "communication",
-    "data_processing", "content_creation", "decision_making", "monitoring"
-  ]
+  // Handler to clear the uploaded file and open the file picker
+  const handleChooseDifferentFile = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setUploadedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
-  const agentRoles = [
-    "marketing", "finance", "product", "operations", "sales", 
-    "customer_service", "hr", "legal", "technical", "strategy"
-  ]
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) setUploadedFile(file)
+  }
 
-  const availableTools = [
-    "web_search", "calculator", "email", "database_query", "file_reader",
-    "api_caller", "data_analysis", "report_generator", "social_media"
-  ]
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }
 
-  // Redirect to login if not authenticated
-  useEffect(() => {
-    if (!user && !loading) {
-      router.push('/login')
-    }
-  }, [user, router, loading])
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+  }
 
-  // Fetch available agents
-  useEffect(() => {
-    const fetchAgents = async () => {
-      if (!isAuthenticated) return
-      
-      try {
-        const agents = await apiClient.getAgents()
-        setAvailableAgents(agents)
-      } catch (err) {
-        console.error('Error fetching agents:', err)
-        setError('Failed to load agents')
-      } finally {
-        setLoading(false)
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    
+    const files = Array.from(e.dataTransfer.files)
+    const pdfFile = files.find(file => file.type === "application/pdf")
+    
+    if (pdfFile) {
+      setUploadedFile(pdfFile)
+      // Clear the file input value to ensure it updates
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ""
       }
-    }
-
-    if (isAuthenticated) {
-      fetchAgents()
-    }
-  }, [isAuthenticated])
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file && file.type === "application/pdf") {
-      setUploadedFile(file)
-      // Simulate AI analysis
-      setTimeout(() => {
-        setAiSuggestions([
-          {
-            type: "scenario",
-            title: "E-commerce Customer Journey Optimization",
-            description: "Based on your PDF, this scenario focuses on improving customer experience across the purchase funnel.",
-            industry: "E-commerce",
-            challenge: "Optimizing customer conversion rates and reducing cart abandonment",
-            objectives: [
-              "Analyze customer behavior patterns",
-              "Identify conversion bottlenecks",
-              "Implement targeted improvements",
-              "Measure impact on key metrics"
-            ]
-          },
-          {
-            type: "agents",
-            suggestions: availableAgents.slice(0, 3).map(agent => ({
-              ...agent,
-              relevance: Math.floor(Math.random() * 20) + 80
-            }))
-          }
-        ])
-      }, 2000)
+    } else {
+      alert("Please drop a PDF file")
     }
   }
 
-  const addAgent = (agent: Agent) => {
-    if (!selectedAgents.find((a) => a.id === agent.id)) {
-      setSelectedAgents([...selectedAgents, agent])
-    }
-  }
-
-  const removeAgent = (agentId: number) => {
-    setSelectedAgents(selectedAgents.filter((a) => a.id !== agentId))
-  }
-
-  const addLearningObjective = () => {
-    if (newObjective.trim() && !learningObjectives.includes(newObjective.trim())) {
-      setLearningObjectives([...learningObjectives, newObjective.trim()])
-      setNewObjective("")
-    }
-  }
-
-  const removeLearningObjective = (index: number) => {
-    setLearningObjectives(learningObjectives.filter((_, i) => i !== index))
-  }
-
-  // Task management functions
-  const addTask = () => {
-    if (!taskTitle.trim() || !taskDescription.trim() || !taskExpectedOutput.trim()) {
-      setError('Please fill in all required task fields')
-      return
-    }
-
-    const newTask = {
-      id: Date.now().toString(),
-      title: taskTitle.trim(),
-      description: taskDescription.trim(),
-      expected_output: taskExpectedOutput.trim(),
-      assigned_agent_role: taskAgentRole || undefined,
-      execution_order: scenarioTasks.length + 1,
-      depends_on_tasks: taskDependencies,
-      category: taskCategory || undefined,
-      tools: taskTools
-    }
-
-    setScenarioTasks([...scenarioTasks, newTask])
+  const handleAutofill = async () => {
+    if (!uploadedFile) return;
+    setAutofillLoading(true);
+    setAutofillError(null);
+    setAutofillResult(null);
+    setAutofillStep("Uploading PDF...");
+    setAutofillProgress(0);
     
-    // Clear task form
-    setTaskTitle("")
-    setTaskDescription("")
-    setTaskExpectedOutput("")
-    setTaskAgentRole("")
-    setTaskCategory("")
-    setTaskTools([])
-    setTaskDependencies([])
-    setError(null)
-  }
-
-  const removeTask = (taskId: string) => {
-    setScenarioTasks(scenarioTasks.filter(task => task.id !== taskId))
-    // Remove this task from dependencies of other tasks
-    setScenarioTasks(prevTasks => 
-      prevTasks.map(task => ({
-        ...task,
-        depends_on_tasks: task.depends_on_tasks.filter(depId => depId !== taskId)
-      }))
-    )
-  }
-
-  const toggleTaskTool = (toolId: string) => {
-    setTaskTools(prev => 
-      prev.includes(toolId) 
-        ? prev.filter(id => id !== toolId)
-        : [...prev, toolId]
-    )
-  }
-
-  const toggleTaskDependency = (taskId: string) => {
-    setTaskDependencies(prev => 
-      prev.includes(taskId) 
-        ? prev.filter(id => id !== taskId)
-        : [...prev, taskId]
-    )
-  }
-
-  const applySuggestion = (suggestion: any) => {
-    if (suggestion.type === "scenario") {
-      setScenarioTitle(suggestion.title)
-      setScenarioDescription(suggestion.description)
-      setScenarioIndustry(suggestion.industry)
-      setScenarioChallenge(suggestion.challenge)
-      setLearningObjectives(suggestion.objectives)
-    }
-  }
-
-  const saveScenario = async () => {
-    if (!isAuthenticated) return
-    
-    if (!scenarioTitle.trim() || !scenarioDescription.trim() || !scenarioIndustry.trim() || !scenarioChallenge.trim()) {
-      setError('Please fill in all required fields')
-      return
-    }
-
-    if (learningObjectives.length === 0) {
-      setError('Please add at least one learning objective')
-      return
-    }
-
-    if (scenarioTasks.length === 0) {
-      setError('Please add at least one task to the scenario')
-      return
-    }
-
     try {
-      setSaving(true)
-      setError(null)
-
-      const scenarioData = {
-        title: scenarioTitle.trim(),
-        description: scenarioDescription.trim(),
-        industry: scenarioIndustry,
-        challenge: scenarioChallenge.trim(),
-        learning_objectives: learningObjectives,
-        source_type: uploadedFile ? 'pdf' as const : 'manual' as const,
-        pdf_content: uploadedFile ? 'PDF content would be processed here' : undefined,
-        is_public: false,
-        is_template: false,
-        allow_remixes: true,
+      // Step 1: Upload PDF and get job ID immediately
+      const formData = new FormData();
+      formData.append("file", uploadedFile);
+      const response = await fetch("http://127.0.0.1:8000/api/parse-pdf/", {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error("Failed to upload PDF");
       }
-
-      const newScenario = await apiClient.createScenario(scenarioData)
-      setSuccess('Scenario created successfully!')
       
-      // Reset form
-      setTimeout(() => {
-        setScenarioTitle("")
-        setScenarioDescription("")
-        setScenarioIndustry("")
-        setScenarioChallenge("")
-        setLearningObjectives([])
-        setSelectedAgents([])
-        setUploadedFile(null)
-        setAiSuggestions([])
-        setSuccess(null)
-      }, 2000)
+      const uploadData = await response.json();
+      const jobId = uploadData.job_id;
       
-    } catch (err) {
-      console.error('Error creating scenario:', err)
-      setError('Failed to create scenario. Please try again.')
+      if (!jobId) {
+        throw new Error("No job ID received from LlamaParse");
+      }
+      
+      console.log("PDF uploaded, job ID:", jobId);
+      setAutofillStep("Parsing PDF content...");
+      setAutofillProgress(10); // Upload complete
+      
+      // Step 2: Poll for completion status
+      let attempts = 0;
+      const maxAttempts = 60; // 3 minutes with 3-second intervals
+      setAutofillMaxAttempts(maxAttempts);
+      
+      while (attempts < maxAttempts) {
+        attempts++;
+        const progressPercent = Math.min(10 + (attempts / maxAttempts) * 80, 90); // 10% to 90%
+        setAutofillProgress(progressPercent);
+        setAutofillStep(`Parsing PDF content... (${attempts}/${maxAttempts})`);
+        
+        // Check status
+        const statusResponse = await fetch(`http://127.0.0.1:8000/api/parse-pdf/status/${jobId}`);
+        if (!statusResponse.ok) {
+          throw new Error("Failed to check parsing status");
+        }
+        
+        const statusData = await statusResponse.json();
+        console.log(`Attempt ${attempts}: Status = ${statusData.status}`);
+        
+        if (statusData.status === "SUCCESS" || statusData.status === "COMPLETED") {
+          // Get the result
+          setAutofillStep("Getting parsed content...");
+          setAutofillProgress(95);
+          const resultResponse = await fetch(`http://127.0.0.1:8000/api/parse-pdf/result/${jobId}`);
+          
+          if (!resultResponse.ok) {
+            throw new Error("Failed to get parsing result");
+          }
+          
+          const resultData = await resultResponse.json();
+          console.log("Parse result:", resultData);
+          
+          if (resultData.status === "completed") {
+            setAutofillStep("Complete!");
+            setAutofillProgress(100);
+            setAutofillResult(resultData);
+            
+            // Populate form fields with AI results
+            if (resultData.ai_result) {
+              const aiData = resultData.ai_result;
+              console.log("AI Result:", aiData);
+              console.log("AI Result keys:", Object.keys(aiData));
+              
+              // Set the title
+              if (aiData.title) {
+                console.log("Setting title:", aiData.title);
+                setName(aiData.title);
+              } else {
+                console.log("No title found in AI result");
+              }
+              
+              // Set the description
+              if (aiData.description) {
+                console.log("Setting description:", aiData.description);
+                setDescription(aiData.description);
+              } else {
+                console.log("No description found in AI result");
+                console.log("Description field value:", aiData.description);
+              }
+              
+              // Set the learning outcomes
+              if (aiData.learning_outcomes && Array.isArray(aiData.learning_outcomes)) {
+                console.log("Setting learning outcomes:", aiData.learning_outcomes);
+                setLearningOutcomes(aiData.learning_outcomes.join('\n'));
+              } else {
+                console.log("No learning outcomes found in AI result");
+              }
+            } else {
+              console.log("No AI result found in response:", resultData);
+              console.log("Full result data:", resultData);
+            }
+            
+            return;
+          } else {
+            throw new Error(`Failed to get result: ${resultData.error}`);
+          }
+          
+        } else if (statusData.status === "FAILED") {
+          throw new Error(`Parsing failed: ${statusData.error || 'Unknown error'}`);
+        } else if (statusData.status === "PENDING") {
+          // Wait before next attempt
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          continue;
+        } else {
+          // Unknown status, wait and continue
+          console.log(`Unknown status: ${statusData.status}, waiting...`);
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          continue;
+        }
+      }
+      
+      // Max attempts reached
+      throw new Error("Parsing timed out. Please try again.");
+      
+    } catch (err: any) {
+      setAutofillError(err.message || "Unknown error");
+      console.error("Autofill error:", err);
     } finally {
-      setSaving(false)
+      setAutofillLoading(false);
+      setAutofillStep("");
+      setAutofillProgress(0);
     }
-  }
+  };
 
-  const testScenario = async () => {
-    if (!scenarioTitle.trim()) {
-      setError('Please enter a scenario title first')
-      return
-    }
-    
-    // For now, just navigate to simulation page
-    router.push('/simulation')
-  }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p>Loading scenario builder...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (!user) {
-    return null // Will redirect to login
-  }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      {/* Header */}
-      <header className="border-b border-yellow-500/20 bg-black/50 backdrop-blur-sm">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/dashboard">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Dashboard
+    <div className="min-h-screen bg-background text-foreground flex flex-col items-center py-10 px-2">
+      {/* Left overlay sidebar */}
+      <div className="fixed top-0 left-0 h-full w-72 z-50 bg-black shadow-2xl flex flex-col items-start pl-8 pt-8">
+        <h1 className="mb-10 text-white text-xl font-bold mb-6">
+          Simulation Builder
+        </h1>
+        <Link href="/dashboard" className="mb-6">
+          <button className="bg-white text-black rounded px-4 py-2 font-medium shadow hover:bg-gray-200 transition">Back to Dashboard</button>
               </Link>
-            </Button>
-            <div className="flex items-center space-x-2">
-              <FileText className="h-6 w-6 text-yellow-500" />
-              <span className="text-xl font-bold">Scenario Builder</span>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={testScenario}
-              className="border-yellow-500/30 text-yellow-500 bg-transparent"
-            >
-              <Play className="h-4 w-4 mr-2" />
-              Test Scenario
-            </Button>
-            <Button 
-              size="sm" 
-              onClick={saveScenario}
-              disabled={saving}
-              className="bg-yellow-500 text-black hover:bg-yellow-400"
-            >
-              {saving ? (
-                <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin mr-2" />
-              ) : (
-                <Save className="h-4 w-4 mr-2" />
-              )}
-              {saving ? 'Saving...' : 'Save Scenario'}
-            </Button>
-          </div>
+        {/* Add sidebar navigation or content here */}
+      </div>
+      {/* Add left padding to prevent content from being hidden under the sidebar */}
+      <div className="w-72 h-0" />
+      {/* Top overlay bar */}
+      <div className="fixed top-0 left-0 w-full z-40 bg-background shadow-lg flex items-center justify-between h-14 px-8">
+        <span className="text-lg font-semibold">Simulation Builder</span>
+        <div className="flex gap-4">
+          <button className="bg-white text-black rounded px-4 py-2 font-medium shadow hover:bg-gray-200 transition">Save</button>
+          <button className="bg-black text-white rounded px-4 py-2 font-medium shadow hover:bg-gray-800 transition">Publish</button>
         </div>
-      </header>
-
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-6xl mx-auto">
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2">Create Test Scenario</h1>
-            <p className="text-gray-400">Design scenarios to test your AI agents in realistic environments</p>
+      </div>
+      {/* Add top padding to prevent content from being hidden under the bar */}
+      <div className="h-14" />
+      {/* Main content shifted further right to avoid sidebar overlap */}
+      <div className="pl-[26rem] w-full">
+        {/* Header and Upload Row */}
+        <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 items-start">
+          {/* Left: Title and Subtitle */}
+          <div className="flex flex-col gap-2">
+            <h1 className="text-2xl font-bold">Upload your Business Case Study</h1>
+            <p className="text-muted-foreground text-sm">We will analyze the contents and autofill the configuration for you.</p>
           </div>
+          {/* Right: Drag and Drop File Upload Box */}
+          <div
+            className={`border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 flex flex-col items-center justify-center min-h-[120px] cursor-pointer ${
+              isDragOver 
+                ? 'border-blue-500 bg-blue-50 scale-105' 
+                : uploadedFile && uploadedFile.type === "application/pdf"
+                ? 'border-green-500 bg-green-50'
+                : 'border-gray-300 bg-card hover:border-gray-400'
+            }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploadedFile && uploadedFile.type === "application/pdf" ? (
+              <span className="flex flex-col items-center">
+                {/* Simple PDF icon using SVG */}
+                <svg className="h-10 w-10 mx-auto mb-2 text-red-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6H6z" />
+                  <path d="M14 2v6h6" />
+                </svg>
+                <span className="text-xs text-red-500 font-semibold">PDF attached</span>
+              </span>
+            ) : (
+              <Upload className={`h-10 w-10 mx-auto mb-2 ${isDragOver ? 'text-blue-500' : 'text-muted-foreground'}`} />
+            )}
+            
+            {!(uploadedFile && uploadedFile.type === "application/pdf") && (
+              <span className={`font-medium ${isDragOver ? 'text-blue-600' : 'text-muted-foreground'}`}>
+                {isDragOver ? (
+                  <span>Drop your PDF here</span>
+                ) : (
+                  <span><span className="underline">Click here</span> to upload your PDF or drag and drop</span>
+                )}
+              </span>
+            )}
+            
+            <input
+              id="file-upload"
+              type="file"
+              accept=".pdf"
+              className="hidden"
+              onChange={handleFileChange}
+              ref={fileInputRef}
+            />
+            
+            {uploadedFile && (
+              <div className="mt-2 text-primary text-sm font-medium">{uploadedFile.name}</div>
+            )}
+          </div>
+          <div className="flex gap-2 justify-right">
 
-          {error && (
-            <Card className="mb-6 bg-red-500/10 border-red-500/30">
-              <CardContent className="pt-6">
-                <div className="flex items-center space-x-2 text-red-400">
-                  <AlertCircle className="h-5 w-5" />
-                  <p>{error}</p>
-                </div>
-              </CardContent>
-            </Card>
+          </div>
+          {/* Buttons directly below the upload box, perfectly aligned */}
+          {uploadedFile && (
+            <div className="flex ml-25 gap-2 justify-right">
+              {/* Choose a different file */}
+              <label htmlFor="file-upload" className="cursor-pointer m-0">
+                <button
+                  type="button"
+                  onClick={handleChooseDifferentFile}
+                  className="bg-white text-black rounded px-4 py-2 font-medium shadow hover:bg-gray-200 transition border border-gray-300 w-full h-full align-middle"
+                >
+                  Choose a different file
+                </button>
+              </label>
+              {/* Use and autofill */}
+              <button
+                className="bg-black text-white rounded px-2 py-2 font-medium shadow hover:bg-gray-800 transition border border-black w-1000 h-10 align-middle flex items-center justify-center"
+                onClick={handleAutofill}
+                disabled={autofillLoading}
+              >
+                <Sparkles className="mr-2 h-4 w-4 text-white inline" />
+                Use and autofill
+              </button>
+            </div>
           )}
-
-          {success && (
-            <Card className="mb-6 bg-green-500/10 border-green-500/30">
-              <CardContent className="pt-6">
-                <div className="flex items-center space-x-2 text-green-400">
-                  <CheckCircle className="h-5 w-5" />
-                  <p>{success}</p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <Tabs defaultValue="source" className="space-y-6">
-            <TabsList className="grid w-full grid-cols-5 bg-gray-900">
-              <TabsTrigger value="source" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
-                Scenario Source
-              </TabsTrigger>
-              <TabsTrigger value="details" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
-                Scenario Details
-              </TabsTrigger>
-              <TabsTrigger value="tasks" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
-                Define Tasks
-              </TabsTrigger>
-              <TabsTrigger value="agents" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
-                Suggested Agents
-              </TabsTrigger>
-              <TabsTrigger value="review" className="data-[state=active]:bg-yellow-500 data-[state=active]:text-black">
-                Review & Save
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="source" className="space-y-6">
-              <div className="grid lg:grid-cols-2 gap-8">
-                {/* Manual Creation */}
-                <Card className="bg-black border-yellow-500/20">
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <FileText className="h-5 w-5 mr-2 text-yellow-500" />
-                      Create Manually
-                    </CardTitle>
-                    <CardDescription>Build your scenario from scratch with full control</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="scenario-title">Scenario Title</Label>
-                      <Input
-                        id="scenario-title"
-                        placeholder="e.g., Customer Onboarding Flow"
-                        value={scenarioTitle}
-                        onChange={(e) => setScenarioTitle(e.target.value)}
-                        className="bg-gray-900 border-gray-700 focus:border-yellow-500"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="scenario-description">Description</Label>
-                      <Textarea
-                        id="scenario-description"
-                        placeholder="Describe what this scenario tests..."
-                        value={scenarioDescription}
-                        onChange={(e) => setScenarioDescription(e.target.value)}
-                        className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[120px]"
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* PDF Upload */}
-                <Card className="bg-black border-blue-500/20">
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Upload className="h-5 w-5 mr-2 text-blue-400" />
-                      Upload Business Case
-                    </CardTitle>
-                    <CardDescription>Let AI analyze your PDF and suggest optimal scenarios</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="border-2 border-dashed border-gray-700 rounded-lg p-8 text-center hover:border-blue-400/50 transition-colors">
-                      <Upload className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                      <p className="text-gray-400 mb-4">Drop your PDF here or click to browse</p>
-                      <input type="file" accept=".pdf" onChange={handleFileUpload} className="hidden" id="pdf-upload" />
-                      <Button variant="outline" className="border-blue-400/30 text-blue-400 bg-transparent" asChild>
-                        <label htmlFor="pdf-upload" className="cursor-pointer">
-                          Choose File
-                        </label>
-                      </Button>
-                    </div>
-
-                    {uploadedFile && (
-                      <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium text-blue-400">File Uploaded</span>
-                          <Wand2 className="h-4 w-4 text-blue-400 animate-spin" />
-                        </div>
-                        <p className="text-sm text-gray-400">{uploadedFile.name}</p>
-                        <p className="text-sm text-blue-400 mt-2">AI is analyzing your document...</p>
-                      </div>
-                    )}
-
-                    {aiSuggestions.length > 0 && (
-                      <div className="space-y-4">
-                        <h4 className="font-medium text-blue-400">AI Suggestions</h4>
-                        {aiSuggestions.map((suggestion, index) => (
-                          <div key={index} className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                            {suggestion.type === "scenario" && (
-                              <div>
-                                <h5 className="font-medium mb-2">{suggestion.title}</h5>
-                                <p className="text-sm text-gray-400 mb-3">{suggestion.description}</p>
-                                <Button 
-                                  size="sm" 
-                                  onClick={() => applySuggestion(suggestion)}
-                                  className="bg-blue-500 text-white hover:bg-blue-400"
-                                >
-                                  Use This Scenario
-                                </Button>
-                              </div>
-                            )}
-                            {suggestion.type === "agents" && (
-                              <div>
-                                <h5 className="font-medium mb-2">Recommended Agents</h5>
-                                <div className="space-y-2">
-                                  {suggestion.suggestions.map((agent: any) => (
-                                    <div
-                                      key={agent.id}
-                                      className="flex items-center justify-between p-2 bg-gray-900/50 rounded"
-                                    >
-                                      <span className="text-sm">{agent.name}</span>
-                                      <div className="flex items-center space-x-2">
-                                        <Badge variant="outline" className="border-blue-400/30 text-blue-400 text-xs">
-                                          {agent.relevance}% match
-                                        </Badge>
-                                        <Button
-                                          size="sm"
-                                          variant="ghost"
-                                          onClick={() => addAgent(agent)}
-                                        >
-                                          <Plus className="h-3 w-3" />
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
+          {/* Show loading progress */}
+          {autofillLoading && (
+            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-blue-800">{autofillStep}</span>
+                <span className="text-xs text-blue-600">{Math.round(autofillProgress)}%</span>
               </div>
-            </TabsContent>
+              <Progress value={autofillProgress} className="w-full h-2" />
+            </div>
+          )}
+          
+          {/* Show error */}
+          {autofillError && (
+            <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
+              <div className="flex items-center">
+                <span className="text-red-600 font-medium">Error:</span>
+                <span className="text-red-600 ml-2">{autofillError}</span>
+              </div>
+            </div>
+          )}
+          
+          {/* Show success message */}
+          {autofillResult && autofillStep === "Complete!" && (
+            <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-200">
+              <div className="flex items-center">
+                <span className="text-green-600 font-medium">✓ Success!</span>
+                <span className="text-green-600 ml-2">PDF content has been mapped to your form fields.</span>
+              </div>
+            </div>
+          )}
+        </div>
 
-            <TabsContent value="details" className="space-y-6">
-              <Card className="bg-black border-yellow-500/20">
-                <CardHeader>
-                  <CardTitle>Scenario Details</CardTitle>
-                  <CardDescription>Define the business context and learning objectives</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <Label htmlFor="industry">Industry</Label>
-                      <Select value={scenarioIndustry} onValueChange={setScenarioIndustry}>
-                        <SelectTrigger className="bg-gray-900 border-gray-700 focus:border-yellow-500">
-                          <SelectValue placeholder="Select industry" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-gray-900 border-gray-700">
-                          {industries.map((industry) => (
-                            <SelectItem key={industry} value={industry}>
-                              {industry}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="challenge">Business Challenge</Label>
-                      <Input
-                        id="challenge"
-                        placeholder="e.g., Reduce customer churn by 20%"
-                        value={scenarioChallenge}
-                        onChange={(e) => setScenarioChallenge(e.target.value)}
-                        className="bg-gray-900 border-gray-700 focus:border-yellow-500"
-                      />
-                    </div>
+        {/* Accordions */}
+        <div className="w-full max-w-4xl">
+          <Accordion type="multiple" className="space-y-6" defaultValue={['info', 'personas', 'timeline']}>
+            {/* Information Accordion */}
+            <AccordionItem value="info">
+              <AccordionTrigger className="flex items-center gap-2 text-lg font-semibold justify-start text-left">
+                <Info className="h-5 w-5" />
+                Information
+                <span className="ml-2 text-muted-foreground text-sm font-normal">The overall description of the simulation. This is the foundation and sense of direction.</span>
+              </AccordionTrigger>
+              <AccordionContent className="overflow-visible" style={{ overflow: 'visible' }}>
+                <div className="space-y-5 pt-4 w-full mx-auto overflow-visible">
+                  <div className="overflow-visible focus-within:overflow-visible">
+                    <Label htmlFor="name">Name</Label>
+                    <Input id="name" value={name} onChange={e => setName(e.target.value)} className="mt-1 w-full box-border p-2" />
                   </div>
-
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <Label>Learning Objectives</Label>
-                      <div className="flex items-center space-x-2">
-                        <Input
-                          placeholder="Add learning objective..."
-                          value={newObjective}
-                          onChange={(e) => setNewObjective(e.target.value)}
-                          onKeyPress={(e) => e.key === 'Enter' && addLearningObjective()}
-                          className="bg-gray-900 border-gray-700 focus:border-yellow-500 w-64"
-                        />
-                        <Button 
-                          size="sm" 
-                          onClick={addLearningObjective}
-                          className="bg-yellow-500 text-black hover:bg-yellow-400"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    
-                    {learningObjectives.length > 0 && (
-                      <div className="space-y-2">
-                        {learningObjectives.map((objective, index) => (
-                          <div key={index} className="flex items-center justify-between p-3 bg-gray-900/50 rounded-lg">
-                            <span>{objective}</span>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => removeLearningObjective(index)}
-                              className="text-red-400 hover:text-red-300"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                  <div className="overflow-visible focus-within:overflow-visible rounded-none">
+                    <Label htmlFor="description">Description/Background</Label>
+                    <Textarea 
+                      id="description" 
+                      value={description} 
+                      onChange={e => setDescription(e.target.value)} 
+                      className="mt-1 w-full overflow-visible rounded-none z-10 p-2 min-h-[200px] resize-y" 
+                      style={{ minHeight: '200px', maxHeight: '400px' }}
+                    />
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="tasks" className="space-y-6">
-              <Card className="bg-black border-yellow-500/20">
-                <CardHeader>
-                  <CardTitle>Scenario Tasks</CardTitle>
-                  <CardDescription>
-                    Define the tasks that agents will collaborate on to complete this scenario
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  {/* Current Tasks */}
-                  {scenarioTasks.length > 0 && (
-                    <div className="space-y-4">
-                      <h4 className="font-medium text-yellow-500">Current Tasks ({scenarioTasks.length})</h4>
-                      <div className="space-y-3">
-                        {scenarioTasks.map((task, index) => (
-                          <div key={task.id} className="p-4 bg-gray-900/50 rounded-lg border border-gray-700">
-                            <div className="flex justify-between items-start mb-2">
-                              <div className="flex items-center space-x-2">
-                                <Badge variant="outline" className="border-yellow-400/30 text-yellow-400">
-                                  #{index + 1}
-                                </Badge>
-                                <h5 className="font-medium">{task.title}</h5>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeTask(task.id)}
-                                className="text-red-400 hover:text-red-300"
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                            <p className="text-sm text-gray-400 mb-2">{task.description}</p>
-                            <div className="flex flex-wrap gap-2 mb-2">
-                              {task.assigned_agent_role && (
-                                <Badge variant="outline" className="border-blue-400/30 text-blue-400">
-                                  Role: {task.assigned_agent_role}
-                                </Badge>
-                              )}
-                              {task.category && (
-                                <Badge variant="outline" className="border-purple-400/30 text-purple-400">
-                                  {task.category}
-                                </Badge>
-                              )}
-                              {task.tools.map((tool) => (
-                                <Badge key={tool} variant="outline" className="border-green-400/30 text-green-400">
-                                  {tool}
-                                </Badge>
-                              ))}
-                            </div>
-                            <p className="text-xs text-gray-500">Expected: {task.expected_output}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Add New Task */}
-                  <div className="border-t border-gray-700 pt-6">
-                    <h4 className="font-medium text-yellow-500 mb-4">Add New Task</h4>
-                    <div className="space-y-4">
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="task-title">Task Title *</Label>
-                          <Input
-                            id="task-title"
-                            placeholder="e.g., Market Analysis"
-                            value={taskTitle}
-                            onChange={(e) => setTaskTitle(e.target.value)}
-                            className="bg-gray-900 border-gray-700 focus:border-yellow-500"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="task-category">Category</Label>
-                          <Select value={taskCategory} onValueChange={setTaskCategory}>
-                            <SelectTrigger className="bg-gray-900 border-gray-700 focus:border-yellow-500">
-                              <SelectValue placeholder="Select category" />
-                            </SelectTrigger>
-                            <SelectContent className="bg-gray-900 border-gray-700">
-                              {taskCategories.map((category) => (
-                                <SelectItem key={category} value={category}>
-                                  {category.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="task-description">Task Description *</Label>
-                        <Textarea
-                          id="task-description"
-                          placeholder="Describe what this task involves..."
-                          value={taskDescription}
-                          onChange={(e) => setTaskDescription(e.target.value)}
-                          className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[100px]"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="task-expected">Expected Output *</Label>
-                        <Textarea
-                          id="task-expected"
-                          placeholder="What should this task produce?"
-                          value={taskExpectedOutput}
-                          onChange={(e) => setTaskExpectedOutput(e.target.value)}
-                          className="bg-gray-900 border-gray-700 focus:border-yellow-500 min-h-[80px]"
-                        />
-                      </div>
-
-                      <div className="grid md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label>Assigned Agent Role (Optional)</Label>
-                          <Select value={taskAgentRole} onValueChange={setTaskAgentRole}>
-                            <SelectTrigger className="bg-gray-900 border-gray-700 focus:border-yellow-500">
-                              <SelectValue placeholder="Any agent can handle" />
-                            </SelectTrigger>
-                            <SelectContent className="bg-gray-900 border-gray-700">
-                              {agentRoles.map((role) => (
-                                <SelectItem key={role} value={role}>
-                                  {role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Task Dependencies</Label>
-                          <div className="text-sm text-gray-400 mb-2">
-                            Select tasks that must be completed before this one:
-                          </div>
-                          {scenarioTasks.length > 0 ? (
-                            <div className="space-y-2 max-h-32 overflow-y-auto">
-                              {scenarioTasks.map((task) => (
-                                <div key={task.id} className="flex items-center space-x-2">
-                                  <input
-                                    type="checkbox"
-                                    id={`dep-${task.id}`}
-                                    checked={taskDependencies.includes(task.id)}
-                                    onChange={() => toggleTaskDependency(task.id)}
-                                    className="rounded border-gray-600 bg-gray-800"
-                                  />
-                                  <label htmlFor={`dep-${task.id}`} className="text-sm text-gray-300">
-                                    {task.title}
-                                  </label>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-sm text-gray-500">No tasks created yet</p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Required Tools</Label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {availableTools.map((tool) => (
-                            <div
-                              key={tool}
-                              className={`p-2 rounded border cursor-pointer text-sm transition-colors ${
-                                taskTools.includes(tool)
-                                  ? "border-yellow-500 bg-yellow-500/10 text-yellow-400"
-                                  : "border-gray-700 hover:border-gray-600 text-gray-300"
-                              }`}
-                              onClick={() => toggleTaskTool(tool)}
-                            >
-                              {tool.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <Button 
-                        onClick={addTask}
-                        className="bg-yellow-500 text-black hover:bg-yellow-400"
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Task
-                      </Button>
-                    </div>
+                  <div className="overflow-visible focus-within:overflow-visible">
+                    <Label htmlFor="learning-outcomes">Learning Outcomes</Label>
+                    <Textarea 
+                      id="learning-outcomes" 
+                      value={learningOutcomes} 
+                      onChange={e => setLearningOutcomes(e.target.value)} 
+                      className="mt-1 w-full box-border p-2 min-h-[200px] resize-y" 
+                      style={{ minHeight: '200px', maxHeight: '400px' }}
+                    />
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="agents" className="space-y-6">
-              <div className="grid lg:grid-cols-2 gap-8">
-                {/* Available Agents */}
-                <Card className="bg-black border-yellow-500/20">
-                  <CardHeader>
-                    <CardTitle>Available Agents</CardTitle>
-                    <CardDescription>Select agents to participate in your scenario</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {availableAgents.map((agent) => (
-                        <div
-                          key={agent.id}
-                          className="flex items-center justify-between p-3 rounded-lg border border-gray-700 hover:border-gray-600 transition-colors"
-                        >
-                          <div className="flex items-center space-x-3">
-                            <Bot className="h-6 w-6 text-blue-400" />
                             <div>
-                              <h4 className="font-medium">{agent.name}</h4>
-                              <p className="text-sm text-gray-400">{agent.role}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <Badge variant="outline" className="border-gray-600 text-gray-400 text-xs">
-                              {agent.category}
-                            </Badge>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => addAgent(agent)}
-                              disabled={selectedAgents.some((a) => a.id === agent.id)}
-                              className="border-yellow-500/30 text-yellow-500 hover:bg-yellow-500 hover:text-black disabled:opacity-50"
-                            >
-                              <Plus className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Selected Agents */}
-                <Card className="bg-black border-green-500/20">
-                  <CardHeader>
-                    <CardTitle>Selected Agents ({selectedAgents.length})</CardTitle>
-                    <CardDescription>Agents that will participate in your scenario</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {selectedAgents.length === 0 ? (
-                      <div className="text-center py-8 text-gray-400">
-                        <Bot className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p>No agents selected yet</p>
-                        <p className="text-sm">Choose agents from the left panel</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {selectedAgents.map((agent) => (
-                          <div
-                            key={agent.id}
-                            className="flex items-center justify-between p-3 rounded-lg bg-green-500/10 border border-green-500/20"
-                          >
-                            <div className="flex items-center space-x-3">
-                              <Bot className="h-6 w-6 text-green-400" />
-                              <div>
-                                <h4 className="font-medium">{agent.name}</h4>
-                                <p className="text-sm text-gray-400">{agent.role}</p>
-                              </div>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => removeAgent(agent.id)}
-                              className="text-red-400 hover:text-red-300"
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="review" className="space-y-6">
-              <Card className="bg-black border-yellow-500/20">
-                <CardHeader>
-                  <CardTitle>Scenario Review</CardTitle>
-                  <CardDescription>Review your scenario configuration before saving</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="grid md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <div>
-                        <h4 className="font-medium text-yellow-500 mb-1">Scenario Title</h4>
-                        <p>{scenarioTitle || "Untitled Scenario"}</p>
-                      </div>
-                      <div>
-                        <h4 className="font-medium text-yellow-500 mb-1">Description</h4>
-                        <p className="text-sm text-gray-400">{scenarioDescription || "No description provided"}</p>
-                      </div>
-                      <div>
-                        <h4 className="font-medium text-yellow-500 mb-1">Industry</h4>
-                        <p className="text-sm text-gray-400">{scenarioIndustry || "Not specified"}</p>
-                      </div>
-                      <div>
-                        <h4 className="font-medium text-yellow-500 mb-1">Business Challenge</h4>
-                        <p className="text-sm text-gray-400">{scenarioChallenge || "Not specified"}</p>
-                      </div>
-                    </div>
-                    <div className="space-y-4">
-                      <div>
-                        <h4 className="font-medium text-yellow-500 mb-1">Learning Objectives ({learningObjectives.length})</h4>
-                        <div className="space-y-2">
-                          {learningObjectives.map((objective, index) => (
-                            <div key={index} className="flex items-center space-x-2">
-                              <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                              <span className="text-sm">{objective}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <h4 className="font-medium text-yellow-500 mb-1">Selected Agents ({selectedAgents.length})</h4>
-                        <div className="space-y-2">
-                          {selectedAgents.map((agent) => (
-                            <div key={agent.id} className="flex items-center space-x-2">
-                              <Bot className="h-4 w-4 text-blue-400" />
-                              <span className="text-sm">{agent.name}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
+                    <Label className="block mb-1">Files</Label>
+                    <span className="block text-muted-foreground text-xs mb-2">Use this to give more context to the simulation</span>
+                    <Button variant="outline">Upload Files</Button>
                   </div>
-                  
-                  <div className="flex justify-end space-x-4 pt-6 border-t border-gray-700">
-                    <Button 
-                      variant="outline" 
-                      onClick={testScenario}
-                      className="border-yellow-500/30 text-yellow-500 bg-transparent"
-                    >
-                      <Play className="h-4 w-4 mr-2" />
-                      Test Scenario
-                    </Button>
-                    <Button 
-                      onClick={saveScenario}
-                      disabled={saving}
-                      className="bg-yellow-500 text-black hover:bg-yellow-400"
-                    >
-                      {saving ? (
-                        <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin mr-2" />
-                      ) : (
-                        <Save className="h-4 w-4 mr-2" />
-                      )}
-                      {saving ? 'Saving...' : 'Save Scenario'}
-                    </Button>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* Personas Accordion */}
+            <AccordionItem value="personas">
+              <AccordionTrigger className="flex items-center gap-2 text-lg font-semibold justify-start text-left">
+                <Users className="h-5 w-5" />
+                Personas
+                <span className="ml-2 text-muted-foreground text-sm font-normal">The characters the user will interact during the simulation with their own personality and goals.</span>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="flex flex-col items-center py-6">
+                  <Button onClick={handleAddPersona} variant="outline" className="w-60">Add new persona</Button>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* Timeline Accordion */}
+            <AccordionItem value="timeline">
+              <AccordionTrigger className="flex items-center gap-2 text-lg font-semibold justify-start text-left">
+                <Activity className="h-5 w-5" />
+                Timeline
+                <span className="ml-2 text-muted-foreground text-sm font-normal">These are the sequence of events the user needs to solve for during the simulation.</span>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="py-4">
+                  <p className="text-muted-foreground text-sm mb-6">Think of each segment as a self-contained mini-level in your simulation. Arrange them from top to bottom, this will be the sequence each scene will take place in.</p>
+                  <div className="flex flex-col items-center">
+                    <Button onClick={handleAddScene} variant="outline" className="w-60">Add new Scene</Button>
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </div>
       </div>
     </div>

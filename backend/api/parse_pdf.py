@@ -5,19 +5,28 @@ import re
 from fastapi import APIRouter, UploadFile, File, HTTPException
 import httpx
 from dotenv import load_dotenv
+import openai
 
-load_dotenv()
-print("[DEBUG] .env loaded in parse_pdf.py")
+# Explicitly load the .env file from the backend directory (parent of api)
+backend_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../.env'))
+load_dotenv(backend_env_path)
+print(f"[DEBUG] Loading .env from: {backend_env_path}")
+
 LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-print(f"[DEBUG] LLAMAPARSE_API_KEY loaded: {LLAMAPARSE_API_KEY[:6]}...{LLAMAPARSE_API_KEY[-4:] if LLAMAPARSE_API_KEY else None}")
-print(f"[DEBUG] GEMINI_API_KEY loaded: {str(GEMINI_API_KEY)[:6]}...{str(GEMINI_API_KEY)[-4:] if GEMINI_API_KEY else None}")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if LLAMAPARSE_API_KEY:
+    print(f"[DEBUG] LLAMAPARSE_API_KEY loaded: {LLAMAPARSE_API_KEY[:6]}...{LLAMAPARSE_API_KEY[-4:]}")
+else:
+    print("[DEBUG] LLAMAPARSE_API_KEY loaded: None")
+if OPENAI_API_KEY:
+    print(f"[DEBUG] OPENAI_API_KEY loaded: {OPENAI_API_KEY[:6]}...{OPENAI_API_KEY[-4:]}")
+else:
+    print("[DEBUG] OPENAI_API_KEY loaded: None")
 
 router = APIRouter()
 
 LLAMAPARSE_API_URL = "https://api.cloud.llamaindex.ai/api/parsing/upload"
 LLAMAPARSE_JOB_URL = "https://api.cloud.llamaindex.ai/api/parsing/job"
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent"
 
 @router.post("/api/parse-pdf/")
 async def parse_pdf(file: UploadFile = File(...)):
@@ -509,14 +518,12 @@ def preprocess_case_study_content(raw_content: str) -> dict:
     }
 
 async def process_with_ai(parsed_content: str) -> dict:
-    """Process the parsed PDF content with Gemini AI to extract business case study information"""
-    print("[DEBUG] Processing content with Gemini AI")
+    """Process the parsed PDF content with OpenAI to extract business case study information (using openai>=1.0.0)"""
+    print("[DEBUG] Processing content with OpenAI LLM (new API)")
     try:
-        # Pre-process the content
         preprocessed = preprocess_case_study_content(parsed_content)
         title = preprocessed["title"]
         cleaned_content = preprocessed["cleaned_content"]
-        # Prepare the prompt for business case study analysis
         prompt = f"""
 You are an expert business case study analyst specializing in business education. Analyze the following business case study content and extract key information for college business students.
 
@@ -543,150 +550,64 @@ Guidelines:
 - If any field is missing or unclear, infer or summarize based on the content. Do NOT leave any field empty.
 - Return ONLY the JSON response, no additional text or explanations.
         """
-        headers = {"Content-Type": "application/json"}
-        data = {
-            "contents": [
-                {"parts": [{"text": prompt}]}
-            ]
-        }
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{GEMINI_API_URL}?key={GEMINI_API_KEY}",
-                headers=headers,
-                json=data
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=1024,
+                temperature=0.2,
             )
-            response.raise_for_status()
-            result = response.json()
-            print(f"[DEBUG] Gemini API response status: {response.status_code}")
-            print(f"[DEBUG] Gemini API response keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")
-            print(f"[DEBUG] Gemini API response: {result}")
-            # Extract the generated text from Gemini response
-            if "candidates" in result and len(result["candidates"]) > 0:
-                generated_text = result["candidates"][0]["content"]["parts"][0]["text"]
-                print(f"[DEBUG] Generated text: {generated_text}")
-                # Parse the JSON response
-                try:
-                    ai_result = json.loads(generated_text)
-                    print(f"[DEBUG] Parsed AI result: {ai_result}")
-                    # Validate and fill missing fields
-                    final_result = {}
-                    final_result["title"] = ai_result.get("title") or title
-                    final_result["description"] = ai_result.get("description") or (cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content)
-                    final_result["learning_outcomes"] = ai_result.get("learning_outcomes") or [
-                        "1. Analyze the business situation presented in the case study",
-                        "2. Identify key stakeholders and their interests",
-                        "3. Develop strategic recommendations based on the analysis",
-                        "4. Evaluate the impact of decisions on organizational performance",
-                        "5. Apply business concepts and frameworks to real-world scenarios"
-                    ]
-                    print(f"[DEBUG] Final AI result sent to frontend: {final_result}")
-                    return final_result
-                except json.JSONDecodeError as e:
-                    print(f"[ERROR] Failed to parse JSON from AI response: {e}")
-                    print(f"[ERROR] Raw AI response: {generated_text}")
-                    # Fallback: return structured content
-                    return {
-                        "title": title,
-                        "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
-                        "learning_outcomes": [
-                            "1. Analyze the business situation presented in the case study",
-                            "2. Identify key stakeholders and their interests",
-                            "3. Develop strategic recommendations based on the analysis",
-                            "4. Evaluate the impact of decisions on organizational performance",
-                            "5. Apply business concepts and frameworks to real-world scenarios"
-                        ]
-                    }
-            else:
-                raise Exception("No content generated by Gemini API")
-                
+        )
+        generated_text = response.choices[0].message.content
+        try:
+            ai_result = json.loads(generated_text)
+            final_result = {
+                "title": ai_result.get("title") or title,
+                "description": ai_result.get("description") or (cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content),
+                "learning_outcomes": ai_result.get("learning_outcomes") or [
+                    "1. Analyze the business situation presented in the case study",
+                    "2. Identify key stakeholders and their interests",
+                    "3. Develop strategic recommendations based on the analysis",
+                    "4. Evaluate the impact of decisions on organizational performance",
+                    "5. Apply business concepts and frameworks to real-world scenarios"
+                ]
+            }
+            return final_result
+        except json.JSONDecodeError as e:
+            print(f"[ERROR] Failed to parse JSON from AI response: {e}")
+            print(f"[ERROR] Raw AI response: {generated_text}")
+            # Fallback: return structured content
+            return {
+                "title": title,
+                "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
+                "learning_outcomes": [
+                    "1. Analyze the business situation presented in the case study",
+                    "2. Identify key stakeholders and their interests",
+                    "3. Develop strategic recommendations based on the analysis",
+                    "4. Evaluate the impact of decisions on organizational performance",
+                    "5. Apply business concepts and frameworks to real-world scenarios"
+                ]
+            }
     except Exception as e:
         print(f"[ERROR] AI processing failed: {str(e)}")
         # Fallback: return basic structured content
         preprocessed = preprocess_case_study_content(parsed_content)
-        
-        # --- Fallback: try to extract learning outcomes from content ---
-        def extract_learning_outcomes_from_content(content: str):
-            import re
-            lines = content.split('\n')
-            outcomes = []
-            print('[DEBUG] Fallback: extracting learning outcomes from content...')
-            # 1. Look for a section header
-            header_patterns = [
-                r'learning outcomes', r'objectives', r'learning objectives', r'what you will learn', r'key takeaways', r'case objectives'
-            ]
-            header_idx = None
-            for i, line in enumerate(lines):
-                for pat in header_patterns:
-                    if re.search(pat, line, re.IGNORECASE):
-                        header_idx = i
-                        print(f'[DEBUG] Found learning outcomes header: "{line}" at line {i}')
-                        break
-                if header_idx is not None:
-                    break
-            # 2. If found, extract next 3-7 bullet/numbered items
-            bullet_regex = r'^(\d+\.|[\-\*•–]|[a-zA-Z]\))\s+'
-            if header_idx is not None:
-                for line in lines[header_idx+1:]:
-                    l = line.strip()
-                    if re.match(bullet_regex, l):
-                        # Remove leading number/bullet
-                        l = re.sub(bullet_regex, '', l)
-                        if l:
-                            outcomes.append(l)
-                    elif l == '' or l.lower().startswith('note'):
-                        continue
-                    else:
-                        # Stop if we hit a non-list line after at least 3 outcomes
-                        if len(outcomes) >= 3:
-                            break
-                print(f'[DEBUG] Extracted outcomes after header: {outcomes}')
-                if 3 <= len(outcomes) <= 7:
-                    return [f"{i+1}. {o}" for i, o in enumerate(outcomes)]
-            # 3. If not found, look for first numbered/bulleted list in content
-            outcomes = []
-            for i, line in enumerate(lines):
-                l = line.strip()
-                if re.match(bullet_regex, l):
-                    l = re.sub(bullet_regex, '', l)
-                    if l:
-                        outcomes.append(l)
-                elif outcomes:
-                    # Stop at first break in list
-                    if len(outcomes) >= 3:
-                        break
-            print(f'[DEBUG] Extracted outcomes from first list: {outcomes}')
-            if 3 <= len(outcomes) <= 7:
-                return [f"{i+1}. {o}" for i, o in enumerate(outcomes)]
-            # 4. Fallback to generic
-            print('[DEBUG] No suitable learning outcomes found, using generic fallback.')
-            return [
-                "1. Analyze the business situation presented in the case study",
-                "2. Identify key stakeholders and their interests",
-                "3. Develop strategic recommendations based on the analysis",
-                "4. Evaluate the impact of decisions on organizational performance",
-                "5. Apply business concepts and frameworks to real-world scenarios"
-            ]
-
-        # --- existing fallback description logic ---
-        fallback_description = ' '.join(description_lines)
-        print(f'[DEBUG] Fallback description before length check: "{fallback_description}"')
-        if len(fallback_description) > 600:
-            fallback_description = fallback_description[:600] + "..."
-        if not fallback_description.strip():
-            fallback_description = "No background description could be extracted from the case study. Please review the document manually."
-            print('[DEBUG] Fallback: No description found, using generic fallback description.')
-        fallback_learning_outcomes = extract_learning_outcomes_from_content(preprocessed['cleaned_content'])
         fallback_title = preprocessed["title"] if preprocessed["title"].strip() else "Business Case Study"
-        if not fallback_title.strip():
-            fallback_title = "Business Case Study"
-            print('[DEBUG] Fallback: No title found, using generic fallback title.')
-        print(f'[DEBUG] Fallback title: "{fallback_title}"')
-        print(f'[DEBUG] Fallback description: "{fallback_description}"')
+        fallback_description = preprocessed["cleaned_content"][:600] + "..." if len(preprocessed["cleaned_content"]) > 600 else preprocessed["cleaned_content"]
+        fallback_learning_outcomes = [
+            "1. Analyze the business situation presented in the case study",
+            "2. Identify key stakeholders and their interests",
+            "3. Develop strategic recommendations based on the analysis",
+            "4. Evaluate the impact of decisions on organizational performance",
+            "5. Apply business concepts and frameworks to real-world scenarios"
+        ]
         return {
             "title": fallback_title,
             "description": fallback_description,
             "learning_outcomes": fallback_learning_outcomes
-        } 
+        }
 
 def extract_markdown(parsed_content):
     """Extract markdown text from LlamaParse result, whether dict or JSON string."""

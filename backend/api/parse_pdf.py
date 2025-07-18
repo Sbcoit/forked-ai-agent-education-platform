@@ -2,10 +2,13 @@ import os
 import asyncio
 import json
 import re
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 import httpx
 from dotenv import load_dotenv
 import openai
+from typing import List
+from PyPDF2 import PdfReader
+import time
 
 # Explicitly load the .env file from the backend directory (parent of api)
 backend_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../.env'))
@@ -28,8 +31,142 @@ router = APIRouter()
 LLAMAPARSE_API_URL = "https://api.cloud.llamaindex.ai/api/parsing/upload"
 LLAMAPARSE_JOB_URL = "https://api.cloud.llamaindex.ai/api/parsing/job"
 
+async def extract_text_from_context_files(context_files: List[UploadFile]) -> str:
+    context_texts = []
+    for file in context_files:
+        filename = file.filename.lower()
+        contents = await file.read()
+        if filename.endswith('.pdf'):
+            try:
+                import io
+                reader = PdfReader(io.BytesIO(contents))
+                text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                context_texts.append(f"[Context File: {file.filename}]\n{text.strip()}\n")
+            except Exception as e:
+                context_texts.append(f"[Context File: {file.filename}]\n[Could not extract PDF text: {e}]\n")
+        elif filename.endswith('.txt'):
+            try:
+                text = contents.decode('utf-8', errors='ignore')
+                context_texts.append(f"[Context File: {file.filename}]\n{text.strip()}\n")
+            except Exception as e:
+                context_texts.append(f"[Context File: {file.filename}]\n[Could not extract TXT text: {e}]\n")
+        else:
+            context_texts.append(f"[Context File: {file.filename}]\n[Unsupported file type]\n")
+    return "\n".join(context_texts)
+
+async def parse_with_llamaparse(file: UploadFile) -> str:
+    """Send a file to LlamaParse and return the parsed markdown content."""
+    if not LLAMAPARSE_API_KEY:
+        raise HTTPException(status_code=500, detail="LlamaParse API key not configured.")
+    
+    try:
+        # Read file contents once and store them
+        contents = await file.read()
+        headers = {"Authorization": f"Bearer {LLAMAPARSE_API_KEY}"}
+        files = {"file": (file.filename, contents, file.content_type)}
+        
+        print(f"[DEBUG] Sending {file.filename} to LlamaParse...")
+        
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            upload_response = await client.post(LLAMAPARSE_API_URL, headers=headers, files=files)
+            upload_response.raise_for_status()
+            
+            job_data = upload_response.json()
+            print(f"[DEBUG] LlamaParse upload response: {job_data}")
+            print(f"[DEBUG] Response type: {type(job_data)}")
+            print(f"[DEBUG] Response keys: {list(job_data.keys()) if isinstance(job_data, dict) else 'Not a dict'}")
+            
+            if not job_data:
+                print(f"[ERROR] Empty response from LlamaParse")
+                raise HTTPException(status_code=500, detail="Empty response from LlamaParse")
+            
+            if not isinstance(job_data, dict):
+                print(f"[ERROR] Invalid response type from LlamaParse: {type(job_data)}")
+                raise HTTPException(status_code=500, detail=f"Invalid response type from LlamaParse: {type(job_data)}")
+            
+            # Check for different possible job ID fields
+            job_id = None
+            if "id" in job_data:
+                job_id = job_data["id"]
+            elif "job_id" in job_data:
+                job_id = job_data["job_id"]
+            elif "jobId" in job_data:
+                job_id = job_data["jobId"]
+            
+            if not job_id:
+                print(f"[ERROR] No job ID in LlamaParse response. Got keys: {list(job_data.keys())}")
+                raise HTTPException(status_code=500, detail=f"No job ID in LlamaParse response. Got keys: {list(job_data.keys())}")
+            
+            if not job_id:
+                print(f"[ERROR] Empty job ID received from LlamaParse")
+                raise HTTPException(status_code=500, detail="Empty job ID received from LlamaParse")
+            
+            print(f"[DEBUG] Got job ID: {job_id}")
+            
+            # Poll for completion
+            for attempt in range(60):
+                print(f"[DEBUG] Polling attempt {attempt + 1}/60 for job {job_id}")
+                status_response = await client.get(f"{LLAMAPARSE_JOB_URL}/{job_id}", headers=headers)
+                status_response.raise_for_status()
+                status_data = status_response.json()
+                print(f"[DEBUG] Status response: {status_data}")
+                
+                status = status_data.get("status")
+                if status in ["COMPLETED", "SUCCESS"]:
+                    print(f"[DEBUG] Job {job_id} completed, retrieving result...")
+                    # Try to get markdown result
+                    try:
+                        markdown_response = await client.get(f"{LLAMAPARSE_JOB_URL}/{job_id}/result/markdown", headers=headers)
+                        markdown_response.raise_for_status()
+                        result = markdown_response.text
+                        print(f"[DEBUG] Retrieved markdown result, length: {len(result)}")
+                        return result
+                    except Exception as e:
+                        print(f"[DEBUG] Markdown retrieval failed: {e}")
+                        pass
+                    
+                    # Fallback: try text
+                    try:
+                        result_response = await client.get(f"{LLAMAPARSE_JOB_URL}/{job_id}/result", headers=headers)
+                        result_response.raise_for_status()
+                        parsed_content = result_response.json()
+                        result = parsed_content.get("text", "")
+                        print(f"[DEBUG] Retrieved text result, length: {len(result)}")
+                        return result
+                    except Exception as e:
+                        print(f"[DEBUG] Text retrieval failed: {e}")
+                        pass
+                    
+                    # Final fallback: check if result is in status_data
+                    if "parsed_document" in status_data:
+                        parsed_doc = status_data["parsed_document"]
+                        if isinstance(parsed_doc, dict) and "text" in parsed_doc:
+                            result = parsed_doc["text"]
+                            print(f"[DEBUG] Retrieved result from status_data, length: {len(result)}")
+                            return result
+                    
+                    print(f"[DEBUG] No result found in any format")
+                    return ""
+                    
+                elif status == "FAILED":
+                    error_msg = status_data.get("error", "Unknown error")
+                    print(f"[DEBUG] Job {job_id} failed: {error_msg}")
+                    raise HTTPException(status_code=500, detail=f"LlamaParse job failed for {file.filename}: {error_msg}")
+                elif status in ["PENDING", "PROCESSING"]:
+                    print(f"[DEBUG] Job {job_id} still {status}, waiting 3s...")
+                    await asyncio.sleep(3)
+                else:
+                    print(f"[DEBUG] Unknown status '{status}', waiting 3s...")
+                    await asyncio.sleep(3)
+            
+            raise HTTPException(status_code=500, detail=f"LlamaParse job timed out for {file.filename}")
+    
+    except Exception as e:
+        print(f"[ERROR] Exception in parse_with_llamaparse for {file.filename}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse {file.filename}: {str(e)}")
+
 @router.post("/api/parse-pdf/")
-async def parse_pdf(file: UploadFile = File(...)):
+async def parse_pdf(file: UploadFile = File(...), context_files: List[UploadFile] = File(default=[])):
     print("[DEBUG] /api/parse-pdf/ endpoint hit")
     if not LLAMAPARSE_API_KEY:
         raise HTTPException(status_code=500, detail="LlamaParse API key not configured.")
@@ -37,24 +174,42 @@ async def parse_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     
     try:
-        contents = await file.read()
-        headers = {"Authorization": f"Bearer {LLAMAPARSE_API_KEY}"}
-        files = {"file": (file.filename, contents, file.content_type)}
+        # Parse main PDF with LlamaParse
+        print("[DEBUG] Processing main PDF file...")
+        main_markdown = await parse_with_llamaparse(file)
+        print(f"[DEBUG] Main PDF processed successfully, content length: {len(main_markdown)}")
         
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            # Just upload and return job ID
-            upload_response = await client.post(LLAMAPARSE_API_URL, headers=headers, files=files)
-            upload_response.raise_for_status()
-            job_data = upload_response.json()
+        # Parse all context files with LlamaParse (with delays between each)
+        context_markdowns = []
+        for i, ctx_file in enumerate(context_files):
+            print(f"[DEBUG] Processing context file {i+1}/{len(context_files)}: {ctx_file.filename}")
             
-            return {
-                "job_id": job_data["id"],
-                "status": job_data["status"],
-                "message": "File uploaded successfully. Use job_id to check status."
-            }
+            # Add delay between files to avoid overwhelming the API
+            if i > 0:  # Don't delay before the first file
+                print(f"[DEBUG] Waiting 5 seconds before processing next file...")
+                await asyncio.sleep(5)
             
+            try:
+                ctx_markdown = await parse_with_llamaparse(ctx_file)
+                context_markdowns.append(f"[Context File: {ctx_file.filename}]\n{ctx_markdown.strip()}\n")
+                print(f"[DEBUG] Successfully processed context file: {ctx_file.filename}")
+            except Exception as e:
+                print(f"[ERROR] Failed to process context file {ctx_file.filename}: {e}")
+                context_markdowns.append(f"[Context File: {ctx_file.filename}]\n[Could not extract context: {e}]\n")
+        
+        context_text = "\n".join(context_markdowns)
+        print(f"[DEBUG] All files processed. Main content length: {len(main_markdown)}, Context content length: {len(context_text)}")
+        
+        # Pass both to process_with_ai
+        print("[DEBUG] Calling process_with_ai...")
+        ai_result = await process_with_ai(main_markdown, context_text)
+        print("[DEBUG] AI processing completed successfully")
+        return {"status": "completed", "ai_result": ai_result}
+        
     except Exception as e:
-        print("[ERROR]", str(e))
+        print(f"[ERROR] Exception in parse_pdf endpoint: {str(e)}")
+        import traceback
+        print(f"[ERROR] Full traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to parse PDF: {str(e)}")
 
 @router.get("/api/parse-pdf/status/{job_id}")
@@ -187,7 +342,10 @@ async def get_parse_result(job_id: str):
                     # Process with AI if we have content
                     ai_result = None
                     if text_content.strip():
-                        ai_result = await process_with_ai(extract_markdown(parsed_content))
+                        # Get context files from the request
+                        context_files = Request.state.context_files if hasattr(Request.state, 'context_files') else []
+                        context_text = await extract_text_from_context_files(context_files)
+                        ai_result = await process_with_ai(extract_markdown(parsed_content), context_text)
                     
                     return {
                         "status": "completed",
@@ -209,9 +367,11 @@ async def get_parse_result(job_id: str):
                         print(f"[DEBUG] Markdown content: {markdown_content[:200]}...")
                         
                         # Process markdown content with AI
+                        context_files = Request.state.context_files if hasattr(Request.state, 'context_files') else []
+                        context_text = await extract_text_from_context_files(context_files)
                         ai_result = None
                         if markdown_content.strip():
-                            ai_result = await process_with_ai(extract_markdown(markdown_content))
+                            ai_result = await process_with_ai(extract_markdown(markdown_content), context_text)
                         
                         return {
                             "status": "completed",
@@ -386,11 +546,21 @@ def preprocess_case_study_content(raw_content: str) -> dict:
     if isinstance(raw_content, dict) and "markdown" in raw_content:
         content = raw_content["markdown"]
     elif isinstance(raw_content, str):
-        content = raw_content
+        # Check if it's a JSON string with markdown
+        try:
+            import json
+            parsed_json = json.loads(raw_content)
+            if isinstance(parsed_json, dict) and "markdown" in parsed_json:
+                content = parsed_json["markdown"]
+            else:
+                content = raw_content
+        except (json.JSONDecodeError, TypeError):
+            content = raw_content
     else:
         content = str(raw_content)
     
     print(f"[DEBUG] Raw content type: {type(raw_content)}")
+    print(f"[DEBUG] Raw content length: {len(content)}")
     print(f"[DEBUG] Raw content preview: {content[:500]}...")
     
     # Clean up formatting artifacts (remove extra spaces, normalize)
@@ -400,6 +570,7 @@ def preprocess_case_study_content(raw_content: str) -> dict:
     
     # Split into lines and process
     lines = content.split('\n')
+    print(f"[DEBUG] Number of lines in content: {len(lines)}")
     cleaned_lines = []
     title = None
     
@@ -454,57 +625,32 @@ def preprocess_case_study_content(raw_content: str) -> dict:
     if not title:
         title = "Business Case Study"
 
-    # Clean content (remove metadata and formatting artifacts)
-    for line in lines:
+    # Clean content (be very permissive - only remove obvious metadata)
+    print(f"[DEBUG] Starting content cleaning. Total lines: {len(lines)}")
+    for i, line in enumerate(lines):
         line = line.strip()
         if not line:
             continue
             
-        # Normalize line for better metadata matching (remove ALL spaces for comparison)
-        normalized_line = ''.join(line.split())
-        
-        # Skip metadata lines - expanded list
-        if any(skip_pattern.replace(' ', '') in normalized_line.upper() for skip_pattern in [
-            'HARVARD BUSINESS SCHOOL', 'REV:', 'PAGE', '©', 'COPYRIGHT', 'ALL RIGHTS RESERVED',
-            'DOCUMENT ID:', 'FILE:', 'CREATED:', 'MODIFIED:', '9-', 'R E V :', 'PROFESSORS', 'PREPARED THIS CASE',
-            'CERTAIN DETAILS', 'HBS CASES', 'DEVELOPED SOLELY', 'AUTHORIZED FOR USE', 'TEAMWORK', 'COLLABORATION',
-            'INTERNATIONAL BUSINESS SCHOOL', 'HULT', 'MGT-', 'FMIB', 'THIS DOCUMENT', 'USE ONLY BY'
+        # Skip only the most obvious metadata lines
+        if any(skip_pattern in line.upper() for skip_pattern in [
+            'COPYRIGHT ENCODED', 'DOCUMENT ID:', 'FILE:', 'CREATED:', 'MODIFIED:', 
+            'AUTHORIZED FOR USE ONLY', 'THIS DOCUMENT IS FOR USE ONLY BY'
         ]):
+            print(f"[DEBUG] Skipping metadata line {i}: {line[:50]}...")
             continue
             
-        # Skip lines that contain case study metadata - expanded list
-        if any(phrase in line.upper() for phrase in [
-            'PROFESSORS', 'PREPARED THIS CASE', 'CERTAIN DETAILS', 'HBS CASES', 'DEVELOPED SOLELY',
-            'AUTHORIZED FOR USE', 'TEAMWORK', 'COLLABORATION', 'INTERNATIONAL BUSINESS SCHOOL', 
-            'HULT', 'MGT-', 'FMIB', 'THIS DOCUMENT', 'USE ONLY BY', 'JIMENEZ GUILLEN', 'LUIS AARON'
-        ]):
+        # Skip lines that are just formatting artifacts (very short or just symbols)
+        if len(line) < 2 or re.match(r'^[\s\-\_\.]+$', line):
+            print(f"[DEBUG] Skipping formatting line {i}: {line[:50]}...")
             continue
             
-        # Skip lines that contain HTML entities or special characters
-        if '&#x' in line or '&#' in line:
-            continue
-            
-        # Skip lines that are just formatting artifacts
-        if re.match(r'^[\d\s\-\.]+$', line):
-            continue
-            
-        # Skip markdown headers (lines starting with #)
-        if line.startswith('#'):
-            continue
-            
-        # Skip lines that are just the title repeated
-        if title and line.strip() == title.strip():
-            continue
-            
-        # Skip table formatting (lines with | characters)
-        if '|' in line:
-            continue
-            
-        # Skip lines that are just formatting or metadata
-        if re.match(r'^[\s\-\_]+$', line):  # Just dashes, underscores, spaces
-            continue
-            
+        # Keep everything else - let the AI decide what's important
         cleaned_lines.append(line)
+        if len(cleaned_lines) <= 5:  # Show first few kept lines
+            print(f"[DEBUG] Keeping line {i}: {line[:50]}...")
+    
+    print(f"[DEBUG] Content cleaning complete. Kept {len(cleaned_lines)} lines out of {len(lines)}")
     
     cleaned_content = '\n'.join(cleaned_lines)
     
@@ -517,79 +663,143 @@ def preprocess_case_study_content(raw_content: str) -> dict:
         "cleaned_content": cleaned_content
     }
 
-async def process_with_ai(parsed_content: str) -> dict:
+async def process_with_ai(parsed_content: str, context_text: str = "") -> dict:
     """Process the parsed PDF content with OpenAI to extract business case study information (using openai>=1.0.0)"""
     print("[DEBUG] Processing content with OpenAI LLM (new API)")
     try:
         preprocessed = preprocess_case_study_content(parsed_content)
         title = preprocessed["title"]
         cleaned_content = preprocessed["cleaned_content"]
-        prompt = f"""
-You are an expert business case study analyst specializing in business education. Analyze the following business case study content and extract key information for college business students.
+        # Prepend context files' content as most important
+        if context_text.strip():
+            combined_content = f"""
+IMPORTANT CONTEXT FILES (most authoritative, follow these first):
+{context_text}
 
-BUSINESS CASE STUDY CONTENT:
+CASE STUDY CONTENT (main PDF):
 {cleaned_content}
+"""
+        else:
+            combined_content = cleaned_content
+        prompt = f"""
+You are a highly structured JSON-only generator trained to analyze business case studies for college business education.
 
-Please provide a JSON response with the following structure:
+Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
+
 {{
-  "title": "(The actual name of the business case study, not a generic phrase)",
-  "description": "A comprehensive, non-empty background description (2-3 paragraphs) that includes: 1) The business context and situation, 2) Key players and stakeholders involved, 3) The specific role/position the student will assume in this case study (e.g., 'As a consultant to...', 'As the manager of...', 'As a strategic advisor to...'), 4) The main challenges or decisions to be made.",
+  "title": "<The exact title of the business case study>",
+  "description": "<A minimum 300-word, 3-paragraph detailed background including: 1) business context and situation, 2) main challenges or decisions, 3) the specific role or position the student will assume in the case, and 4) explicit reference to the key figures and their roles/correlations as part of the narrative>",
+  "student_role": "<The specific role or position the student will assume in this case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', etc.)>",
+  "key_figures": [
+    {{
+      "name": "<Full name of figure, or descriptive title if unnamed (e.g., 'The Board of Directors', 'Competitor CEO', 'Industry Analyst')>",
+      "role": "<Their role or inferred role. If unknown, use 'Unknown'>",
+      "correlation": "<A brief explanation of this figure's relationship to the narrative of the case study>",
+      "background": "<A 2-3 sentence background/bio of this person/entity based on the case study content>",
+      "primary_goals": [
+        "<Goal 1>",
+        "<Goal 2>",
+        "<Goal 3>"
+      ],
+      "personality_traits": {{
+        "analytical": <0-10 rating>,
+        "creative": <0-10 rating>,
+        "assertive": <0-10 rating>,
+        "collaborative": <0-10 rating>,
+        "detail_oriented": <0-10 rating>
+      }}
+    }}
+  ],
   "learning_outcomes": [
-    "1. [Specific, actionable learning outcome that students can demonstrate]",
-    "2. [Specific, actionable learning outcome that students can demonstrate]",
-    "3. [Specific, actionable learning outcome that students can demonstrate]",
-    "4. [Specific, actionable learning outcome that students can demonstrate]",
-    "5. [Specific, actionable learning outcome that students can demonstrate]"
+    "1. <Outcome 1>",
+    "2. <Outcome 2>",
+    "3. <Outcome 3>",
+    "4. <Outcome 4>",
+    "5. <Outcome 5>"
   ]
 }}
 
-Guidelines:
-- Title: Use the actual case study name (from the content), not a generic phrase. If not found, summarize the main topic in 10 words or less.
-- Description: Write 2-3 paragraphs that clearly establish the business context, introduce key players, and specify the student's role in the case study. This field must NOT be empty.
-- Learning Outcomes: Create 5 specific, measurable learning objectives that business students should achieve. Each outcome should be different and specific to the case study content.
-- If any field is missing or unclear, infer or summarize based on the content. Do NOT leave any field empty.
-- Return ONLY the JSON response, no additional text or explanations.
-        """
+Important generation rules:
+- Output ONLY a valid JSON object. Do not include any extra commentary, markdown, or formatting.
+- The "description" must be at least 300 words, written in textbook-quality paragraphs, and must explicitly reference the key figures and their roles/correlations as part of the narrative. Do not summarize.
+- The "student_role" field should clearly identify the position the student will assume in the case study.
+- The "key_figures" array must list **EVERY SINGLE important figure, entity, group, or organization** mentioned in the case study that is essential to understanding and progressing the narrative. This includes:
+  * ALL named individuals (e.g., "John Smith", "Mary Johnson", "The CEO", "The Manager")
+  * ALL unnamed but important figures (e.g., "The CEO", "The Marketing Director", "The Founder", "The Manager")
+  * ALL entities and groups (e.g., "The Board of Directors", "Competitors", "Customers", "Suppliers", "Distributors")
+  * ALL organizations mentioned (e.g., "The Company", "Competitors", "Regulatory Bodies", "Government Agencies")
+  * ALL stakeholders (e.g., "Shareholders", "Employees", "Partners", "Vendors")
+  * ANY person or entity that influences the narrative or decision-making process
+- You MUST be extremely thorough and comprehensive. If you're unsure whether someone is important, INCLUDE them. It's better to have too many key figures than to miss important ones.
+- Look for EVERY mention of people, companies, groups, or entities in the text and evaluate their importance to the case study narrative.
+- For personality_traits, you MUST assign specific numerical values from 0-10 based on the case study content. Do NOT use 0 for all traits. Consider:
+  * analytical: How data-driven and logical is this person/entity?
+  * creative: How innovative and out-of-the-box thinking do they show?
+  * assertive: How direct and forceful are they in their approach?
+  * collaborative: How much do they work with others vs. independently?
+  * detail_oriented: How focused are they on specifics vs. big picture?
+- If you cannot determine a specific trait, use 5 as a neutral default, NOT 0.
+- All five "learning_outcomes" must be unique, specific, measurable, and each MUST be numbered (e.g., '1. ...', '2. ...', etc.). If the outcomes are not numbered, your answer will be rejected.
+- If any additional files or context are provided, treat them as the most important and authoritative sources. Prioritize information from these files when generating the description, key figures, and learning outcomes.
+
+CRITICAL: Before finalizing your response, double-check that you have identified EVERY person, organization, group, or entity mentioned in the case study content. Your key_figures array should be comprehensive and include ALL stakeholders, decision-makers, influencers, and important entities mentioned in the text.
+
+CASE STUDY CONTENT (context files first, then main PDF):
+{combined_content}
+"""
+        print("[DEBUG] Combined content length:", len(combined_content))
+        print("[DEBUG] Combined content preview:", combined_content[:500])
+        print("[DEBUG] Prompt sent to OpenAI:\n", prompt[:1000], "..." if len(prompt) > 1000 else "")
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
         response = await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: client.chat.completions.create(
-                model="gpt-3.5-turbo",
+                model="gpt-4o",
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=1024,
+                max_tokens=2048,
                 temperature=0.2,
             )
         )
         generated_text = response.choices[0].message.content
-        try:
-            ai_result = json.loads(generated_text)
-            final_result = {
-                "title": ai_result.get("title") or title,
-                "description": ai_result.get("description") or (cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content),
-                "learning_outcomes": ai_result.get("learning_outcomes") or [
-                    "1. Analyze the business situation presented in the case study",
-                    "2. Identify key stakeholders and their interests",
-                    "3. Develop strategic recommendations based on the analysis",
-                    "4. Evaluate the impact of decisions on organizational performance",
-                    "5. Apply business concepts and frameworks to real-world scenarios"
-                ]
-            }
-            return final_result
-        except json.JSONDecodeError as e:
-            print(f"[ERROR] Failed to parse JSON from AI response: {e}")
-            print(f"[ERROR] Raw AI response: {generated_text}")
-            # Fallback: return structured content
-            return {
-                "title": title,
-                "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
-                "learning_outcomes": [
-                    "1. Analyze the business situation presented in the case study",
-                    "2. Identify key stakeholders and their interests",
-                    "3. Develop strategic recommendations based on the analysis",
-                    "4. Evaluate the impact of decisions on organizational performance",
-                    "5. Apply business concepts and frameworks to real-world scenarios"
-                ]
-            }
+        print("[DEBUG] Raw OpenAI response:\n", generated_text)
+        # Try to extract JSON from the response using regex
+        match = re.search(r'({[\s\S]*})', generated_text)
+        if match:
+            json_str = match.group(1)
+            try:
+                ai_result = json.loads(json_str)
+                final_result = {
+                    "title": ai_result.get("title") or title,
+                    "description": ai_result.get("description") or (cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content),
+                    "key_figures": ai_result.get("key_figures") if "key_figures" in ai_result else [],
+                    "learning_outcomes": ai_result.get("learning_outcomes") or [
+                        "1. Analyze the business situation presented in the case study",
+                        "2. Identify key stakeholders and their interests",
+                        "3. Develop strategic recommendations based on the analysis",
+                        "4. Evaluate the impact of decisions on organizational performance",
+                        "5. Apply business concepts and frameworks to real-world scenarios"
+                    ]
+                }
+                print("[DEBUG] Final AI result sent to frontend:", final_result)
+                return final_result
+            except json.JSONDecodeError as e:
+                print(f"[ERROR] Failed to parse JSON from AI response: {e}")
+                print(f"[ERROR] Raw AI response: {json_str}")
+        else:
+            print("[ERROR] No JSON object found in OpenAI response.")
+        # Fallback: return structured content
+        return {
+            "title": title,
+            "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
+            "key_figures": [],
+            "learning_outcomes": [
+                "1. Analyze the business situation presented in the case study",
+                "2. Identify key stakeholders and their interests",
+                "3. Develop strategic recommendations based on the analysis",
+                "4. Evaluate the impact of decisions on organizational performance",
+                "5. Apply business concepts and frameworks to real-world scenarios"
+            ]
+        }
     except Exception as e:
         print(f"[ERROR] AI processing failed: {str(e)}")
         # Fallback: return basic structured content
@@ -606,6 +816,7 @@ Guidelines:
         return {
             "title": fallback_title,
             "description": fallback_description,
+            "key_figures": [],
             "learning_outcomes": fallback_learning_outcomes
         }
 

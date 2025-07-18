@@ -29,7 +29,7 @@ function Modal({ isOpen, onClose, children }: { isOpen: boolean; onClose: () => 
  if (!isOpen) return null;
  return (
    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-60">
-     <div className="bg-white rounded-lg shadow-lg max-w-[900px] min-w-[600px] max-h-[90vh] overflow-y-auto flex flex-col relative p-0">
+     <div className="bg-white rounded-lg shadow-lg w-[900px] h-[80vh] overflow-y-auto flex flex-col relative p-0 resize-none">
        <button
          className="absolute top-4 right-4 text-gray-400 text-2xl font-bold hover:text-gray-600 z-10"
          onClick={onClose}
@@ -160,13 +160,13 @@ export default function ScenarioBuilder() {
    setAutofillLoading(true);
    setAutofillError(null);
    setAutofillResult(null);
-   setAutofillStep("Uploading PDF...");
-   setAutofillProgress(0);
+   setAutofillStep("Processing PDF and context files...");
+   setAutofillProgress(25);
   
    try {
-     // Step 1: Upload PDF and context files (if any) and get job ID immediately
      const formData = new FormData();
      formData.append("file", uploadedFile);
+     
      // Attach context files if any were uploaded via the bottom button
      if (uploadedFiles.length > 0) {
        uploadedFiles.forEach((file) => {
@@ -175,120 +175,111 @@ export default function ScenarioBuilder() {
      }
      console.log("[DEBUG] handleAutofill: PDF file to upload:", uploadedFile.name);
      console.log("[DEBUG] handleAutofill: Context files to upload:", uploadedFiles.map(f => f.name));
+     
+     setAutofillStep("Sending files to backend...");
+     setAutofillProgress(50);
+     
      const response = await fetch("http://127.0.0.1:8000/api/parse-pdf/", {
        method: "POST",
        body: formData,
      });
     
      if (!response.ok) {
-       throw new Error("Failed to upload PDF");
+       throw new Error("Failed to process PDF");
      }
     
-     const uploadData = await response.json();
-     const jobId = uploadData.job_id;
+     setAutofillStep("Processing with AI...");
+     setAutofillProgress(75);
+     
+     const resultData = await response.json();
+     console.log("Backend response:", resultData);
     
-     if (!jobId) {
-       throw new Error("No job ID received from LlamaParse");
-     }
-    
-     console.log("PDF uploaded, job ID:", jobId);
-     setAutofillStep("Parsing PDF content...");
-     setAutofillProgress(10); // Upload complete
-    
-     // Step 2: Poll for completion status
-     let attempts = 0;
-     const maxAttempts = 60; // 3 minutes with 3-second intervals
-     setAutofillMaxAttempts(maxAttempts);
-    
-     while (attempts < maxAttempts) {
-       attempts++;
-       const progressPercent = Math.min(10 + (attempts / maxAttempts) * 80, 90); // 10% to 90%
-       setAutofillProgress(progressPercent);
-       setAutofillStep(`Parsing PDF content... (${attempts}/${maxAttempts})`);
+     if (resultData.status === "completed" && resultData.ai_result) {
+       setAutofillStep("Complete!");
+       setAutofillProgress(100);
+       setAutofillResult(resultData);
       
-       // Check status
-       const statusResponse = await fetch(`http://127.0.0.1:8000/api/parse-pdf/status/${jobId}`);
-       if (!statusResponse.ok) {
-         throw new Error("Failed to check parsing status");
-       }
+       // Populate form fields with AI results
+       const aiData = resultData.ai_result;
+       console.log("AI Result:", aiData);
+       console.log("AI Result keys:", Object.keys(aiData));
       
-       const statusData = await statusResponse.json();
-       console.log(`Attempt ${attempts}: Status = ${statusData.status}`);
-      
-       if (statusData.status === "SUCCESS" || statusData.status === "COMPLETED") {
-         // Get the result
-         setAutofillStep("Getting parsed content...");
-         setAutofillProgress(95);
-         const resultResponse = await fetch(`http://127.0.0.1:8000/api/parse-pdf/result/${jobId}`);
-        
-         if (!resultResponse.ok) {
-           throw new Error("Failed to get parsing result");
-         }
-        
-         const resultData = await resultResponse.json();
-         console.log("Parse result:", resultData);
-        
-         if (resultData.status === "completed") {
-           setAutofillStep("Complete!");
-           setAutofillProgress(100);
-           setAutofillResult(resultData);
-          
-           // Populate form fields with AI results
-           if (resultData.ai_result) {
-             const aiData = resultData.ai_result;
-             console.log("AI Result:", aiData);
-             console.log("AI Result keys:", Object.keys(aiData));
-            
-             // Set the title
-             if (aiData.title) {
-               console.log("Setting title:", aiData.title);
-               setName(aiData.title);
-             } else {
-               console.log("No title found in AI result");
-             }
-            
-             // Set the description
-             if (aiData.description) {
-               console.log("Setting description:", aiData.description);
-               setDescription(aiData.description);
-             } else {
-               console.log("No description found in AI result");
-               console.log("Description field value:", aiData.description);
-             }
-            
-             // Set the learning outcomes
-             if (aiData.learning_outcomes && Array.isArray(aiData.learning_outcomes)) {
-               console.log("Setting learning outcomes:", aiData.learning_outcomes);
-               setLearningOutcomes(aiData.learning_outcomes.join('\n'));
-             } else {
-               console.log("No learning outcomes found in AI result");
-             }
-           } else {
-             console.log("No AI result found in response:", resultData);
-             console.log("Full result data:", resultData);
-           }
-          
-           return;
-         } else {
-           throw new Error(`Failed to get result: ${resultData.error}`);
-         }
-        
-       } else if (statusData.status === "FAILED") {
-         throw new Error(`Parsing failed: ${statusData.error || 'Unknown error'}`);
-       } else if (statusData.status === "PENDING") {
-         // Wait before next attempt
-         await new Promise(resolve => setTimeout(resolve, 3000));
-         continue;
+       // Set the title
+       if (aiData.title) {
+         console.log("Setting title:", aiData.title);
+         setName(aiData.title);
        } else {
-         // Unknown status, wait and continue
-         console.log(`Unknown status: ${statusData.status}, waiting...`);
-         await new Promise(resolve => setTimeout(resolve, 3000));
-         continue;
+         console.log("No title found in AI result");
        }
+      
+       // Set the description
+       if (aiData.description) {
+         console.log("Setting description:", aiData.description);
+         setDescription(aiData.description);
+       } else {
+         console.log("No description found in AI result");
+         console.log("Description field value:", aiData.description);
+       }
+      
+       // Set the learning outcomes
+       if (aiData.learning_outcomes && Array.isArray(aiData.learning_outcomes)) {
+         console.log("Setting learning outcomes:", aiData.learning_outcomes);
+         setLearningOutcomes(aiData.learning_outcomes.join('\n'));
+       } else {
+         console.log("No learning outcomes found in AI result");
+       }
+       
+       // Create personas from key figures (excluding the student role)
+       if (aiData.key_figures && Array.isArray(aiData.key_figures)) {
+         console.log("Creating personas from key figures:", aiData.key_figures);
+         console.log("Student role:", aiData.student_role);
+         
+         const newPersonas = aiData.key_figures
+           .filter((figure: any) => {
+             // Exclude figures that match the student role
+             const studentRole = aiData.student_role?.toLowerCase() || '';
+             const figureName = figure.name?.toLowerCase() || '';
+             const figureRole = figure.role?.toLowerCase() || '';
+             
+             // Skip if this figure matches the student role
+             if (studentRole && (figureName.includes(studentRole) || figureRole.includes(studentRole))) {
+               console.log(`[DEBUG] Excluding ${figure.name} - matches student role: ${studentRole}`);
+               return false;
+             }
+             
+             return true;
+           })
+           .map((figure: any, index: number) => {
+             console.log(`[DEBUG] Processing key figure ${index + 1}:`, figure);
+             console.log(`[DEBUG] Personality traits for ${figure.name}:`, figure.personality_traits);
+             
+             return {
+               id: `persona-${Date.now()}-${index}`,
+               name: figure.name || `Person ${index + 1}`,
+               position: figure.role || 'Unknown',
+               description: figure.background || figure.correlation || 'No background information available.',
+               goals: Array.isArray(figure.primary_goals) 
+                 ? figure.primary_goals.join('\n') 
+                 : (figure.primary_goals || 'Goals not specified in the case study.'),
+               personality: {
+                 analytical: Math.max(0, Math.min(10, figure.personality_traits?.analytical || 5)),
+                 creative: Math.max(0, Math.min(10, figure.personality_traits?.creative || 5)),
+                 assertive: Math.max(0, Math.min(10, figure.personality_traits?.assertive || 5)),
+                 collaborative: Math.max(0, Math.min(10, figure.personality_traits?.collaborative || 5)),
+                 detail_oriented: Math.max(0, Math.min(10, figure.personality_traits?.detail_oriented || 5))
+               }
+             };
+           });
+         
+         console.log("Generated personas (after filtering):", newPersonas);
+         setPersonas(newPersonas);
+       }
+      
+     } else {
+       console.log("No AI result found in response:", resultData);
+       console.log("Full result data:", resultData);
+       throw new Error("No AI result received from backend");
      }
-    
-     // Max attempts reached
-     throw new Error("Parsing timed out. Please try again.");
     
    } catch (err: any) {
      setAutofillError(err.message || "Unknown error");

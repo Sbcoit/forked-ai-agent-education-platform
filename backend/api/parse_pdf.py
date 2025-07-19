@@ -699,35 +699,28 @@ CASE STUDY CONTENT (main PDF):
         prompt = f"""
 You are a highly structured JSON-only generator trained to analyze business case studies for college business education.
 
-CRITICAL: You must identify ALL named individuals, companies, organizations, and significant unnamed roles mentioned anywhere in the case study content. Do not limit yourself to only the most prominent figures.
+CRITICAL: You must identify ALL named individuals, companies, organizations, and significant unnamed roles mentioned within the case study narrative. Focus ONLY on characters and entities that are part of the business story being told.
 
 Instructions for key_figures identification:
 - Find ALL types of key figures that can be turned into personas, including:
-  * Named individuals (people with first and last names like "John Smith", "Mary Johnson", "Wanjohi", etc.)
-  * Companies and organizations (e.g., "Kaskazi Network", "Competitors", "Suppliers")
-  * Unnamed but important roles (e.g., "The CEO", "The Board of Directors", "The Marketing Manager")
-  * Groups and stakeholders (e.g., "Customers", "Employees", "Shareholders", "Partners")
-  * External entities (e.g., "Government Agencies", "Regulatory Bodies", "Industry Analysts")
-  * Any entity that influences the narrative or decision-making process
+  * Named individuals who are characters in the case study (people with first and last names like "John Smith", "Mary Johnson", "Wanjohi", etc.)
+  * Companies and organizations mentioned in the narrative (e.g., "Kaskazi Network", "Competitors", "Suppliers")
+  * Unnamed but important roles within the story (e.g., "The CEO", "The Board of Directors", "The Marketing Manager")
+  * Groups and stakeholders in the narrative (e.g., "Customers", "Employees", "Shareholders", "Partners")
+  * External entities mentioned in the story (e.g., "Government Agencies", "Regulatory Bodies", "Industry Analysts")
+  * Any entity that influences the narrative or decision-making process within the case study
 - Look for names in the format: "FirstName LastName" or "Title LastName" or "FirstName Title"
-- Search throughout the entire document: acknowledgments, author sections, case study text, footnotes, etc.
-- Include both named and unnamed entities - do not prioritize one over the other
-- Even if someone/thing is mentioned only once or briefly, include them if they have a discernible role
-- Do not skip anyone/anything based on perceived importance - include ALL relevant figures and entities
-
-CRITICAL REQUIREMENT: You MUST identify at least 8-12 key figures. Business case studies typically contain many stakeholders, decision-makers, and entities. If you find fewer than 8, you are missing important figures. Look more thoroughly for:
-- Named individuals mentioned anywhere in the text
-- Companies, organizations, or institutions
-- Unnamed but important roles (CEO, Manager, Board, etc.)
-- Stakeholder groups (Customers, Suppliers, Employees, etc.)
-- External entities (Government, Competitors, Partners, etc.)
-- Background figures, supporting roles, or mentioned entities
+- Focus ONLY on the case study narrative content - ignore author sections, acknowledgments, footnotes, or other metadata
+- Include both named and unnamed entities that are part of the business story - do not prioritize one over the other
+- Even if someone/thing is mentioned only once or briefly, include them if they have a discernible role in the narrative
+- Do not skip anyone/anything based on perceived importance - include ALL relevant figures and entities from the story
+- EXCLUDE authors, researchers, case study creators, or other people who are not characters in the business narrative
 
 Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
 
 {{
   "title": "<The exact title of the business case study>",
-  "description": "<A minimum 300-word, 3-paragraph detailed background including: 1) business context and situation, 2) main challenges or decisions, 3) the specific role or position the student will assume in the case, and 4) explicit reference to the key figures and their roles/correlations as part of the narrative>",
+  "description": "<A minimum 300-word, 3-paragraph detailed background including: 1) business context and situation, 2) main challenges or decisions, 3) explicit statement that the student will be assuming the role of the primary decision-maker or central figure in the case study, and 4) explicit reference to the key figures and their roles/correlations as part of the narrative>",
   "student_role": "<The specific role or position the student will assume in this case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', etc.)>",
   "key_figures": [
     {{
@@ -760,7 +753,7 @@ Your task is to analyze the following business case study content and return a J
 
 Important generation rules:
 - Output ONLY a valid JSON object. Do not include any extra commentary, markdown, or formatting.
-- The "description" must be at least 300 words, written in textbook-quality paragraphs, and must explicitly reference the key figures and their roles/correlations as part of the narrative. Do not summarize.
+- The "description" must be at least 300 words, written in textbook-quality paragraphs, and must explicitly reference the key figures and their roles/correlations as part of the narrative. The description MUST include an explicit statement that the student will be assuming the role of the primary decision-maker or central figure in the case study. Do not summarize.
 - The "student_role" field should clearly identify the position the student will assume in the case study.
 - The "key_figures" array must list **EVERY SINGLE important figure, entity, group, or organization** mentioned in the case study that is essential to understanding and progressing the narrative. This includes:
   * ALL named individuals (e.g., "John Smith", "Mary Johnson", "The CEO", "The Manager")

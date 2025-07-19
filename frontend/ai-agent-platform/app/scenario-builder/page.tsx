@@ -12,6 +12,7 @@ import { Progress } from "@/components/ui/progress"
 import { Upload, Info, Users, Activity, Sparkles, X } from "lucide-react"
 import Link from "next/link"
 import PersonaCard from "@/components/PersonaCard";
+import TimelineCard from "@/components/TimelineCard";
 
 
 // Simple Modal component
@@ -60,40 +61,52 @@ export default function ScenarioBuilder() {
  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]); // For the "Upload Files" button
  const filesInputRef = useRef<HTMLInputElement>(null);
  const [personas, setPersonas] = useState<any[]>([]);
+ const [timelineEvents, setTimelineEvents] = useState<any[]>([]); // New state for timeline events
  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+ const [editingTimelineIdx, setEditingTimelineIdx] = useState<number | null>(null);
  const [tempPersonas, setTempPersonas] = useState<any[]>([]); // Track temporary personas that haven't been saved yet
+ const [tempTimelineEvents, setTempTimelineEvents] = useState<any[]>([]); // Track temporary timeline events
 
 
  // Placeholder handlers for personas and timeline
  const handleAddPersona = () => {
-   const newPersona = {
-     id: `temp-persona-${Date.now()}`,
-     name: "New Persona",
-     position: "",
-     description: "",
-     traits: {
-       assertiveness: 3,
-       cooperativeness: 3,
-       openness: 3,
-       risk_tolerance: 3,
-       emotional_stability: 3
-     },
-     defaultTraits: {
-       assertiveness: 3,
-       cooperativeness: 3,
-       openness: 3,
-       risk_tolerance: 3,
-       emotional_stability: 3
-     },
-     primaryGoals: "",
-     isTemp: true // Mark as temporary
-   };
-   
-   // Add to temporary personas at the top
-   setTempPersonas(tempPersonas => [newPersona, ...tempPersonas]);
-   setEditingIdx(0); // Open the new persona for editing (it's at index 0 now)
- }
- const handleAddScene = () => {}
+    const newPersona = {
+      id: `persona-${Date.now()}`,
+      name: "New Persona",
+      position: "Role",
+      description: "Description of this persona's background and role in the simulation.",
+      primaryGoals: "Goals not specified in the case study.",
+      traits: {
+        assertiveness: 3,
+        cooperativeness: 3,
+        openness: 3,
+        risk_tolerance: 3,
+        emotional_stability: 3
+      },
+      defaultTraits: {
+        assertiveness: 3,
+        cooperativeness: 3,
+        openness: 3,
+        risk_tolerance: 3,
+        emotional_stability: 3
+      }
+    };
+    setTempPersonas(prev => [...prev, newPersona]);
+    setEditingIdx(tempPersonas.length); // Edit the new persona immediately
+  };
+
+  const handleAddTimelineEvent = () => {
+    const newEvent = {
+      id: `event-${Date.now()}`,
+      title: "New Scene",
+      goal: "Goal for this scene",
+      sceneDescription: "Description of what happens in this scene.",
+      successMetric: "How to measure success in this scene.",
+      timeoutTurns: 15
+    };
+    setTempTimelineEvents(prev => [...prev, newEvent]);
+    setEditingTimelineIdx(tempTimelineEvents.length); // Edit the new event immediately
+  };
 
 
  // Handler to clear the uploaded file and open the file picker
@@ -259,6 +272,9 @@ export default function ScenarioBuilder() {
            const figureRole = figure.role?.toLowerCase() || '';
            
            console.log(`[DEBUG] Checking figure: "${figure.name}" (role: "${figure.role}")`);
+           console.log(`[DEBUG] Student role: "${studentRole}"`);
+           console.log(`[DEBUG] Name includes student role: ${figureName.includes(studentRole)}`);
+           console.log(`[DEBUG] Role includes student role: ${figureRole.includes(studentRole)}`);
            
            // Check 1: Skip if this figure matches the student role exactly
            if (studentRole && (figureName.includes(studentRole) || figureRole.includes(studentRole))) {
@@ -536,16 +552,34 @@ export default function ScenarioBuilder() {
 
  // Delete persona handler
  const handleDeletePersona = (idx: number) => {
-   // Check if we're editing a temporary persona
-   if (editingIdx !== null && tempPersonas[editingIdx]?.isTemp) {
-     // Delete from temporary personas
-     setTempPersonas(tempPersonas => tempPersonas.filter((_, i) => i !== idx));
+   if (idx < tempPersonas.length) {
+     setTempPersonas(prev => prev.filter((_, i) => i !== idx));
    } else {
-     // Delete from permanent personas
-     setPersonas(personas => personas.filter((_, i) => i !== idx));
+     const permIdx = idx - tempPersonas.length;
+     setPersonas(prev => prev.filter((_, i) => i !== permIdx));
    }
    setEditingIdx(null);
  };
+
+  const handleSaveTimelineEvent = (idx: number, updatedEvent: any) => {
+    if (idx < tempTimelineEvents.length) {
+      setTempTimelineEvents(prev => prev.map((event, i) => i === idx ? updatedEvent : event));
+    } else {
+      const permIdx = idx - tempTimelineEvents.length;
+      setTimelineEvents(prev => prev.map((event, i) => i === permIdx ? updatedEvent : event));
+    }
+    setEditingTimelineIdx(null);
+  };
+
+  const handleDeleteTimelineEvent = (idx: number) => {
+    if (idx < tempTimelineEvents.length) {
+      setTempTimelineEvents(prev => prev.filter((_, i) => i !== idx));
+    } else {
+      const permIdx = idx - tempTimelineEvents.length;
+      setTimelineEvents(prev => prev.filter((_, i) => i !== permIdx));
+    }
+    setEditingTimelineIdx(null);
+  };
 
 
 
@@ -825,18 +859,46 @@ export default function ScenarioBuilder() {
                <span className="ml-2 text-muted-foreground text-sm font-normal">These are the sequence of events the user needs to solve for during the simulation.</span>
              </AccordionTrigger>
              <AccordionContent>
-               <div className="py-4">
-                 <p className="text-muted-foreground text-sm mb-6">Think of each segment as a self-contained mini-level in your simulation. Arrange them from top to bottom, this will be the sequence each scene will take place in.</p>
-                 <div className="flex flex-col items-center">
-                   <Button onClick={handleAddScene} variant="outline" className="w-60">Add new Scene</Button>
-                 </div>
+               <div className="flex flex-col items-center py-6">
+                 <Button onClick={handleAddTimelineEvent} variant="outline" className="w-60">Add new Scene</Button>
+                 {/* Render timeline event cards here */}
+                 {(tempTimelineEvents.length > 0 || timelineEvents.length > 0) && (
+                   <div className="w-full flex flex-col items-center mt-6">
+                     {/* Render temporary timeline events first (at the top) */}
+                     {tempTimelineEvents.map((event: any, idx: number) => (
+                       <div key={`temp-event-${idx}`} className="relative w-full">
+                         <div onClick={() => setEditingTimelineIdx(idx)} style={{ cursor: 'pointer' }}>
+                           <TimelineCard
+                             event={event}
+                             onSave={updatedEvent => handleSaveTimelineEvent(idx, updatedEvent)}
+                             onDelete={() => handleDeleteTimelineEvent(idx)}
+                             editMode={false}
+                           />
+                         </div>
+                       </div>
+                     ))}
+                     {/* Render permanent timeline events */}
+                     {timelineEvents.map((event: any, idx: number) => (
+                       <div key={`perm-event-${idx}`} className="relative w-full">
+                         <div onClick={() => setEditingTimelineIdx(idx + tempTimelineEvents.length)} style={{ cursor: 'pointer' }}>
+                           <TimelineCard
+                             event={event}
+                             onSave={updatedEvent => handleSaveTimelineEvent(idx + tempTimelineEvents.length, updatedEvent)}
+                             onDelete={() => handleDeleteTimelineEvent(idx + tempTimelineEvents.length)}
+                             editMode={false}
+                           />
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                 )}
                </div>
              </AccordionContent>
            </AccordionItem>
          </Accordion>
        </div>
      </div>
-     {/* Modal for editing persona */}
+     {/* Modal for editing persona or timeline event */}
      {editingIdx !== null && (
        <Modal isOpen={true} onClose={() => setEditingIdx(null)}>
          <PersonaCard
@@ -848,6 +910,19 @@ export default function ScenarioBuilder() {
            onTraitsChange={newTraits => handleTraitsChange(editingIdx, newTraits)}
            onSave={updatedPersona => handleSavePersona(editingIdx, updatedPersona)}
            onDelete={() => handleDeletePersona(editingIdx)}
+           editMode={true}
+         />
+       </Modal>
+     )}
+     {editingTimelineIdx !== null && (
+       <Modal isOpen={true} onClose={() => setEditingTimelineIdx(null)}>
+         <TimelineCard
+           event={editingTimelineIdx < tempTimelineEvents.length 
+             ? tempTimelineEvents[editingTimelineIdx]
+             : timelineEvents[editingTimelineIdx - tempTimelineEvents.length]
+           }
+           onSave={updatedEvent => handleSaveTimelineEvent(editingTimelineIdx, updatedEvent)}
+           onDelete={() => handleDeleteTimelineEvent(editingTimelineIdx)}
            editMode={true}
          />
        </Modal>

@@ -570,7 +570,7 @@ def preprocess_case_study_content(raw_content: str) -> dict:
             else:
                 content = raw_content
         except (json.JSONDecodeError, TypeError):
-        content = raw_content
+            content = raw_content
     else:
         content = str(raw_content)
     
@@ -867,14 +867,14 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 }
                 print(f"[DEBUG] Final AI result sent to frontend with {len(final_result.get('key_figures', []))} key figures")
                 print("[DEBUG] Key figures names:", [fig.get('name', 'Unknown') for fig in final_result.get('key_figures', [])])
-                    return final_result
-                except json.JSONDecodeError as e:
+                return final_result
+            except json.JSONDecodeError as e:
                     print(f"[ERROR] Failed to parse JSON from AI response: {e}")
-                print(f"[ERROR] Raw AI response: {json_str}")
+                    print(f"[ERROR] Raw AI response: {json_str}")
         else:
             print("[ERROR] No JSON object found in OpenAI response.")
-                    # Fallback: return structured content
-                    return {
+            # Fallback: return structured content
+            return {
                         "title": title,
                         "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
                 "key_figures": [],

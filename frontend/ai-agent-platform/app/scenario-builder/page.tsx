@@ -198,6 +198,9 @@ export default function ScenarioBuilder() {
      
      const resultData = await response.json();
      console.log("Backend response:", resultData);
+     console.log("Response status:", resultData.status);
+     console.log("AI result exists:", !!resultData.ai_result);
+     console.log("Response keys:", Object.keys(resultData));
     
      if (resultData.status === "completed" && resultData.ai_result) {
        setAutofillStep("Complete!");
@@ -246,15 +249,9 @@ export default function ScenarioBuilder() {
          
          console.log("=== FILTERING PROCESS ===");
          
-         // Extract potential main character names from title and description
-         const mainCharacterNames = extractPlayerNames(aiData.title || '', aiData.description || '');
+         // Only exclude the actual main character (student role), not everyone mentioned in the description
          const studentRole = aiData.student_role?.toLowerCase() || '';
          
-         // Also look for single names that might be the main character
-         const singleNames = extractSingleNames(aiData.title || '', aiData.description || '');
-         const allMainCharacterNames = [...mainCharacterNames, ...singleNames];
-         
-         console.log(`[DEBUG] Main character names extracted: ${allMainCharacterNames.join(', ')}`);
          console.log(`[DEBUG] Student role: "${studentRole}"`);
          
          const filteredFigures = aiData.key_figures.filter((figure: any) => {
@@ -269,24 +266,9 @@ export default function ScenarioBuilder() {
              return false;
            }
            
-           // Check 2: Skip if this figure is likely the main character (from title/description)
-           if (allMainCharacterNames.length > 0) {
-             const isMainCharacter = allMainCharacterNames.some(mainName => {
-               const normalizedMain = normalizeName(mainName);
-               const normalizedFigure = normalizeName(figure.name);
-               return normalizedMain === normalizedFigure || 
-                      (normalizedMain.split(' ').length > 1 && 
-                       normalizedMain.split(' ').every(word => normalizedFigure.includes(word)));
-             });
-             
-             if (isMainCharacter) {
-               console.log(`[DEBUG] ❌ EXCLUDING ${figure.name} - identified as main character`);
-               return false;
-             }
-           }
-           
-           // Check 3: Skip if this figure has a role that suggests they're the main protagonist
-           const protagonistRoles = ['protagonist', 'main character', 'lead', 'principal', 'central figure', 'ceo', 'founder'];
+           // Check 2: Skip if this figure has a role that suggests they're the main protagonist
+           // Only exclude if they're clearly the main character, not just mentioned in the description
+           const protagonistRoles = ['protagonist', 'main character', 'lead', 'principal', 'central figure'];
            if (protagonistRoles.some(role => figureRole.includes(role))) {
              console.log(`[DEBUG] ❌ EXCLUDING ${figure.name} - has protagonist role: "${figureRole}"`);
              return false;

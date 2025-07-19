@@ -856,6 +856,7 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 final_result = {
                     "title": ai_result.get("title") or title,
                     "description": ai_result.get("description") or (cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content),
+                    "student_role": ai_result.get("student_role") or "",
                     "key_figures": ai_result.get("key_figures") if "key_figures" in ai_result else [],
                     "learning_outcomes": ai_result.get("learning_outcomes") or [
                         "1. Analyze the business situation presented in the case study",

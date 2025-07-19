@@ -29,7 +29,7 @@ function Modal({ isOpen, onClose, children }: { isOpen: boolean; onClose: () => 
  if (!isOpen) return null;
  return (
    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-60">
-     <div className="bg-white rounded-lg shadow-lg w-[900px] h-[80vh] overflow-y-auto flex flex-col relative p-0 resize-none">
+     <div className="bg-white rounded-lg shadow-lg w-[700px] h-[80vh] flex flex-col relative p-0 resize-none">
        <button
          className="absolute top-4 right-4 text-gray-400 text-2xl font-bold hover:text-gray-600 z-10"
          onClick={onClose}
@@ -61,11 +61,13 @@ export default function ScenarioBuilder() {
  const filesInputRef = useRef<HTMLInputElement>(null);
  const [personas, setPersonas] = useState<any[]>([]);
  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+ const [tempPersonas, setTempPersonas] = useState<any[]>([]); // Track temporary personas that haven't been saved yet
 
 
  // Placeholder handlers for personas and timeline
  const handleAddPersona = () => {
    const newPersona = {
+     id: `temp-persona-${Date.now()}`,
      name: "New Persona",
      position: "",
      description: "",
@@ -83,10 +85,13 @@ export default function ScenarioBuilder() {
        risk_tolerance: 3,
        emotional_stability: 3
      },
-     primaryGoals: ""
+     primaryGoals: "",
+     isTemp: true // Mark as temporary
    };
-   setPersonas(personas => [...personas, newPersona]);
-   setEditingIdx(personas.length); // Open the new persona for editing
+   
+   // Add to temporary personas at the top
+   setTempPersonas(tempPersonas => [newPersona, ...tempPersonas]);
+   setEditingIdx(0); // Open the new persona for editing (it's at index 0 now)
  }
  const handleAddScene = () => {}
 
@@ -215,7 +220,9 @@ export default function ScenarioBuilder() {
        // Set the description
        if (aiData.description) {
          console.log("Setting description:", aiData.description);
-         setDescription(aiData.description);
+         const formattedDescription = formatDescription(aiData.description);
+         console.log("Formatted description:", formattedDescription);
+         setDescription(formattedDescription);
        } else {
          console.log("No description found in AI result");
          console.log("Description field value:", aiData.description);
@@ -230,49 +237,116 @@ export default function ScenarioBuilder() {
        }
        
        // Create personas from key figures (excluding the student role)
+       console.log("[DEBUG] Checking for key_figures in aiData:", aiData.key_figures);
        if (aiData.key_figures && Array.isArray(aiData.key_figures)) {
-         console.log("Creating personas from key figures:", aiData.key_figures);
+         console.log("=== KEY FIGURES DEBUG ===");
+         console.log("Total key figures identified:", aiData.key_figures.length);
+         console.log("All key figures:", aiData.key_figures);
          console.log("Student role:", aiData.student_role);
          
-         const newPersonas = aiData.key_figures
-           .filter((figure: any) => {
-             // Exclude figures that match the student role
-             const studentRole = aiData.student_role?.toLowerCase() || '';
-             const figureName = figure.name?.toLowerCase() || '';
-             const figureRole = figure.role?.toLowerCase() || '';
+         console.log("=== FILTERING PROCESS ===");
+         
+         // Extract potential main character names from title and description
+         const mainCharacterNames = extractPlayerNames(aiData.title || '', aiData.description || '');
+         const studentRole = aiData.student_role?.toLowerCase() || '';
+         
+         // Also look for single names that might be the main character
+         const singleNames = extractSingleNames(aiData.title || '', aiData.description || '');
+         const allMainCharacterNames = [...mainCharacterNames, ...singleNames];
+         
+         console.log(`[DEBUG] Main character names extracted: ${allMainCharacterNames.join(', ')}`);
+         console.log(`[DEBUG] Student role: "${studentRole}"`);
+         
+         const filteredFigures = aiData.key_figures.filter((figure: any) => {
+           const figureName = figure.name?.toLowerCase() || '';
+           const figureRole = figure.role?.toLowerCase() || '';
+           
+           console.log(`[DEBUG] Checking figure: "${figure.name}" (role: "${figure.role}")`);
+           
+           // Check 1: Skip if this figure matches the student role exactly
+           if (studentRole && (figureName.includes(studentRole) || figureRole.includes(studentRole))) {
+             console.log(`[DEBUG] ❌ EXCLUDING ${figure.name} - matches student role: "${studentRole}"`);
+             return false;
+           }
+           
+           // Check 2: Skip if this figure is likely the main character (from title/description)
+           if (allMainCharacterNames.length > 0) {
+             const isMainCharacter = allMainCharacterNames.some(mainName => {
+               const normalizedMain = normalizeName(mainName);
+               const normalizedFigure = normalizeName(figure.name);
+               return normalizedMain === normalizedFigure || 
+                      (normalizedMain.split(' ').length > 1 && 
+                       normalizedMain.split(' ').every(word => normalizedFigure.includes(word)));
+             });
              
-             // Skip if this figure matches the student role
-             if (studentRole && (figureName.includes(studentRole) || figureRole.includes(studentRole))) {
-               console.log(`[DEBUG] Excluding ${figure.name} - matches student role: ${studentRole}`);
+             if (isMainCharacter) {
+               console.log(`[DEBUG] ❌ EXCLUDING ${figure.name} - identified as main character`);
                return false;
              }
-             
-             return true;
-           })
+           }
+           
+           // Check 3: Skip if this figure has a role that suggests they're the main protagonist
+           const protagonistRoles = ['protagonist', 'main character', 'lead', 'principal', 'central figure', 'ceo', 'founder'];
+           if (protagonistRoles.some(role => figureRole.includes(role))) {
+             console.log(`[DEBUG] ❌ EXCLUDING ${figure.name} - has protagonist role: "${figureRole}"`);
+             return false;
+           }
+           
+           console.log(`[DEBUG] ✅ KEEPING ${figure.name}`);
+           return true;
+         });
+         
+         console.log(`[DEBUG] After filtering: ${filteredFigures.length} figures remain out of ${aiData.key_figures.length} total`);
+         
+         const newPersonas = filteredFigures
            .map((figure: any, index: number) => {
              console.log(`[DEBUG] Processing key figure ${index + 1}:`, figure);
              console.log(`[DEBUG] Personality traits for ${figure.name}:`, figure.personality_traits);
+             console.log(`[DEBUG] Primary goals for ${figure.name}:`, figure.primary_goals);
+             
+             // Format goals properly
+             let formattedGoals = 'Goals not specified in the case study.';
+             if (Array.isArray(figure.primary_goals) && figure.primary_goals.length > 0) {
+               formattedGoals = figure.primary_goals.map((goal: string) => `• ${goal}`).join('\n');
+             } else if (typeof figure.primary_goals === 'string' && figure.primary_goals.trim()) {
+               // If it's a string, try to split by common separators and bullet them
+               const goals = figure.primary_goals.split(/[;\n]/).map((goal: string) => goal.trim()).filter((goal: string) => goal.length > 0);
+               if (goals.length > 1) {
+                 formattedGoals = goals.map((goal: string) => `• ${goal}`).join('\n');
+               } else {
+                 formattedGoals = `• ${figure.primary_goals}`;
+               }
+             }
+             
+             console.log(`[DEBUG] Formatted goals for ${figure.name}:`, formattedGoals);
              
              return {
                id: `persona-${Date.now()}-${index}`,
                name: figure.name || `Person ${index + 1}`,
                position: figure.role || 'Unknown',
-               description: figure.background || figure.correlation || 'No background information available.',
-               goals: Array.isArray(figure.primary_goals) 
-                 ? figure.primary_goals.join('\n') 
-                 : (figure.primary_goals || 'Goals not specified in the case study.'),
-               personality: {
-                 analytical: Math.max(0, Math.min(10, figure.personality_traits?.analytical || 5)),
-                 creative: Math.max(0, Math.min(10, figure.personality_traits?.creative || 5)),
-                 assertive: Math.max(0, Math.min(10, figure.personality_traits?.assertive || 5)),
-                 collaborative: Math.max(0, Math.min(10, figure.personality_traits?.collaborative || 5)),
-                 detail_oriented: Math.max(0, Math.min(10, figure.personality_traits?.detail_oriented || 5))
+               description: formatDescription(figure.background || figure.correlation || 'No background information available.'),
+               primaryGoals: formattedGoals,
+               traits: {
+                 assertiveness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.assertive || 5) / 2))),
+                 cooperativeness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.collaborative || 5) / 2))),
+                 openness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.creative || 5) / 2))),
+                 risk_tolerance: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.analytical || 5) / 2))),
+                 emotional_stability: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.detail_oriented || 5) / 2)))
                }
              };
            });
          
-         console.log("Generated personas (after filtering):", newPersonas);
+         console.log("=== FINAL PERSONAS ===");
+         console.log(`Total personas created: ${newPersonas.length}`);
+         newPersonas.forEach((persona: any, index: number) => {
+           console.log(`Persona ${index + 1}: ${persona.name} (${persona.position})`);
+           console.log(`  Goals: ${persona.primaryGoals}`);
+           console.log(`  Personality:`, persona.traits);
+         });
          setPersonas(newPersonas);
+       } else {
+         console.log("[DEBUG] No key_figures found in aiData, creating empty personas array");
+         setPersonas([]);
        }
       
      } else {
@@ -282,8 +356,9 @@ export default function ScenarioBuilder() {
      }
     
    } catch (err: any) {
-     setAutofillError(err.message || "Unknown error");
-     console.error("Autofill error:", err);
+     console.error("Autofill error details:", err);
+     console.error("Error stack:", err.stack);
+     setAutofillError(err.message || "Unknown error occurred during autofill");
    } finally {
      setAutofillLoading(false);
      setAutofillStep("");
@@ -323,6 +398,50 @@ export default function ScenarioBuilder() {
  }
 
 
+ // Helper to format description with proper paragraphs
+ function formatDescription(text: string): string {
+   if (!text) return '';
+   
+   // Split by common paragraph separators
+   let paragraphs = text.split(/\n\s*\n/);
+   
+   // If no double line breaks, try splitting by single line breaks
+   if (paragraphs.length <= 1) {
+     paragraphs = text.split(/\n/);
+   }
+   
+   // If still only one paragraph, try to break it up by sentences
+   if (paragraphs.length <= 1) {
+     const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+     if (sentences.length > 2) {
+       // Group sentences into paragraphs (2-3 sentences per paragraph)
+       const groupedParagraphs = [];
+       for (let i = 0; i < sentences.length; i += 2) {
+         const paragraph = sentences.slice(i, i + 2).join(' ').trim();
+         if (paragraph) groupedParagraphs.push(paragraph);
+       }
+       paragraphs = groupedParagraphs;
+     }
+   }
+   
+   // Clean up each paragraph
+   paragraphs = paragraphs
+     .map(p => p.trim())
+     .filter(p => p.length > 0)
+     .map(p => {
+       // Remove excessive whitespace
+       p = p.replace(/\s+/g, ' ');
+       // Ensure proper sentence endings
+       if (!p.endsWith('.') && !p.endsWith('!') && !p.endsWith('?')) {
+         p += '.';
+       }
+       return p;
+     });
+   
+   // Join with double line breaks for proper paragraph separation
+   return paragraphs.join('\n\n');
+ }
+
  // Helper to extract likely player names from the title and description
  function extractPlayerNames(title: string, description: string) {
    const names: string[] = [];
@@ -342,6 +461,25 @@ export default function ScenarioBuilder() {
    return names;
  }
 
+ // Helper to extract single names that might be the main character
+ function extractSingleNames(title: string, description: string) {
+   const names: string[] = [];
+   const text = `${title} ${description}`;
+   
+   // Look for capitalized single names (likely main characters)
+   const singleNameMatches = [...text.matchAll(/\b([A-Z][a-z]{2,})\b/g)];
+   for (const match of singleNameMatches) {
+     const name = match[1].trim();
+     // Filter out common words that aren't names
+     const commonWords = ['the', 'and', 'for', 'with', 'from', 'this', 'that', 'they', 'their', 'company', 'network', 'ltd', 'inc', 'corp'];
+     if (!commonWords.includes(name.toLowerCase()) && name.length > 2) {
+       if (!names.includes(name)) names.push(name);
+     }
+   }
+   
+   return names;
+ }
+
 
  function isLikelySamePersonFuzzy(playerNames: string[], personaName: string) {
    const nPersona = normalizeName(personaName);
@@ -354,13 +492,17 @@ export default function ScenarioBuilder() {
  }
 
 
- // When autofillResult changes, update personas state
+ // When autofillResult changes, update personas state (only if it contains personas array)
  useEffect(() => {
+   // Only run this if we have personas in the old format
    if (
      autofillResult &&
      autofillResult.ai_result &&
-     Array.isArray(autofillResult.ai_result.personas)
+     Array.isArray(autofillResult.ai_result.personas) &&
+     autofillResult.ai_result.personas.length > 0 &&
+     !autofillResult.ai_result.key_figures // Only run if we don't have key_figures (old format)
    ) {
+     console.log("[DEBUG] Found personas in autofillResult, applying legacy persona processing");
      const playerNames = extractPlayerNames(name, description);
      console.log("[DEBUG] Extracted player names:", playerNames);
      const mainCharacter = playerNames[0]?.toLowerCase().trim();
@@ -375,26 +517,51 @@ export default function ScenarioBuilder() {
        defaultTraits: { ...persona.traits } // original LLM traits
      }));
      setPersonas(filtered);
+   } else {
+     console.log("[DEBUG] No personas array in autofillResult or key_figures present, skipping legacy persona processing");
    }
  }, [autofillResult, name, description]);
 
 
  // Update persona traits handler
  const handleTraitsChange = (idx: number, newTraits: any) => {
-   setPersonas(personas => personas.map((p, i) => i === idx ? { ...p, traits: { ...newTraits } } : p));
+   // Check if we're editing a temporary persona
+   if (editingIdx !== null && tempPersonas[editingIdx]?.isTemp) {
+     setTempPersonas(tempPersonas => tempPersonas.map((p, i) => i === idx ? { ...p, traits: { ...newTraits } } : p));
+   } else {
+     setPersonas(personas => personas.map((p, i) => i === idx ? { ...p, traits: { ...newTraits } } : p));
+   }
  };
 
 
  // Save persona edits handler
  const handleSavePersona = (idx: number, updatedPersona: any) => {
-   setPersonas(personas => personas.map((p, i) => i === idx ? { ...updatedPersona } : p));
+   if (updatedPersona.isTemp) {
+     // This is a temporary persona being saved for the first time
+     const { isTemp, ...personaToSave } = updatedPersona; // Remove isTemp flag
+     personaToSave.id = `persona-${Date.now()}-${idx}`; // Generate permanent ID
+     
+     // Remove from temp personas and add to permanent personas at the top
+     setTempPersonas(tempPersonas => tempPersonas.filter((_, i) => i !== idx));
+     setPersonas(personas => [personaToSave, ...personas]);
+   } else {
+     // This is an existing persona being updated
+     setPersonas(personas => personas.map((p, i) => i === idx ? { ...updatedPersona } : p));
+   }
    setEditingIdx(null);
  };
 
 
  // Delete persona handler
  const handleDeletePersona = (idx: number) => {
-   setPersonas(personas => personas.filter((_, i) => i !== idx));
+   // Check if we're editing a temporary persona
+   if (editingIdx !== null && tempPersonas[editingIdx]?.isTemp) {
+     // Delete from temporary personas
+     setTempPersonas(tempPersonas => tempPersonas.filter((_, i) => i !== idx));
+   } else {
+     // Delete from permanent personas
+     setPersonas(personas => personas.filter((_, i) => i !== idx));
+   }
    setEditingIdx(null);
  };
 
@@ -626,12 +793,29 @@ export default function ScenarioBuilder() {
                <div className="flex flex-col items-center py-6">
                  <Button onClick={handleAddPersona} variant="outline" className="w-60">Add new persona</Button>
                  {/* Render persona cards here, excluding the player character */}
-                 {personas.length > 0 && (
+                 {(tempPersonas.length > 0 || personas.length > 0) && (
                    // Debug log to show which personas are being rendered
-                   console.log("[DEBUG] Personas to render:", personas.map(p => p.name)),
+                   console.log("[DEBUG] Temp personas to render:", tempPersonas.map(p => p.name)),
+                   console.log("[DEBUG] Permanent personas to render:", personas.map(p => p.name)),
                    <div className="w-full flex flex-col items-center mt-6">
+                     {/* Render temporary personas first (at the top) */}
+                     {tempPersonas.map((persona: any, idx: number) => (
+                       <div key={`temp-${idx}`} className="relative w-full">
+                         <div onClick={() => setEditingIdx(idx)} style={{ cursor: 'pointer' }}>
+                           <PersonaCard
+                             persona={{ ...persona, traits: persona.traits }}
+                             defaultTraits={persona.defaultTraits}
+                             onTraitsChange={newTraits => handleTraitsChange(idx, newTraits)}
+                             onSave={updatedPersona => handleSavePersona(idx, updatedPersona)}
+                             onDelete={() => handleDeletePersona(idx)}
+                             editMode={false}
+                           />
+                         </div>
+                       </div>
+                     ))}
+                     {/* Render permanent personas */}
                      {personas.map((persona: any, idx: number) => (
-                       <div key={idx} className="relative w-full">
+                       <div key={`perm-${idx}`} className="relative w-full">
                          <div onClick={() => setEditingIdx(idx)} style={{ cursor: 'pointer' }}>
                            <PersonaCard
                              persona={{ ...persona, traits: persona.traits }}
@@ -674,8 +858,12 @@ export default function ScenarioBuilder() {
      {editingIdx !== null && (
        <Modal isOpen={true} onClose={() => setEditingIdx(null)}>
          <PersonaCard
-           persona={{ ...personas[editingIdx], traits: personas[editingIdx].traits }}
-           defaultTraits={personas[editingIdx].defaultTraits}
+           persona={{ 
+             ...(editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]), 
+             traits: (editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]).traits 
+           }}
+           defaultTraits={(editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]).defaultTraits}
+           onTraitsChange={newTraits => handleTraitsChange(editingIdx, newTraits)}
            onSave={updatedPersona => handleSavePersona(editingIdx, updatedPersona)}
            onDelete={() => handleDeletePersona(editingIdx)}
            editMode={true}

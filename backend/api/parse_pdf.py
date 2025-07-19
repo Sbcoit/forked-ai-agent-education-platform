@@ -174,38 +174,53 @@ async def parse_pdf(file: UploadFile = File(...), context_files: List[UploadFile
         raise HTTPException(status_code=400, detail="Only PDF files are supported.")
     
     try:
-        # Parse main PDF with LlamaParse
-        print("[DEBUG] Processing main PDF file...")
-        main_markdown = await parse_with_llamaparse(file)
-        print(f"[DEBUG] Main PDF processed successfully, content length: {len(main_markdown)}")
+        # Process all files in parallel
+        print("[DEBUG] Starting parallel processing of all files...")
         
-        # Parse all context files with LlamaParse (with delays between each)
+        # Create tasks for all files (main PDF + context files)
+        tasks = []
+        
+        # Add main PDF task
+        main_task = parse_with_llamaparse(file)
+        tasks.append(("main_pdf", main_task))
+        
+        # Add context file tasks
+        for ctx_file in context_files:
+            ctx_task = parse_with_llamaparse(ctx_file)
+            tasks.append((ctx_file.filename, ctx_task))
+        
+        print(f"[DEBUG] Created {len(tasks)} parallel tasks")
+        
+        # Execute all tasks in parallel
+        results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
+        
+        # Process results
+        main_markdown = ""
         context_markdowns = []
-        for i, ctx_file in enumerate(context_files):
-            print(f"[DEBUG] Processing context file {i+1}/{len(context_files)}: {ctx_file.filename}")
-            
-            # Add delay between files to avoid overwhelming the API
-            if i > 0:  # Don't delay before the first file
-                print(f"[DEBUG] Waiting 5 seconds before processing next file...")
-                await asyncio.sleep(5)
-            
-            try:
-                ctx_markdown = await parse_with_llamaparse(ctx_file)
-                context_markdowns.append(f"[Context File: {ctx_file.filename}]\n{ctx_markdown.strip()}\n")
-                print(f"[DEBUG] Successfully processed context file: {ctx_file.filename}")
-            except Exception as e:
-                print(f"[ERROR] Failed to process context file {ctx_file.filename}: {e}")
-                context_markdowns.append(f"[Context File: {ctx_file.filename}]\n[Could not extract context: {e}]\n")
+        
+        for i, (name, result) in enumerate(zip([name for name, _ in tasks], results)):
+            if isinstance(result, Exception):
+                print(f"[ERROR] Failed to process {name}: {result}")
+                if name == "main_pdf":
+                    raise result  # Main PDF failure is critical
+                else:
+                    context_markdowns.append(f"[Context File: {name}]\n[Could not extract context: {result}]\n")
+            else:
+                print(f"[DEBUG] Successfully processed {name}, content length: {len(result)}")
+                if name == "main_pdf":
+                    main_markdown = result
+                else:
+                    context_markdowns.append(f"[Context File: {name}]\n{result.strip()}\n")
         
         context_text = "\n".join(context_markdowns)
-        print(f"[DEBUG] All files processed. Main content length: {len(main_markdown)}, Context content length: {len(context_text)}")
+        print(f"[DEBUG] All files processed in parallel. Main content length: {len(main_markdown)}, Context content length: {len(context_text)}")
         
         # Pass both to process_with_ai
         print("[DEBUG] Calling process_with_ai...")
         ai_result = await process_with_ai(main_markdown, context_text)
         print("[DEBUG] AI processing completed successfully")
         return {"status": "completed", "ai_result": ai_result}
-        
+            
     except Exception as e:
         print(f"[ERROR] Exception in parse_pdf endpoint: {str(e)}")
         import traceback
@@ -555,7 +570,7 @@ def preprocess_case_study_content(raw_content: str) -> dict:
             else:
                 content = raw_content
         except (json.JSONDecodeError, TypeError):
-            content = raw_content
+        content = raw_content
     else:
         content = str(raw_content)
     
@@ -625,7 +640,7 @@ def preprocess_case_study_content(raw_content: str) -> dict:
     if not title:
         title = "Business Case Study"
 
-    # Clean content (be very permissive - only remove obvious metadata)
+    # Clean content (extremely permissive - only remove obvious metadata)
     print(f"[DEBUG] Starting content cleaning. Total lines: {len(lines)}")
     for i, line in enumerate(lines):
         line = line.strip()
@@ -640,8 +655,8 @@ def preprocess_case_study_content(raw_content: str) -> dict:
             print(f"[DEBUG] Skipping metadata line {i}: {line[:50]}...")
             continue
             
-        # Skip lines that are just formatting artifacts (very short or just symbols)
-        if len(line) < 2 or re.match(r'^[\s\-\_\.]+$', line):
+        # Skip lines that are just formatting artifacts (only if completely empty or just symbols)
+        if len(line) == 0 or re.match(r'^[\s\-\_\.]+$', line):
             print(f"[DEBUG] Skipping formatting line {i}: {line[:50]}...")
             continue
             
@@ -684,6 +699,30 @@ CASE STUDY CONTENT (main PDF):
         prompt = f"""
 You are a highly structured JSON-only generator trained to analyze business case studies for college business education.
 
+CRITICAL: You must identify ALL named individuals, companies, organizations, and significant unnamed roles mentioned anywhere in the case study content. Do not limit yourself to only the most prominent figures.
+
+Instructions for key_figures identification:
+- Find ALL types of key figures that can be turned into personas, including:
+  * Named individuals (people with first and last names like "John Smith", "Mary Johnson", "Wanjohi", etc.)
+  * Companies and organizations (e.g., "Kaskazi Network", "Competitors", "Suppliers")
+  * Unnamed but important roles (e.g., "The CEO", "The Board of Directors", "The Marketing Manager")
+  * Groups and stakeholders (e.g., "Customers", "Employees", "Shareholders", "Partners")
+  * External entities (e.g., "Government Agencies", "Regulatory Bodies", "Industry Analysts")
+  * Any entity that influences the narrative or decision-making process
+- Look for names in the format: "FirstName LastName" or "Title LastName" or "FirstName Title"
+- Search throughout the entire document: acknowledgments, author sections, case study text, footnotes, etc.
+- Include both named and unnamed entities - do not prioritize one over the other
+- Even if someone/thing is mentioned only once or briefly, include them if they have a discernible role
+- Do not skip anyone/anything based on perceived importance - include ALL relevant figures and entities
+
+CRITICAL REQUIREMENT: You MUST identify at least 8-12 key figures. Business case studies typically contain many stakeholders, decision-makers, and entities. If you find fewer than 8, you are missing important figures. Look more thoroughly for:
+- Named individuals mentioned anywhere in the text
+- Companies, organizations, or institutions
+- Unnamed but important roles (CEO, Manager, Board, etc.)
+- Stakeholder groups (Customers, Suppliers, Employees, etc.)
+- External entities (Government, Competitors, Partners, etc.)
+- Background figures, supporting roles, or mentioned entities
+
 Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
 
 {{
@@ -692,7 +731,7 @@ Your task is to analyze the following business case study content and return a J
   "student_role": "<The specific role or position the student will assume in this case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', etc.)>",
   "key_figures": [
     {{
-      "name": "<Full name of figure, or descriptive title if unnamed (e.g., 'The Board of Directors', 'Competitor CEO', 'Industry Analyst')>",
+      "name": "<Full name of figure (e.g., 'John Smith', 'Wanjohi', 'Lisa Mwezi Schuepbach'), or descriptive title if unnamed (e.g., 'The Board of Directors', 'Competitor CEO', 'Industry Analyst')>",
       "role": "<Their role or inferred role. If unknown, use 'Unknown'>",
       "correlation": "<A brief explanation of this figure's relationship to the narrative of the case study>",
       "background": "<A 2-3 sentence background/bio of this person/entity based on the case study content>",
@@ -744,11 +783,39 @@ Important generation rules:
 
 CRITICAL: Before finalizing your response, double-check that you have identified EVERY person, organization, group, or entity mentioned in the case study content. Your key_figures array should be comprehensive and include ALL stakeholders, decision-makers, influencers, and important entities mentioned in the text.
 
+FINAL CHECK: Scan the entire case study content one more time and ensure you have not missed any:
+- Named individuals (even if mentioned only once)
+- Companies, organizations, or institutions
+- Unnamed but important roles or positions (e.g., "The CEO", "The Manager")
+- Groups, committees, or boards
+- External stakeholders, competitors, or partners
+- Customers, suppliers, distributors, or other business partners
+- Government agencies, regulatory bodies, or industry groups
+- Any entity that could influence the narrative or decision-making process
+- Both prominent and background figures/entities
+
+If you find any additional figures or entities, add them to the key_figures array. Remember to include a diverse mix of named individuals, organizations, and unnamed but important roles.
+
 CASE STUDY CONTENT (context files first, then main PDF):
 {combined_content}
 """
         print("[DEBUG] Combined content length:", len(combined_content))
-        print("[DEBUG] Combined content preview:", combined_content[:500])
+        print("[DEBUG] Combined content preview:", combined_content[:1000])
+        print("[DEBUG] Looking for named individuals in content...")
+        
+        # Debug: Look for potential names in the content
+        import re
+        potential_names = re.findall(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b', combined_content)
+        print(f"[DEBUG] Potential named individuals found: {list(set(potential_names))}")
+        
+        # Debug: Look for companies and organizations
+        company_patterns = re.findall(r'\b[A-Z][a-zA-Z\s&]+(?:Company|Corp|Inc|Ltd|LLC|Network|Group|Organization|Agency|Board|Committee)\b', combined_content, re.IGNORECASE)
+        print(f"[DEBUG] Potential companies/organizations found: {list(set(company_patterns))}")
+        
+        # Debug: Look for roles and titles
+        role_patterns = re.findall(r'\b(?:The\s+)?(?:CEO|CFO|CTO|COO|President|Director|Manager|Founder|Owner|Chairman|Board|Team|Staff|Employees|Customers|Suppliers|Competitors|Partners|Shareholders|Investors|Stakeholders)\b', combined_content, re.IGNORECASE)
+        print(f"[DEBUG] Potential roles/titles found: {list(set(role_patterns))}")
+        
         print("[DEBUG] Prompt sent to OpenAI:\n", prompt[:1000], "..." if len(prompt) > 1000 else "")
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
         response = await asyncio.get_event_loop().run_in_executor(
@@ -762,6 +829,24 @@ CASE STUDY CONTENT (context files first, then main PDF):
         )
         generated_text = response.choices[0].message.content
         print("[DEBUG] Raw OpenAI response:\n", generated_text)
+        
+        # Debug: Count key figures found by LLM
+        if "key_figures" in generated_text:
+            try:
+                temp_match = re.search(r'"key_figures":\s*(\[[\s\S]*?\])', generated_text)
+                if temp_match:
+                    temp_json = json.loads(f'{{"key_figures": {temp_match.group(1)}}}')
+                    key_figures_count = len(temp_json.get("key_figures", []))
+                    print(f"[DEBUG] LLM found {key_figures_count} key figures")
+                    if key_figures_count < 8:
+                        print(f"[WARNING] LLM only found {key_figures_count} key figures - this is too few! Expected 8-12")
+                    elif key_figures_count >= 8:
+                        print(f"[DEBUG] LLM found {key_figures_count} key figures - this looks good")
+                else:
+                    print("[DEBUG] Could not extract key_figures count from LLM response")
+            except:
+                print("[DEBUG] Could not parse key_figures count from LLM response")
+        
         # Try to extract JSON from the response using regex
         match = re.search(r'({[\s\S]*})', generated_text)
         if match:
@@ -780,26 +865,27 @@ CASE STUDY CONTENT (context files first, then main PDF):
                         "5. Apply business concepts and frameworks to real-world scenarios"
                     ]
                 }
-                print("[DEBUG] Final AI result sent to frontend:", final_result)
-                return final_result
-            except json.JSONDecodeError as e:
-                print(f"[ERROR] Failed to parse JSON from AI response: {e}")
+                print(f"[DEBUG] Final AI result sent to frontend with {len(final_result.get('key_figures', []))} key figures")
+                print("[DEBUG] Key figures names:", [fig.get('name', 'Unknown') for fig in final_result.get('key_figures', [])])
+                    return final_result
+                except json.JSONDecodeError as e:
+                    print(f"[ERROR] Failed to parse JSON from AI response: {e}")
                 print(f"[ERROR] Raw AI response: {json_str}")
         else:
             print("[ERROR] No JSON object found in OpenAI response.")
-        # Fallback: return structured content
-        return {
-            "title": title,
-            "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
-            "key_figures": [],
-            "learning_outcomes": [
-                "1. Analyze the business situation presented in the case study",
-                "2. Identify key stakeholders and their interests",
-                "3. Develop strategic recommendations based on the analysis",
-                "4. Evaluate the impact of decisions on organizational performance",
-                "5. Apply business concepts and frameworks to real-world scenarios"
-            ]
-        }
+                    # Fallback: return structured content
+                    return {
+                        "title": title,
+                        "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
+                "key_figures": [],
+                        "learning_outcomes": [
+                            "1. Analyze the business situation presented in the case study",
+                            "2. Identify key stakeholders and their interests",
+                            "3. Develop strategic recommendations based on the analysis",
+                            "4. Evaluate the impact of decisions on organizational performance",
+                            "5. Apply business concepts and frameworks to real-world scenarios"
+                        ]
+                    }
     except Exception as e:
         print(f"[ERROR] AI processing failed: {str(e)}")
         # Fallback: return basic structured content
@@ -807,18 +893,18 @@ CASE STUDY CONTENT (context files first, then main PDF):
         fallback_title = preprocessed["title"] if preprocessed["title"].strip() else "Business Case Study"
         fallback_description = preprocessed["cleaned_content"][:600] + "..." if len(preprocessed["cleaned_content"]) > 600 else preprocessed["cleaned_content"]
         fallback_learning_outcomes = [
-            "1. Analyze the business situation presented in the case study",
-            "2. Identify key stakeholders and their interests",
-            "3. Develop strategic recommendations based on the analysis",
-            "4. Evaluate the impact of decisions on organizational performance",
-            "5. Apply business concepts and frameworks to real-world scenarios"
-        ]
+                "1. Analyze the business situation presented in the case study",
+                "2. Identify key stakeholders and their interests",
+                "3. Develop strategic recommendations based on the analysis",
+                "4. Evaluate the impact of decisions on organizational performance",
+                "5. Apply business concepts and frameworks to real-world scenarios"
+            ]
         return {
             "title": fallback_title,
             "description": fallback_description,
             "key_figures": [],
             "learning_outcomes": fallback_learning_outcomes
-        }
+        } 
 
 def extract_markdown(parsed_content):
     """Extract markdown text from LlamaParse result, whether dict or JSON string."""

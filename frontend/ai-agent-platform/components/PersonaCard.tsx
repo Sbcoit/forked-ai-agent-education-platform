@@ -31,23 +31,28 @@ const traitLabels = [
 
 interface PersonaCardProps {
   persona: Persona;
-  onTraitsChange?: (traits: Persona["traits"]) => void;
-  defaultTraits?: Persona["traits"];
-  onSave?: (updatedPersona: Persona) => void;
+  defaultTraits?: any;
+  onTraitsChange?: (traits: any) => void;
+  onSave?: (persona: Persona) => void;
   onDelete?: () => void;
   editMode?: boolean;
 }
 
-export const PersonaCard: React.FC<PersonaCardProps> = ({ persona, onTraitsChange, defaultTraits, onSave, onDelete, editMode = false }) => {
+export default function PersonaCard({ 
+  persona, 
+  defaultTraits, 
+  onTraitsChange, 
+  onSave, 
+  onDelete, 
+  editMode = false 
+}: PersonaCardProps) {
   const [traits, setTraits] = useState({ ...persona.traits });
   const [editFields, setEditFields] = useState({
     name: persona.name,
     position: persona.position,
     description: persona.description,
-    primaryGoals: Array.isArray((persona as any).primary_goals)
-      ? (persona as any).primary_goals.map((goal: string) => `- ${goal}`).join("\n")
-      : (persona.primaryGoals || ""),
-    traits: { ...persona.traits },
+    primaryGoals: persona.primaryGoals,
+    traits: { ...persona.traits }
   });
 
   // Sync local traits state with props when persona.traits or defaultTraits change
@@ -206,7 +211,7 @@ export const PersonaCard: React.FC<PersonaCardProps> = ({ persona, onTraitsChang
 
   // Edit mode (no Card wrapper)
   return (
-    <div className="w-full max-w-5xl mx-auto grid grid-cols-2 gap-8 p-8 bg-white rounded-lg shadow-lg">
+    <div className="w-full max-w-3xl mx-auto grid grid-cols-2 gap-8 p-8 bg-white rounded-lg shadow-lg">
       {/* Left Column */}
       <div className="flex flex-col space-y-6">
         <div className="flex items-center space-x-4">
@@ -243,11 +248,11 @@ export const PersonaCard: React.FC<PersonaCardProps> = ({ persona, onTraitsChang
           <span className="block text-xl font-bold text-gray-800 mb-2">Background/Bio</span>
           <Textarea
             id="persona-bio"
-            className="w-full bg-gray-50 resize-none min-h-[220px] max-h-[320px] text-base border border-gray-200 rounded h-64 overflow-y-auto text-gray-700 focus:ring-2 focus:ring-black focus:border-black"
+            className="w-full bg-gray-50 resize-none min-h-[180px] text-base border border-gray-200 rounded text-gray-700 focus:ring-2 focus:ring-black focus:border-black"
             value={editFields.description}
             onChange={e => handleEditFieldChange("description", e.target.value)}
             placeholder="Background/Bio"
-            rows={10}
+            rows={11}
           />
         </div>
       </div>
@@ -286,20 +291,27 @@ export const PersonaCard: React.FC<PersonaCardProps> = ({ persona, onTraitsChang
           <span className="block text-xl font-bold text-gray-800 mb-2">Primary Goals</span>
           <Textarea
             id="persona-goals"
-            className="w-full bg-gray-50 resize-none min-h-[180px] max-h-[260px] text-base border border-gray-200 rounded h-44 overflow-y-auto text-gray-700 focus:ring-2 focus:ring-black focus:border-black"
+            className="w-full bg-gray-50 resize-none min-h-[120px] text-base border border-gray-200 rounded text-gray-700 focus:ring-2 focus:ring-black focus:border-black"
             value={editFields.primaryGoals}
             onChange={e => handleEditFieldChange("primaryGoals", e.target.value)}
             placeholder={"List or write the persona's goals (use bullet points or plain text)"}
-            rows={6}
+            rows={7}
           />
         </div>
+        {/* Buttons positioned at bottom right of the grid */}
         <div className="flex justify-end space-x-3 pt-4">
-          <Button className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700" size="sm" variant="destructive" onClick={handleDelete}>Delete</Button>
+          <Button 
+            id="persona-delete-button"
+            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700" 
+            size="sm" 
+            variant="destructive" 
+            onClick={handleDelete}
+          >
+            Delete
+          </Button>
           <Button className="px-4 py-2 bg-black text-white rounded hover:bg-gray-800" size="sm" variant="default" onClick={handleSave}>Save</Button>
         </div>
       </div>
     </div>
   );
-};
-
-export default PersonaCard; 
+} 

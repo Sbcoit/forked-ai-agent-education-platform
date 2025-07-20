@@ -856,7 +856,7 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 else:
                     print("[DEBUG] Could not extract key_figures count from LLM response")
             except:
-                print("[DEBUG] Could not parse key_figures count from LLM response")
+                pass
         
         # Try to extract JSON from the response using regex
         match = re.search(r'({[\s\S]*})', generated_text)

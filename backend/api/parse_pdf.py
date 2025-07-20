@@ -715,13 +715,14 @@ Instructions for key_figures identification:
 - Even if someone/thing is mentioned only once or briefly, include them if they have a discernible role in the narrative
 - Do not skip anyone/anything based on perceived importance - include ALL relevant figures and entities from the story
 - EXCLUDE authors, researchers, case study creators, or other people who are not characters in the business narrative
+- CRITICAL: The student will be playing the role identified in "student_role" - DO NOT include that person/role in the key_figures array
 
 Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
 
 {{
   "title": "<The exact title of the business case study>",
   "description": "<A minimum 300-word, 3-paragraph detailed background including: 1) business context and situation, 2) main challenges or decisions, 3) explicit statement that the student will be assuming the role of the primary decision-maker or central figure in the case study, and 4) explicit reference to the key figures and their roles/correlations as part of the narrative>",
-  "student_role": "<The specific role or position the student will assume in this case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', etc.)>",
+  "student_role": "<The specific role or position the student will assume in this case study. This should be the primary decision-maker or central figure in the case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', 'Founder', etc.). This person/role will NOT be included in key_figures since the student will be playing this role.>",
   "key_figures": [
     {{
       "name": "<Full name of figure (e.g., 'John Smith', 'Wanjohi', 'Lisa Mwezi Schuepbach'), or descriptive title if unnamed (e.g., 'The Board of Directors', 'Competitor CEO', 'Industry Analyst')>",
@@ -789,6 +790,12 @@ FINAL CHECK: Scan the entire case study content one more time and ensure you hav
 
 If you find any additional figures or entities, add them to the key_figures array. Remember to include a diverse mix of named individuals, organizations, and unnamed but important roles.
 
+VALIDATION CHECK: Before submitting your response, verify:
+1. The student_role is clearly identified as the primary decision-maker or central figure
+2. The student_role person/entity is NOT included in the key_figures array
+3. All other important figures and entities ARE included in key_figures
+4. You have at least 8-12 key figures for a comprehensive simulation
+
 CASE STUDY CONTENT (context files first, then main PDF):
 {combined_content}
 """
@@ -801,6 +808,13 @@ CASE STUDY CONTENT (context files first, then main PDF):
         potential_names = re.findall(r'\b[A-Z][a-z]+ [A-Z][a-z]+\b', combined_content)
         print(f"[DEBUG] Potential named individuals found: {list(set(potential_names))}")
         
+        # Debug: Look for single names (common in some case studies)
+        single_names = re.findall(r'\b[A-Z][a-z]{2,}\b', combined_content)
+        # Filter out common words that aren't names
+        common_words = {'the', 'and', 'for', 'with', 'this', 'that', 'they', 'have', 'been', 'from', 'will', 'said', 'when', 'were', 'their', 'time', 'what', 'some', 'into', 'just', 'know', 'take', 'than', 'them', 'well', 'only', 'come', 'very', 'make', 'over', 'think', 'also', 'after', 'never', 'most', 'should', 'because', 'through', 'during', 'before', 'between', 'under', 'again', 'against', 'while', 'another', 'around', 'about', 'without', 'within', 'against', 'toward', 'towards', 'throughout', 'among', 'amongst', 'beneath', 'beside', 'beyond', 'inside', 'outside', 'throughout', 'without', 'within'}
+        filtered_single_names = [name for name in single_names if name.lower() not in common_words and len(name) > 2]
+        print(f"[DEBUG] Potential single names found: {list(set(filtered_single_names))}")
+        
         # Debug: Look for companies and organizations
         company_patterns = re.findall(r'\b[A-Z][a-zA-Z\s&]+(?:Company|Corp|Inc|Ltd|LLC|Network|Group|Organization|Agency|Board|Committee)\b', combined_content, re.IGNORECASE)
         print(f"[DEBUG] Potential companies/organizations found: {list(set(company_patterns))}")
@@ -808,6 +822,10 @@ CASE STUDY CONTENT (context files first, then main PDF):
         # Debug: Look for roles and titles
         role_patterns = re.findall(r'\b(?:The\s+)?(?:CEO|CFO|CTO|COO|President|Director|Manager|Founder|Owner|Chairman|Board|Team|Staff|Employees|Customers|Suppliers|Competitors|Partners|Shareholders|Investors|Stakeholders)\b', combined_content, re.IGNORECASE)
         print(f"[DEBUG] Potential roles/titles found: {list(set(role_patterns))}")
+        
+        # Debug: Look for "The [Role]" patterns
+        the_role_patterns = re.findall(r'\bThe\s+[A-Z][a-z]+(?:[A-Z][a-z]+)*\b', combined_content)
+        print(f"[DEBUG] Potential 'The [Role]' patterns found: {list(set(the_role_patterns))}")
         
         print("[DEBUG] Prompt sent to OpenAI:\n", prompt[:1000], "..." if len(prompt) > 1000 else "")
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -859,8 +877,32 @@ CASE STUDY CONTENT (context files first, then main PDF):
                         "5. Apply business concepts and frameworks to real-world scenarios"
                     ]
                 }
+                
+                # Post-processing validation to ensure student role is not in key_figures
+                student_role = final_result.get("student_role", "").lower()
+                key_figures = final_result.get("key_figures", [])
+                
+                # Remove any key figures that match the student role
+                filtered_key_figures = []
+                for figure in key_figures:
+                    figure_name = figure.get("name", "").lower()
+                    figure_role = figure.get("role", "").lower()
+                    
+                    # Check if this figure matches the student role
+                    if (student_role in figure_name or 
+                        figure_name in student_role or 
+                        student_role in figure_role or 
+                        figure_role in student_role):
+                        print(f"[DEBUG] Removed key figure '{figure.get('name')}' as it matches student role '{student_role}'")
+                        continue
+                    
+                    filtered_key_figures.append(figure)
+                
+                final_result["key_figures"] = filtered_key_figures
+                
                 print(f"[DEBUG] Final AI result sent to frontend with {len(final_result.get('key_figures', []))} key figures")
                 print("[DEBUG] Key figures names:", [fig.get('name', 'Unknown') for fig in final_result.get('key_figures', [])])
+                print(f"[DEBUG] Student role: {final_result.get('student_role', 'Not specified')}")
                 return final_result
             except json.JSONDecodeError as e:
                     print(f"[ERROR] Failed to parse JSON from AI response: {e}")

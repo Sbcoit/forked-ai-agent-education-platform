@@ -16,7 +16,7 @@ import TimelineCard from "@/components/TimelineCard";
 
 
 // Simple Modal component
-function Modal({ isOpen, onClose, children }: { isOpen: boolean; onClose: () => void; children: React.ReactNode }) {
+function PersonaModal({ isOpen, onClose, children }: { isOpen: boolean; onClose: () => void; children: React.ReactNode }) {
  React.useEffect(() => {
    if (isOpen) {
      document.body.classList.add('overflow-hidden');
@@ -29,8 +29,36 @@ function Modal({ isOpen, onClose, children }: { isOpen: boolean; onClose: () => 
  }, [isOpen]);
  if (!isOpen) return null;
  return (
-   <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-60">
+   <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-60 pb-16">
      <div className="bg-white rounded-lg shadow-lg w-[700px] h-[80vh] flex flex-col relative p-0 resize-none">
+       <button
+         className="absolute top-4 right-4 text-gray-400 text-2xl font-bold hover:text-gray-600 z-10"
+         onClick={onClose}
+         aria-label="Close edit window"
+       >
+         &times;
+       </button>
+       {children}
+     </div>
+   </div>
+ );
+}
+
+function TimelineModal({ isOpen, onClose, children }: { isOpen: boolean; onClose: () => void; children: React.ReactNode }) {
+ React.useEffect(() => {
+   if (isOpen) {
+     document.body.classList.add('overflow-hidden');
+   } else {
+     document.body.classList.remove('overflow-hidden');
+   }
+   return () => {
+     document.body.classList.remove('overflow-hidden');
+   };
+ }, [isOpen]);
+ if (!isOpen) return null;
+ return (
+   <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-60 pb-16">
+     <div className="bg-white rounded-lg shadow-lg w-[1200px] h-[80vh] flex flex-col relative p-0 resize-none">
        <button
          className="absolute top-4 right-4 text-gray-400 text-2xl font-bold hover:text-gray-600 z-10"
          onClick={onClose}
@@ -98,11 +126,11 @@ export default function ScenarioBuilder() {
   const handleAddTimelineEvent = () => {
     const newEvent = {
       id: `event-${Date.now()}`,
-      title: "New Scene",
-      goal: "Goal for this scene",
-      sceneDescription: "Description of what happens in this scene.",
-      successMetric: "How to measure success in this scene.",
-      timeoutTurns: 15
+      title: "",
+      goal: "",
+      sceneDescription: "",
+      successMetric: "",
+      timeoutTurns: ""
     };
     setTempTimelineEvents(prev => [...prev, newEvent]);
     setEditingTimelineIdx(tempTimelineEvents.length); // Edit the new event immediately
@@ -273,19 +301,29 @@ export default function ScenarioBuilder() {
            
            console.log(`[DEBUG] Checking figure: "${figure.name}" (role: "${figure.role}")`);
            console.log(`[DEBUG] Student role: "${studentRole}"`);
-           console.log(`[DEBUG] Name includes student role: ${figureName.includes(studentRole)}`);
-           console.log(`[DEBUG] Role includes student role: ${figureRole.includes(studentRole)}`);
            
-           // Check 1: Skip if this figure matches the student role exactly
-           if (studentRole && (figureName.includes(studentRole) || figureRole.includes(studentRole))) {
+           // Special handling for group entities - always include them
+           const groupEntities = ['consumers', 'customers', 'employees', 'suppliers', 'competitors', 'partners', 'shareholders', 'investors', 'stakeholders', 'retailers', 'kiosk owners'];
+           if (groupEntities.some(group => figureName.includes(group) || figureRole.includes(group))) {
+             console.log(`[DEBUG] ✅ KEEPING ${figure.name} - is a group entity`);
+             return true;
+           }
+           
+           // Only exclude if this figure is clearly the main character/protagonist
+           // Check if the figure name or role contains the student role (exact match or close)
+           if (studentRole && (
+             figureName === studentRole || 
+             figureRole === studentRole ||
+             figureName.includes(studentRole) && studentRole.length > 3 ||
+             figureRole.includes(studentRole) && studentRole.length > 3
+           )) {
              console.log(`[DEBUG] ❌ EXCLUDING ${figure.name} - matches student role: "${studentRole}"`);
              return false;
            }
            
-           // Check 2: Skip if this figure has a role that suggests they're the main protagonist
-           // Only exclude if they're clearly the main character, not just mentioned in the description
-           const protagonistRoles = ['protagonist', 'main character', 'lead', 'principal', 'central figure'];
-           if (protagonistRoles.some(role => figureRole.includes(role))) {
+           // Only exclude if they're explicitly marked as the main protagonist
+           const protagonistRoles = ['protagonist', 'main character'];
+           if (protagonistRoles.some(role => figureRole === role)) {
              console.log(`[DEBUG] ❌ EXCLUDING ${figure.name} - has protagonist role: "${figureRole}"`);
              return false;
            }
@@ -900,7 +938,7 @@ export default function ScenarioBuilder() {
      </div>
      {/* Modal for editing persona or timeline event */}
      {editingIdx !== null && (
-       <Modal isOpen={true} onClose={() => setEditingIdx(null)}>
+       <PersonaModal isOpen={true} onClose={() => setEditingIdx(null)}>
          <PersonaCard
            persona={{ 
              ...(editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]), 
@@ -912,10 +950,10 @@ export default function ScenarioBuilder() {
            onDelete={() => handleDeletePersona(editingIdx)}
            editMode={true}
          />
-       </Modal>
+       </PersonaModal>
      )}
      {editingTimelineIdx !== null && (
-       <Modal isOpen={true} onClose={() => setEditingTimelineIdx(null)}>
+       <TimelineModal isOpen={true} onClose={() => setEditingTimelineIdx(null)}>
          <TimelineCard
            event={editingTimelineIdx < tempTimelineEvents.length 
              ? tempTimelineEvents[editingTimelineIdx]
@@ -925,7 +963,7 @@ export default function ScenarioBuilder() {
            onDelete={() => handleDeleteTimelineEvent(editingTimelineIdx)}
            editMode={true}
          />
-       </Modal>
+       </TimelineModal>
      )}
    </div>
  )

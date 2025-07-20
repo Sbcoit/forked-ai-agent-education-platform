@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
-interface TimelineEvent {
+export interface TimelineEvent {
+  id: string;
   title: string;
   goal: string;
   sceneDescription: string;
@@ -25,13 +26,21 @@ interface TimelineCardProps {
   onSave?: (event: TimelineEvent) => void;
   onDelete?: () => void;
   editMode?: boolean;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
+  isDragged?: boolean;
 }
 
 export default function TimelineCard({ 
   event, 
   onSave, 
   onDelete, 
-  editMode = false 
+  editMode = false,
+  draggable = false,
+  onDragStart,
+  onDragEnd,
+  isDragged = false
 }: TimelineCardProps) {
   const [editFields, setEditFields] = useState<EditFields>({
     title: "",
@@ -63,6 +72,7 @@ export default function TimelineCard({
   const handleSave = () => {
     if (onSave) {
       onSave({
+        id: event.id,
         title: editFields.title,
         goal: editFields.goal,
         sceneDescription: editFields.sceneDescription,
@@ -80,9 +90,14 @@ export default function TimelineCard({
   if (!editMode) {
     return (
       <Card
-        className="flex flex-row items-stretch w-full max-w-4xl min-h-[140px] p-3 mb-3 border border-gray-200 shadow-md cursor-pointer"
+        className={`flex flex-row items-stretch w-full max-w-4xl min-h-[140px] p-3 mb-3 border border-gray-200 shadow-md cursor-pointer transition-all duration-200 ${
+          isDragged ? 'opacity-50 scale-95' : ''
+        }`}
         tabIndex={0}
         aria-label={`Edit timeline event: ${event.title}`}
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
       >
         {/* Left: Icon and Info */}
         <div className="flex flex-col items-center justify-center w-32 mr-4">

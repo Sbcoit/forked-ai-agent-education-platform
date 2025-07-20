@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress"
 import { Upload, Info, Users, Activity, Sparkles, X } from "lucide-react"
 import Link from "next/link"
 import PersonaCard from "@/components/PersonaCard";
-import TimelineCard from "@/components/TimelineCard";
+import TimelineCard, { TimelineEvent } from "@/components/TimelineCard";
 
 
 // Simple Modal component
@@ -89,11 +89,15 @@ export default function ScenarioBuilder() {
  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]); // For the "Upload Files" button
  const filesInputRef = useRef<HTMLInputElement>(null);
  const [personas, setPersonas] = useState<any[]>([]);
- const [timelineEvents, setTimelineEvents] = useState<any[]>([]); // New state for timeline events
+ const [timelineEvents, setTimelineEvents] = useState<TimelineEvent[]>([]); // New state for timeline events
  const [editingIdx, setEditingIdx] = useState<number | null>(null);
  const [editingTimelineIdx, setEditingTimelineIdx] = useState<number | null>(null);
  const [tempPersonas, setTempPersonas] = useState<any[]>([]); // Track temporary personas that haven't been saved yet
- const [tempTimelineEvents, setTempTimelineEvents] = useState<any[]>([]); // Track temporary timeline events
+ const [tempTimelineEvents, setTempTimelineEvents] = useState<TimelineEvent[]>([]); // Track temporary timeline events
+ const [draggedEventId, setDraggedEventId] = useState<string | null>(null);
+
+ // Add ref for timeline container
+ const timelineContainerRef = useRef<HTMLDivElement>(null);
 
 
  // Placeholder handlers for personas and timeline
@@ -124,13 +128,13 @@ export default function ScenarioBuilder() {
   };
 
   const handleAddTimelineEvent = () => {
-    const newEvent = {
+    const newEvent: TimelineEvent = {
       id: `event-${Date.now()}`,
       title: "",
       goal: "",
       sceneDescription: "",
       successMetric: "",
-      timeoutTurns: ""
+      timeoutTurns: 15
     };
     setTempTimelineEvents(prev => [...prev, newEvent]);
     setEditingTimelineIdx(tempTimelineEvents.length); // Edit the new event immediately
@@ -599,7 +603,7 @@ export default function ScenarioBuilder() {
    setEditingIdx(null);
  };
 
-  const handleSaveTimelineEvent = (idx: number, updatedEvent: any) => {
+  const handleSaveTimelineEvent = (idx: number, updatedEvent: TimelineEvent) => {
     if (idx < tempTimelineEvents.length) {
       setTempTimelineEvents(prev => prev.map((event, i) => i === idx ? updatedEvent : event));
     } else {
@@ -617,6 +621,131 @@ export default function ScenarioBuilder() {
       setTimelineEvents(prev => prev.filter((_, i) => i !== permIdx));
     }
     setEditingTimelineIdx(null);
+  };
+
+  // Drag and drop handlers for timeline events
+  const handleTimelineDragStart = (e: React.DragEvent, eventId: string) => {
+    setDraggedEventId(eventId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', eventId);
+  };
+
+  const handleTimelineDragEnd = (e: React.DragEvent) => {
+    setDraggedEventId(null);
+  };
+
+  const handleTimelineDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    const draggedId = e.dataTransfer.getData('text/plain');
+    
+    if (!draggedId) return;
+
+    // Reset visual state of all drop zones
+    const dropZones = document.querySelectorAll('[data-drop-zone]');
+    dropZones.forEach((zone) => {
+      const element = zone as HTMLElement;
+      element.style.opacity = '0';
+      element.style.backgroundColor = '#eff6ff';
+      element.style.borderColor = '#93c5fd';
+    });
+
+    // Find the dragged event in both arrays
+    let draggedEvent: TimelineEvent | null = null;
+    let sourceArray: 'temp' | 'perm' = 'temp';
+    let sourceIndex = -1;
+
+    // Check temp events first
+    const tempIndex = tempTimelineEvents.findIndex(event => event.id === draggedId);
+    if (tempIndex !== -1) {
+      draggedEvent = tempTimelineEvents[tempIndex];
+      sourceIndex = tempIndex;
+      sourceArray = 'temp';
+    } else {
+      // Check permanent events
+      const permIndex = timelineEvents.findIndex(event => event.id === draggedId);
+      if (permIndex !== -1) {
+        draggedEvent = timelineEvents[permIndex];
+        sourceIndex = permIndex;
+        sourceArray = 'perm';
+      }
+    }
+
+    if (!draggedEvent) return;
+
+    // Prevent reorder if dropping into the same or next position
+    const totalTempEvents = tempTimelineEvents.length;
+    let currentIndex = sourceArray === 'temp' ? sourceIndex : totalTempEvents + sourceIndex;
+    if (targetIndex === currentIndex || targetIndex === currentIndex + 1) {
+      return;
+    }
+
+    // Remove from source array
+    if (sourceArray === 'temp') {
+      setTempTimelineEvents(prev => prev.filter((_, i) => i !== sourceIndex));
+    } else {
+      setTimelineEvents(prev => prev.filter((_, i) => i !== sourceIndex));
+    }
+
+    // Insert into target array
+    if (targetIndex <= totalTempEvents) {
+      // Insert into temp events
+      setTempTimelineEvents(prev => {
+        const newArray = [...prev];
+        const insertIndex = Math.min(targetIndex, newArray.length);
+        newArray.splice(insertIndex, 0, draggedEvent!);
+        return newArray;
+      });
+    } else {
+      // Insert into permanent events
+      setTimelineEvents(prev => {
+        const newArray = [...prev];
+        const insertIndex = Math.min(targetIndex - totalTempEvents, newArray.length);
+        newArray.splice(insertIndex, 0, draggedEvent!);
+        return newArray;
+      });
+    }
+  };
+
+  const handleTimelineDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    
+    // Only auto-scroll if we're actually dragging something
+    if (!draggedEventId) return;
+    
+    // Add visual feedback to the drop zone
+    const target = e.currentTarget as HTMLElement;
+    target.style.opacity = '1';
+    target.style.backgroundColor = '#dbeafe'; // Light blue background
+    target.style.borderColor = '#3b82f6'; // Darker blue border
+
+    // Auto-scroll the page when dragging near top or bottom of viewport
+    const mouseY = e.clientY;
+    const scrollMargin = 300; // px
+    const scrollSpeed = 30; // px per event
+    const viewportHeight = window.innerHeight;
+    
+    if (mouseY < scrollMargin) {
+      // Scroll up
+      window.scrollBy({
+        top: -scrollSpeed,
+        behavior: 'auto'
+      });
+    } else if (mouseY > viewportHeight - scrollMargin) {
+      // Scroll down
+      window.scrollBy({
+        top: scrollSpeed,
+        behavior: 'auto'
+      });
+    }
+  };
+
+  const handleTimelineDragLeave = (e: React.DragEvent) => {
+    // Remove visual feedback when leaving drop zone
+    const target = e.currentTarget as HTMLElement;
+    target.style.opacity = '0';
+    target.style.backgroundColor = '#eff6ff'; // Reset to original background
+    target.style.borderColor = '#93c5fd'; // Reset to original border color
   };
 
 
@@ -900,36 +1029,78 @@ export default function ScenarioBuilder() {
                <div className="flex flex-col items-center py-6">
                  <Button onClick={handleAddTimelineEvent} variant="outline" className="w-60">Add new Scene</Button>
                  {/* Render timeline event cards here */}
-                 {(tempTimelineEvents.length > 0 || timelineEvents.length > 0) && (
-                   <div className="w-full flex flex-col items-center mt-6">
-                     {/* Render temporary timeline events first (at the top) */}
-                     {tempTimelineEvents.map((event: any, idx: number) => (
-                       <div key={`temp-event-${idx}`} className="relative w-full">
-                         <div onClick={() => setEditingTimelineIdx(idx)} style={{ cursor: 'pointer' }}>
-                           <TimelineCard
-                             event={event}
-                             onSave={updatedEvent => handleSaveTimelineEvent(idx, updatedEvent)}
-                             onDelete={() => handleDeleteTimelineEvent(idx)}
-                             editMode={false}
-                           />
-                         </div>
-                       </div>
-                     ))}
-                     {/* Render permanent timeline events */}
-                     {timelineEvents.map((event: any, idx: number) => (
-                       <div key={`perm-event-${idx}`} className="relative w-full">
-                         <div onClick={() => setEditingTimelineIdx(idx + tempTimelineEvents.length)} style={{ cursor: 'pointer' }}>
-                           <TimelineCard
-                             event={event}
-                             onSave={updatedEvent => handleSaveTimelineEvent(idx + tempTimelineEvents.length, updatedEvent)}
-                             onDelete={() => handleDeleteTimelineEvent(idx + tempTimelineEvents.length)}
-                             editMode={false}
-                           />
-                         </div>
-                       </div>
-                     ))}
-                   </div>
-                 )}
+                                  {(tempTimelineEvents.length > 0 || timelineEvents.length > 0) && (
+  <div ref={timelineContainerRef} className="w-full flex flex-col items-center mt-6">
+    {/* Drop zone at the top - always rendered, only visible when dragging */}
+    <div
+      data-drop-zone
+      className={`w-full ${draggedEventId ? 'h-8 mb-3 mt-6 opacity-100' : 'h-0 mb-0 mt-0 opacity-0'} bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center transition-all duration-200 cursor-pointer`}
+      onDragOver={handleTimelineDragOver}
+      onDragLeave={handleTimelineDragLeave}
+      onDrop={(e) => handleTimelineDrop(e, 0)}
+    >
+      <span className="text-blue-600 text-sm font-medium">Drop here to move to top</span>
+    </div>
+    {/* Render temporary timeline events first (at the top) */}
+    {tempTimelineEvents.map((event: TimelineEvent, idx: number) => (
+      <React.Fragment key={`temp-event-${event.id}`}>
+        <div className="relative w-full">
+          <div onClick={() => setEditingTimelineIdx(idx)} style={{ cursor: 'pointer' }}>
+            <TimelineCard
+              event={event}
+              onSave={updatedEvent => handleSaveTimelineEvent(idx, updatedEvent)}
+              onDelete={() => handleDeleteTimelineEvent(idx)}
+              editMode={false}
+              draggable={true}
+              onDragStart={(e) => handleTimelineDragStart(e, event.id)}
+              onDragEnd={handleTimelineDragEnd}
+              isDragged={draggedEventId === event.id}
+            />
+          </div>
+        </div>
+        {/* Drop zone after each temp event - always rendered, only visible when dragging */}
+        <div
+          data-drop-zone
+          className={`w-full ${draggedEventId ? 'h-8 my-3 opacity-100' : 'h-0 my-0 opacity-0'} bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center transition-all duration-200 cursor-pointer`}
+          onDragOver={handleTimelineDragOver}
+          onDragLeave={handleTimelineDragLeave}
+          onDrop={(e) => handleTimelineDrop(e, idx + 1)}
+        >
+          <span className="text-blue-600 text-sm font-medium">Drop here to reorder</span>
+        </div>
+      </React.Fragment>
+    ))}
+    {/* Render permanent timeline events */}
+    {timelineEvents.map((event: TimelineEvent, idx: number) => (
+      <React.Fragment key={`perm-event-${event.id}`}>
+        <div className="relative w-full">
+          <div onClick={() => setEditingTimelineIdx(idx + tempTimelineEvents.length)} style={{ cursor: 'pointer' }}>
+            <TimelineCard
+              event={event}
+              onSave={updatedEvent => handleSaveTimelineEvent(idx + tempTimelineEvents.length, updatedEvent)}
+              onDelete={() => handleDeleteTimelineEvent(idx + tempTimelineEvents.length)}
+              editMode={false}
+              draggable={true}
+              onDragStart={(e) => handleTimelineDragStart(e, event.id)}
+              onDragEnd={handleTimelineDragEnd}
+              isDragged={draggedEventId === event.id}
+            />
+          </div>
+        </div>
+        {/* Drop zone after each perm event - always rendered, only visible when dragging */}
+        <div
+          data-drop-zone
+          className={`w-full ${draggedEventId ? 'h-8 my-3 opacity-100' : 'h-0 my-0 opacity-0'} bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center transition-all duration-200 cursor-pointer`}
+          onDragOver={handleTimelineDragOver}
+          onDragLeave={handleTimelineDragLeave}
+          onDrop={(e) => handleTimelineDrop(e, tempTimelineEvents.length + idx + 1)}
+        >
+          <span className="text-blue-600 text-sm font-medium">Drop here to reorder</span>
+        </div>
+      </React.Fragment>
+    ))}
+  </div>
+)}
                </div>
              </AccordionContent>
            </AccordionItem>

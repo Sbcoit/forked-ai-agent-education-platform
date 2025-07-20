@@ -13,6 +13,7 @@ import { Upload, Info, Users, Activity, Sparkles, X, Check } from "lucide-react"
 import Link from "next/link"
 import PersonaCard from "@/components/PersonaCard";
 import SceneCard from "@/components/SceneCard";
+import { buildApiUrl } from "@/lib/api";
 
 
 // Simple Modal component
@@ -78,15 +79,22 @@ export default function ScenarioBuilder() {
  const [savedScenarioId, setSavedScenarioId] = useState<number | null>(null);
 
  // Save and Publish handlers
- const handleSave = async () => {
+ const handleSave = async (): Promise<number | null> => {
    if (!autofillResult) {
      alert("No scenario data to save. Please upload and process a PDF first.");
-     return;
+     return null;
    }
 
    setIsSaving(true);
    try {
-     const response = await fetch("http://localhost:8001/api/scenarios/save", {
+     console.log("[DEBUG] Sending to save endpoint:", {
+       keys: Object.keys(autofillResult),
+       title: autofillResult.title,
+       key_figures_count: autofillResult.key_figures?.length || 0,
+       scenes_count: autofillResult.scenes?.length || 0
+     });
+     
+     const response = await fetch(buildApiUrl("/api/scenarios/save"), {
        method: "POST",
        headers: {
          "Content-Type": "application/json",
@@ -104,13 +112,17 @@ export default function ScenarioBuilder() {
        setTimeout(() => {
          setIsSaved(false);
        }, 3000);
+       
+       return result.scenario_id;
      } else {
        console.error("Failed to save scenario");
        alert("Failed to save scenario. Please try again.");
+       return null;
      }
    } catch (error) {
      console.error("Error saving scenario:", error);
      alert("Error saving scenario. Please try again.");
+     return null;
    } finally {
      setIsSaving(false);
    }
@@ -125,18 +137,45 @@ export default function ScenarioBuilder() {
    setIsPublishing(true);
    try {
      // First save if not already saved
-     if (!isSaved) {
-       await handleSave();
+     let scenarioId = savedScenarioId;
+     if (!isSaved || !scenarioId) {
+       scenarioId = await handleSave();
      }
      
-     // Then publish (placeholder for now)
-     console.log("Publishing scenario...");
-     setIsPublished(true);
+     if (!scenarioId) {
+       alert("Failed to save scenario. Cannot publish.");
+       return;
+     }
      
-     // Reset publish status after 3 seconds
-     setTimeout(() => {
-       setIsPublished(false);
-     }, 3000);
+     // Actually publish the scenario
+     const publishData = {
+       category: autofillResult.industry || "Business",
+       difficulty_level: "Intermediate",
+       tags: ["case-study", "management", "teamwork"],
+       estimated_duration: 60
+     };
+     
+           const response = await fetch(buildApiUrl(`/api/scenarios/publish/${scenarioId}`), {
+       method: "POST",
+       headers: {
+         "Content-Type": "application/json",
+       },
+       body: JSON.stringify(publishData),
+     });
+
+     if (response.ok) {
+       const result = await response.json();
+       setIsPublished(true);
+       console.log("Scenario published:", result);
+       
+       // Reset publish status after 3 seconds
+       setTimeout(() => {
+         setIsPublished(false);
+       }, 3000);
+     } else {
+       console.error("Failed to publish scenario");
+       alert("Failed to publish scenario. Please try again.");
+     }
    } catch (error) {
      console.error("Error publishing scenario:", error);
      alert("Error publishing scenario. Please try again.");
@@ -163,8 +202,7 @@ export default function ScenarioBuilder() {
    // If not saved yet, save first
    if (!scenarioId) {
      try {
-       await handleSave();
-       scenarioId = savedScenarioId;
+       scenarioId = await handleSave();
      } catch (error) {
        alert("Failed to save scenario before playing. Please try again.");
        return;
@@ -172,7 +210,7 @@ export default function ScenarioBuilder() {
    }
 
    if (!scenarioId) {
-     alert("Failed to get scenario ID. Please save the scenario first.");
+     alert("Failed to get scenario ID. Please save the scenario first and try again.");
      return;
    }
 
@@ -387,7 +425,7 @@ export default function ScenarioBuilder() {
      setAutofillStep("Sending files to backend...");
      setAutofillProgress(50);
      
-     const response = await fetch("http://127.0.0.1:8001/api/parse-pdf/", {
+     const response = await fetch(buildApiUrl("/api/parse-pdf/"), {
        method: "POST",
        body: formData,
      });

@@ -81,7 +81,7 @@ async def start_simulation(
         # Get all scenes and personas for orchestrator setup
         all_scenes = db.query(ScenarioScene).filter(
             ScenarioScene.scenario_id == scenario.id
-        ).order_by(ScenarioScene.order_index).all()
+        ).order_by(ScenarioScene.scene_order).all()
         
         all_personas = db.query(ScenarioPersona).filter(
             ScenarioPersona.scenario_id == scenario.id
@@ -98,11 +98,11 @@ async def start_simulation(
                     "id": scene.id,
                     "title": scene.title,
                     "description": scene.description,
-                    "objectives": scene.objectives or ["Complete the scene interaction"],
+                    "objectives": [scene.user_goal] if scene.user_goal else ["Complete the scene interaction"],
                     "image_url": scene.image_url,
                     "agent_ids": [p.name.lower().replace(" ", "_") for p in all_personas],  # All personas available
                     "max_turns": 20,
-                    "success_criteria": f"User achieves: {', '.join(scene.objectives or ['scene completion'])}"
+                    "success_criteria": f"User achieves: {scene.user_goal or 'scene completion'}"
                 }
                 for scene in all_scenes
             ],
@@ -115,8 +115,8 @@ async def start_simulation(
                         "bio": persona.background or "Professional team member"
                     },
                     "personality": {
-                        "goals": persona.goals or ["Support team objectives"],
-                        "traits": persona.personality or "Professional and collaborative"
+                        "goals": persona.primary_goals or ["Support team objectives"],
+                                                 "traits": persona.personality_traits or "Professional and collaborative"
                     }
                 }
                 for persona in all_personas
@@ -694,11 +694,16 @@ async def linear_simulation_chat(
 ):
     """Handle orchestrated chat interactions in linear simulation"""
     try:
-        # Get user progress
-        user_progress = db.query(UserProgress).filter(
-            UserProgress.user_id == request.user_id,
-            UserProgress.scenario_id == request.scenario_id
-        ).first()
+        # Get user progress - handle both old and new request formats
+        if request.user_progress_id:
+            user_progress = db.query(UserProgress).filter(
+                UserProgress.id == request.user_progress_id
+            ).first()
+        else:
+            user_progress = db.query(UserProgress).filter(
+                UserProgress.user_id == request.user_id,
+                UserProgress.scenario_id == request.scenario_id
+            ).first()
         
         if not user_progress:
             raise HTTPException(status_code=404, detail="No active simulation found")
@@ -709,15 +714,53 @@ async def linear_simulation_chat(
         # Initialize orchestrator with stored data
         orchestrator = ChatOrchestrator(user_progress.orchestrator_data)
         
+        # Load saved state if it exists
+        if user_progress.orchestrator_data and 'state' in user_progress.orchestrator_data:
+            saved_state = user_progress.orchestrator_data['state']
+            orchestrator.state.simulation_started = saved_state.get('simulation_started', False)
+            orchestrator.state.user_ready = saved_state.get('user_ready', False)
+            orchestrator.state.current_scene_index = saved_state.get('current_scene_index', 0)
+            orchestrator.state.turn_count = saved_state.get('turn_count', 0)
+            orchestrator.state.state_variables = saved_state.get('state_variables', {})
+            print(f"[DEBUG] Loaded state - simulation_started: {orchestrator.state.simulation_started}")
+        else:
+            print(f"[DEBUG] No saved state found. orchestrator_data keys: {list(user_progress.orchestrator_data.keys()) if user_progress.orchestrator_data else 'None'}")
+        
         # Handle "begin" command to start simulation
         if request.message.lower().strip() == "begin":
             if orchestrator.state.simulation_started:
-                ai_response = "The simulation has already begun. Type 'help' for available commands."
+                ai_response = "The simulation has already begun. You can now interact with team members using @mentions (e.g., @rahul_ashok) or ask for help."
             else:
                 # Start simulation
                 orchestrator.state.simulation_started = True
                 orchestrator.state.user_ready = True
                 user_progress.simulation_status = "in_progress"
+                
+                # Don't overwrite orchestrator_data, just update the state
+                # user_progress.orchestrator_data already contains the scenario data
+                
+                # Save the updated state immediately
+                state_dict = {
+                    'current_scene_id': orchestrator.state.current_scene_id,
+                    'current_scene_index': orchestrator.state.current_scene_index,
+                    'turn_count': orchestrator.state.turn_count,
+                    'simulation_started': orchestrator.state.simulation_started,
+                    'user_ready': orchestrator.state.user_ready,
+                    'state_variables': orchestrator.state.state_variables
+                }
+                
+                if user_progress.orchestrator_data:
+                    user_progress.orchestrator_data['state'] = state_dict
+                else:
+                    user_progress.orchestrator_data = {'state': state_dict}
+                
+                # Mark the JSON field as modified so SQLAlchemy will update it
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(user_progress, "orchestrator_data")
+                
+                # Commit the state change immediately
+                db.commit()
+                print(f"[DEBUG] Saved state after begin - simulation_started: {state_dict['simulation_started']}")
                 
                 # Generate cinematic prologue
                 scenario = user_progress.orchestrator_data
@@ -767,8 +810,66 @@ You are about to enter a multi-scene simulation where you'll interact with vario
 
 Please type **"begin"** when you're ready to start, or **"help"** for more information."""
             else:
-                # Use OpenAI to generate orchestrated response
-                system_prompt = orchestrator.get_system_prompt()
+                # Check if user is addressing a specific persona with @mention
+                import re
+                mention_match = re.search(r'@(\w+)', request.message)
+                
+                print(f"[DEBUG] User message: {request.message}")
+                print(f"[DEBUG] Simulation started: {orchestrator.state.simulation_started}")
+                print(f"[DEBUG] Mention match: {mention_match.group(1) if mention_match else None}")
+                
+                if mention_match:
+                    # User is addressing a specific persona
+                    persona_id = mention_match.group(1)
+                    
+                    # Find the persona in the scenario data
+                    target_persona = None
+                    available_personas = [p['id'] for p in orchestrator.scenario.get('personas', [])]
+                    print(f"[DEBUG] Looking for persona: {persona_id}")
+                    print(f"[DEBUG] Available personas: {available_personas}")
+                    
+                    for persona in orchestrator.scenario.get('personas', []):
+                        if persona['id'] == persona_id:
+                            target_persona = persona
+                            break
+                    
+                    if target_persona:
+                        # Create a more focused system prompt for persona interaction
+                        system_prompt = f"""You are {target_persona['identity']['name']}, a {target_persona['identity']['role']} in this business simulation.
+
+PERSONA BACKGROUND: {target_persona['identity']['bio']}
+
+CURRENT SCENE: Crisis Assessment Meeting - {orchestrator.scenario.get('scenes', [{}])[0].get('description', 'Team meeting to assess the HS Holdings outage')}
+
+SCENARIO CONTEXT: {orchestrator.scenario.get('description', '')}
+
+PERSONALITY: {target_persona.get('personality', {})}
+
+You are in a crisis meeting about the HS Holdings system outage. Respond as {target_persona['identity']['name']} would, providing information and insights relevant to your role. Be professional but show the urgency of the situation.
+
+User's message: {request.message}"""
+                    else:
+                        # Fallback to orchestrator
+                        system_prompt = f"""You are the ChatOrchestrator managing a business simulation. The user tried to mention @{persona_id} but that persona wasn't found. 
+
+Available personas: {', '.join([p['id'] for p in orchestrator.scenario.get('personas', [])])}
+
+Gently redirect them to use a valid persona mention or provide general guidance."""
+                else:
+                    # General orchestrator response
+                    system_prompt = f"""You are the ChatOrchestrator for a business simulation about {orchestrator.scenario.get('title', 'team management')}.
+
+CURRENT SCENE: Crisis Assessment Meeting
+OBJECTIVE: Understand the scope and impact of the HS Holdings outage
+
+The user can:
+- Use @mentions to talk to specific team members (e.g., @rahul_ashok, @nick_elliott, @elisabeth_fournier)
+- Ask general questions about the situation
+- Request help or guidance
+
+Respond helpfully and guide them toward productive interactions with the team members.
+
+User's message: {request.message}"""
                 
                 # Make OpenAI API call
                 import openai
@@ -782,28 +883,51 @@ Please type **"begin"** when you're ready to start, or **"help"** for more infor
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": request.message}
                     ],
-                    max_tokens=800,
+                    max_tokens=600,
                     temperature=0.7
                 )
                 
                 ai_response = response.choices[0].message.content
-                
-                # Increment turn counter
-                orchestrator.increment_turn()
         
-        # Update orchestrator state in database (simplified for now)
+        # Update orchestrator state in database
         user_progress.last_activity = datetime.utcnow()
+        
+        # Save updated orchestrator state - ALWAYS save the state
+        state_dict = {
+            'current_scene_id': orchestrator.state.current_scene_id,
+            'current_scene_index': orchestrator.state.current_scene_index,
+            'turn_count': orchestrator.state.turn_count,
+            'simulation_started': orchestrator.state.simulation_started,
+            'user_ready': orchestrator.state.user_ready,
+            'state_variables': orchestrator.state.state_variables
+        }
+        
+        # Ensure orchestrator_data exists and update state
+        if not user_progress.orchestrator_data:
+            user_progress.orchestrator_data = {}
+        
+        # Always update the state - Force SQLAlchemy to detect JSON change
+        user_progress.orchestrator_data['state'] = state_dict
+        # Mark the JSON field as modified so SQLAlchemy will update it
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(user_progress, "orchestrator_data")
+        print(f"[DEBUG] Saving state at end - simulation_started: {state_dict['simulation_started']}")
         
         # Log conversation
         conversation_log = ConversationLog(
             user_progress_id=user_progress.id,
             scene_id=request.scene_id or user_progress.current_scene_id,
-            user_message=request.message,
-            ai_response=ai_response,
+            message_type="orchestrator",
+            sender_name="ChatOrchestrator",
+            message_content=f"User: {request.message}\n\nOrchestrator: {ai_response}",
+            message_order=1,  # Simplified for now
             timestamp=datetime.utcnow()
         )
         db.add(conversation_log)
+        
+        # Commit everything including the state update
         db.commit()
+        print(f"[DEBUG] Final commit - simulation_started: {state_dict['simulation_started']}")
         
         return SimulationChatResponse(
             message=ai_response,

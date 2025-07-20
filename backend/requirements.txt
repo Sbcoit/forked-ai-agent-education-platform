@@ -15,8 +15,7 @@ python-jose[cryptography]==3.5.0
 python-multipart==0.0.20
 
 # CrewAI and AI dependencies
-crewai==0.140.0
-crewai-tools==0.0.1
+
 openai==1.93.0
 anthropic==0.55.0
 

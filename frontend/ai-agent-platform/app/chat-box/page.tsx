@@ -15,43 +15,51 @@ import {
   AlertCircle,
   HelpCircle,
   Play,
-  RefreshCw
+  RefreshCw,
+  ArrowRight,
+  BookOpen,
+  User
 } from "lucide-react"
+import { buildApiUrl } from "@/lib/api"
 
-// Types for the new simulation system - aligned with backend
+// Types aligned with backend database schema
+interface Scenario {
+  id: number
+  title: string
+  description: string
+  challenge: string
+  industry?: string
+  learning_objectives: string[]
+  student_role?: string
+  created_at: string
+  is_public: boolean
+}
+
+interface Persona {
+  id: number
+  name: string
+  role: string
+  background: string
+  correlation: string
+  primary_goals: string[]
+  personality_traits: Record<string, number>
+}
+
+interface Scene {
+  id: number
+  title: string
+  description: string
+  user_goal?: string
+  scene_order: number
+  estimated_duration?: number
+  image_url?: string
+  personas: Persona[]
+}
+
 interface SimulationData {
   user_progress_id: number
-  scenario: {
-    id: number
-    title: string
-    description: string
-    challenge: string
-    industry?: string
-    learning_objectives: string[]
-    student_role?: string
-  }
-  current_scene: {
-    id: number
-    scenario_id: number
-    title: string
-    description: string
-    user_goal?: string
-    scene_order: number
-    estimated_duration?: number
-    image_url?: string
-    image_prompt?: string
-    created_at: string
-    updated_at: string
-    personas?: Array<{
-      id: number
-      name: string
-      role: string
-      background: string
-      correlation: string
-      primary_goals: string[]
-      personality_traits: Record<string, number>
-    }>
-  }
+  scenario: Scenario
+  current_scene: Scene
   simulation_status: string
 }
 
@@ -60,19 +68,160 @@ interface Message {
   sender: string
   text: string
   timestamp: Date
-  type: 'user' | 'ai_persona' | 'system' | 'hint'
+  type: 'user' | 'ai_persona' | 'system' | 'orchestrator'
   persona_id?: number
 }
 
-interface UserProgress {
-  completion_percentage: number
-  total_attempts: number
-  hints_used: number
-  scenes_completed: number[]
+// Scenario Selection Component
+const ScenarioSelector = ({ 
+  onScenarioSelect 
+}: { 
+  onScenarioSelect: (scenarioId: number) => void 
+}) => {
+  const [scenarios, setScenarios] = useState<Scenario[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedScenario, setSelectedScenario] = useState<number | null>(null)
+
+  useEffect(() => {
+    fetchScenarios()
+  }, [])
+
+  const fetchScenarios = async () => {
+    try {
+      const response = await fetch(buildApiUrl("/api/scenarios/"))
+      if (response.ok) {
+        const data = await response.json()
+        // Filter scenarios that have both personas and scenes
+        const validScenarios = data.filter((s: any) => 
+          s.personas && s.personas.length > 0 && 
+          s.scenes && s.scenes.length > 0
+        )
+        setScenarios(validScenarios)
+        
+        // Auto-select the most recent scenario
+        if (validScenarios.length > 0) {
+          const mostRecent = validScenarios.reduce((latest: any, current: any) => 
+            new Date(current.created_at) > new Date(latest.created_at) ? current : latest
+          )
+          setSelectedScenario(mostRecent.id)
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch scenarios:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <Card className="max-w-2xl mx-auto">
+        <CardContent className="p-6 text-center">
+          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4" />
+          <p>Loading available scenarios...</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (scenarios.length === 0) {
+    return (
+      <Card className="max-w-2xl mx-auto">
+        <CardContent className="p-6 text-center">
+          <BookOpen className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+          <h3 className="text-lg font-semibold mb-2">No Scenarios Available</h3>
+          <p className="text-gray-600 mb-4">
+            You need to create a scenario first using the Scenario Builder.
+          </p>
+          <Button onClick={() => window.open("/scenario-builder", "_blank")}>
+            Create Scenario
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Play className="w-5 h-5" />
+            Select a Scenario to Simulate
+          </CardTitle>
+          <p className="text-sm text-gray-600">
+            Choose from your available scenarios with AI personas and scenes
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {scenarios.map((scenario) => (
+            <div
+              key={scenario.id}
+              className={`border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${
+                selectedScenario === scenario.id 
+                  ? 'border-blue-500 bg-blue-50' 
+                  : 'border-gray-200'
+              }`}
+              onClick={() => setSelectedScenario(scenario.id)}
+            >
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="font-semibold">{scenario.title}</h3>
+                    {scenario.is_public && (
+                      <Badge variant="secondary" className="text-xs">Public</Badge>
+                    )}
+                  </div>
+                  
+                  <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+                    {scenario.description}
+                  </p>
+                  
+                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <span className="flex items-center gap-1">
+                      <User className="w-3 h-3" />
+                      {scenario.student_role || "Student"}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Users className="w-3 h-3" />
+                      Multiple Personas
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Target className="w-3 h-3" />
+                      Multi-Scene
+                    </span>
+                  </div>
+                </div>
+                
+                <div className="ml-4">
+                  <Badge variant="outline" className="text-xs">
+                    ID: {scenario.id}
+                  </Badge>
+                </div>
+              </div>
+            </div>
+          ))}
+          
+          <div className="pt-4 border-t">
+            <Button 
+              onClick={() => selectedScenario && onScenarioSelect(selectedScenario)}
+              disabled={!selectedScenario}
+              className="w-full"
+              size="lg"
+            >
+              <Play className="w-4 h-4 mr-2" />
+              Start Simulation
+              <ArrowRight className="w-4 h-4 ml-2" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
 }
 
-// Timeline component showing progress through scenes
-const TimelineProgress = ({ 
+// Scene Progress Component
+const SceneProgress = ({ 
   currentScene, 
   totalScenes, 
   completedScenes 
@@ -84,166 +233,95 @@ const TimelineProgress = ({
   const progress = (completedScenes.length / totalScenes) * 100
 
   return (
-    <div className="bg-white border rounded-lg p-4 mb-4">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="font-semibold text-sm">Timeline Progress</h3>
-        <span className="text-xs text-gray-500">
-          Scene {currentScene} of {totalScenes}
-        </span>
-      </div>
-      <Progress value={progress} className="mb-2" />
-      <div className="flex justify-between text-xs text-gray-500">
-        <span>{completedScenes.length} completed</span>
-        <span>{Math.round(progress)}%</span>
-      </div>
-    </div>
-  )
-}
-
-// Goal panel showing current objective
-const GoalPanel = ({ 
-  goal, 
-  attempts, 
-  maxAttempts, 
-  hintsUsed 
-}: { 
-  goal: string
-  attempts: number
-  maxAttempts: number
-  hintsUsed: number
-}) => {
-  const attemptsRemaining = maxAttempts - attempts
-  const isNearLimit = attemptsRemaining <= 2
-
-  return (
     <Card className="mb-4">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Target className="w-4 h-4 text-blue-500" />
-            Current Goal
-          </CardTitle>
-          <div className="flex gap-2">
-            <Badge variant={isNearLimit ? "destructive" : "secondary"}>
-              {attemptsRemaining} attempts left
-            </Badge>
-            {hintsUsed > 0 && (
-              <Badge variant="outline">
-                {hintsUsed} hints used
-              </Badge>
-            )}
-          </div>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="font-semibold text-sm">Scene Progress</h3>
+          <span className="text-xs text-gray-500">
+            Scene {currentScene} of {totalScenes}
+          </span>
         </div>
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-gray-700">{goal}</p>
+        <Progress value={progress} className="mb-2" />
+        <div className="flex justify-between text-xs text-gray-500">
+          <span>{completedScenes.length} completed</span>
+          <span>{Math.round(progress)}%</span>
+        </div>
       </CardContent>
     </Card>
   )
 }
 
-// Persona indicator showing who's speaking
-const PersonaIndicator = ({ 
-  personas, 
-  currentPersona 
-}: { 
-  personas: Array<{ 
-    id: number
-    name: string
-    role: string
-    background?: string
-    correlation?: string
-    primary_goals?: string[]
-    personality_traits?: Record<string, number>
-  }>
-  currentPersona?: number
-}) => {
+// Current Scene Info
+const CurrentSceneInfo = ({ scene }: { scene: Scene }) => {
   return (
-    <div className="bg-white border rounded-lg p-3 mb-4">
-      <div className="flex items-center gap-2 mb-2">
-        <Users className="w-4 h-4 text-purple-500" />
-        <span className="font-semibold text-sm">Active Personas</span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {personas.map((persona) => (
-          <Badge 
-            key={persona.id}
-            variant={currentPersona === persona.id ? "default" : "secondary"}
-            className="text-xs"
-          >
-            {persona.name} ({persona.role})
-          </Badge>
-        ))}
-      </div>
-    </div>
+    <Card className="mb-4">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Target className="w-4 h-4 text-blue-500" />
+          Current Scene
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <h3 className="font-semibold mb-2">{scene.title}</h3>
+        
+        {/* Scene Image */}
+        {scene.image_url && (
+          <div className="mb-3">
+            <img 
+              src={scene.image_url} 
+              alt={scene.title}
+              className="w-full h-32 object-cover rounded-lg border"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+              }}
+            />
+          </div>
+        )}
+        
+        <p className="text-sm text-gray-600 mb-3">{scene.description}</p>
+        
+        {scene.user_goal && (
+          <div className="bg-blue-50 border border-blue-200 rounded p-3 mb-3">
+            <p className="text-sm font-medium text-blue-800">Your Goal:</p>
+            <p className="text-sm text-blue-700">{scene.user_goal}</p>
+          </div>
+        )}
+        
+        {scene.personas && scene.personas.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-700 mb-2">Available Personas:</p>
+            <div className="flex flex-wrap gap-1">
+              {scene.personas.map((persona) => (
+                <Badge key={persona.id} variant="secondary" className="text-xs">
+                  {persona.name}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
-// Typing indicator
+// Typing Indicator
 const TypingIndicator = ({ personaName }: { personaName: string }) => (
-  <div className="flex items-start gap-3 mb-4">
-    <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-      <span className="text-xs font-semibold">{personaName[0]}</span>
-    </div>
-    <div className="bg-gray-100 rounded-lg px-4 py-2 max-w-xs">
-      <div className="flex space-x-1">
-        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+  <div className="flex justify-start mb-4">
+    <div className="bg-gray-100 rounded-lg px-4 py-2 border">
+      <div className="flex items-center gap-2">
+        <div className="flex space-x-1">
+          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+          <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+        </div>
+        <span className="text-xs text-gray-600">{personaName} is typing...</span>
       </div>
     </div>
   </div>
 )
 
-// PDF Metrics Panel
-const PDFMetricsPanel = ({ scenarioId }: { scenarioId: number }) => {
-  const [pdfMetrics, setPdfMetrics] = useState<any>(null)
-  
-  useEffect(() => {
-    const pdfResults = localStorage.getItem("pdfParsingResults")
-    if (pdfResults) {
-      try {
-        const parsed = JSON.parse(pdfResults)
-        if (parsed.scenario_id === scenarioId) {
-          setPdfMetrics(parsed)
-        }
-      } catch (e) {
-        console.error("Failed to parse PDF metrics:", e)
-      }
-    }
-  }, [scenarioId])
-  
-  if (!pdfMetrics) return null
-  
-  return (
-    <Card className="mb-4 border-green-200 bg-green-50">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-green-500" />
-          PDF Analysis Complete
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-2 text-xs">
-          <div className="flex justify-between">
-            <span>Key Figures:</span>
-            <Badge variant="secondary">{pdfMetrics.key_figures?.length || 0}</Badge>
-          </div>
-          <div className="flex justify-between">
-            <span>Scenes Generated:</span>
-            <Badge variant="secondary">{pdfMetrics.scenes?.length || 0}</Badge>
-          </div>
-          <div className="flex justify-between">
-            <span>Learning Outcomes:</span>
-            <Badge variant="secondary">{pdfMetrics.learning_outcomes?.length || 0}</Badge>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-export default function SequentialSimulationChat() {
+export default function LinearSimulationChat() {
   // Core simulation state
   const [simulationData, setSimulationData] = useState<SimulationData | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -252,18 +330,9 @@ export default function SequentialSimulationChat() {
   const [isTyping, setIsTyping] = useState(false)
   const [typingPersona, setTypingPersona] = useState("")
   
-  // Progress tracking
-  const [userProgress, setUserProgress] = useState<UserProgress>({
-    completion_percentage: 0,
-    total_attempts: 0,
-    hints_used: 0,
-    scenes_completed: []
-  })
-  
   // UI state
-  const [showHint, setShowHint] = useState(false)
-  const [lastHint, setLastHint] = useState("")
-  const [scenarioId, setScenarioId] = useState<number | null>(null)
+  const [selectedScenarioId, setSelectedScenarioId] = useState<number | null>(null)
+  const [completedScenes, setCompletedScenes] = useState<number[]>([])
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -272,53 +341,13 @@ export default function SequentialSimulationChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  // Load scenario from localStorage or use hardcoded ID
-  useEffect(() => {
-    // Try to get scenario from localStorage first
-    const storedScenario = localStorage.getItem("chatboxScenario")
-    if (storedScenario) {
-      try {
-        const parsed = JSON.parse(storedScenario)
-        if (parsed.scenario_id) {
-          setScenarioId(parsed.scenario_id)
-          console.log("Loaded scenario from localStorage:", parsed.scenario_id)
-        }
-      } catch (e) {
-        console.error("Failed to parse stored scenario:", e)
-      }
-    }
-    
-    // Also check for PDF parsing results
-    const pdfResults = localStorage.getItem("pdfParsingResults")
-    if (pdfResults && !scenarioId) {
-      try {
-        const parsed = JSON.parse(pdfResults)
-        if (parsed.scenario_id) {
-          setScenarioId(parsed.scenario_id)
-          console.log("Loaded scenario from PDF parsing results:", parsed.scenario_id)
-        }
-      } catch (e) {
-        console.error("Failed to parse PDF results:", e)
-      }
-    }
-    
-    // Fallback to hardcoded scenario ID for testing
-    if (!scenarioId) {
-      setScenarioId(1)
-      console.log("Using fallback scenario ID: 1")
-    }
-  }, [])
-
-  // Start simulation
-  const startSimulation = async () => {
-    if (!scenarioId) {
-      alert("No scenario selected. Please create a scenario first.")
-      return
-    }
-
+  // Start simulation with selected scenario
+  const startSimulation = async (scenarioId: number) => {
+    setSelectedScenarioId(scenarioId)
     setIsLoading(true)
+    
     try {
-      const response = await fetch("http://localhost:8000/api/simulation/start", {
+      const response = await fetch(buildApiUrl("/api/simulation/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -328,30 +357,31 @@ export default function SequentialSimulationChat() {
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorText = await response.text()
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`)
       }
 
       const data: SimulationData = await response.json()
       setSimulationData(data)
       
-      // Add welcome message with orchestrator instructions
+      // Add welcome message
       setMessages([{
         id: Date.now(),
         sender: "System",
-        text: `Welcome to "${data.scenario.title}"!\n\n${data.scenario.description}\n\n**Your Role:** ${data.scenario.student_role}\n\n**Instructions:**\n- Type **"begin"** when ready to start the simulation\n- Type **"help"** for available commands\n- Use @mentions to speak with specific agents`,
+        text: `🎯 **${data.scenario.title}**\n\n${data.scenario.description}\n\n**Your Role:** ${data.scenario.student_role}\n\n**Current Scene:** ${data.current_scene.title}\n\n**Instructions:**\n• Type **"begin"** to start the simulation\n• Type **"help"** for available commands\n• Use natural conversation to interact with personas`,
         timestamp: new Date(),
         type: 'system'
       }])
 
     } catch (error) {
       console.error("Failed to start simulation:", error)
-      alert("Failed to start simulation. Please ensure the backend is running.")
+      alert(`Failed to start simulation: ${error}`)
     } finally {
       setIsLoading(false)
     }
   }
 
-  // Send message to AI persona
+  // Send message to orchestrator
   const sendMessage = async () => {
     if (!simulationData || !input.trim() || isLoading) return
 
@@ -367,64 +397,55 @@ export default function SequentialSimulationChat() {
     setInput("")
     setIsLoading(true)
     setIsTyping(true)
-
-    // Handle special commands locally for better UX
-    const command = userMessage.text.toLowerCase().trim()
-    if (command === "begin") {
-      setTypingPersona("Orchestrator")
-    } else if (command === "help") {
-      setTypingPersona("System")
-    } else {
-      setTypingPersona("AI Agent")
-    }
+    setTypingPersona("ChatOrchestrator")
 
     try {
-      // Send chat message using the new linear-chat endpoint
-      const chatResponse = await fetch("http://localhost:8000/api/simulation/linear-chat", {
+      const response = await fetch(buildApiUrl("/api/simulation/linear-chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scenario_id: simulationData.scenario.id,
-          user_id: 1, // Hardcoded for now - should come from auth
+          user_id: 1,
           scene_id: simulationData.current_scene.id,
           message: userMessage.text
         })
       })
 
-      if (!chatResponse.ok) {
-        throw new Error(`Chat failed: ${chatResponse.status}`)
+      if (!response.ok) {
+        throw new Error(`Chat failed: ${response.status}`)
       }
 
-      const chatData = await chatResponse.json()
-      setTypingPersona("Orchestrator")
+      const chatData = await response.json()
       
-      // Simulate typing delay
-      setTimeout(async () => {
+      // Simulate typing delay for better UX
+      setTimeout(() => {
         setIsTyping(false)
         
-        // Add AI response from orchestrator
+        // Add orchestrator response
         const aiMessage: Message = {
           id: Date.now() + 1,
-          sender: "Orchestrator",
+          sender: "ChatOrchestrator",
           text: chatData.message,
           timestamp: new Date(),
-          type: 'ai_persona'
+          type: 'orchestrator'
         }
         setMessages(prev => [...prev, aiMessage])
 
-        // Check if scene progression happened (orchestrator handles this internally)
+        // Handle scene progression if indicated
         if (chatData.scene_completed) {
-          // Scene completed, update UI
-          const completedScenes = [...userProgress.scenes_completed, simulationData.current_scene.id]
-          setUserProgress(prev => ({
-            ...prev,
-            scenes_completed: completedScenes,
-            completion_percentage: (completedScenes.length / 5) * 100
-          }))
+          setCompletedScenes(prev => [...prev, simulationData.current_scene.id])
           
           if (chatData.next_scene_id) {
-            // Update current scene if orchestrator provided next scene
-            // This would need scene data from backend
+            // Update to next scene (would need to fetch scene data)
+            // For now, just show completion
+            const completionMessage: Message = {
+              id: Date.now() + 2,
+              sender: "System",
+              text: "🎉 Scene completed! Moving to the next scene...",
+              timestamp: new Date(),
+              type: 'system'
+            }
+            setMessages(prev => [...prev, completionMessage])
           }
         }
         
@@ -436,29 +457,12 @@ export default function SequentialSimulationChat() {
       setMessages(prev => [...prev, {
         id: Date.now() + 1,
         sender: "System",
-        text: "Sorry, I couldn't process your message. Please try again.",
+        text: `❌ Error: ${error}. Please try again or restart the simulation.`,
         timestamp: new Date(),
         type: 'system'
       }])
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  // Note: Goal validation and scene progression are now handled by the ChatOrchestrator
-  // The orchestrator manages scene transitions internally and returns appropriate responses
-
-  // Request hint
-  const requestHint = () => {
-    if (lastHint) {
-      setMessages(prev => [...prev, {
-        id: Date.now(),
-        sender: "Hint",
-        text: `💡 ${lastHint}`,
-        timestamp: new Date(),
-        type: 'hint'
-      }])
-      setShowHint(false)
     }
   }
 
@@ -470,195 +474,176 @@ export default function SequentialSimulationChat() {
     }
   }
 
+  // If no simulation is active, show scenario selection
+  if (!simulationData) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4">
+        <div className="max-w-6xl mx-auto py-8">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold mb-2">Linear Simulation Experience</h1>
+            <p className="text-gray-600">
+              Select a scenario to begin your interactive simulation with AI personas
+            </p>
+          </div>
+          
+          <ScenarioSelector onScenarioSelect={startSimulation} />
+        </div>
+      </div>
+    )
+  }
+
+  // Main simulation interface
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-6xl mx-auto">
-        {/* Integration Status Banner */}
-        <Card className="mb-4 border-blue-200 bg-blue-50">
-          <CardContent className="p-3">
-            <div className="flex items-center gap-2 text-sm">
-              <CheckCircle className="w-4 h-4 text-blue-500" />
-              <span className="font-medium">Linear Flow Integration Active</span>
-              <Badge variant="outline">v2.0</Badge>
-              <span className="text-xs text-gray-600 ml-auto">
-                Using ChatOrchestrator + PDF Metrics
-              </span>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
         
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        {/* Left Sidebar - Progress & Scene Info */}
+        <div className="lg:col-span-1">
+          <SceneProgress
+            currentScene={simulationData.current_scene.scene_order}
+            totalScenes={4} // This should come from scenario data
+            completedScenes={completedScenes}
+          />
           
-          {/* Left Sidebar - Progress & Goal */}
-          <div className="lg:col-span-1">
-            {/* Show PDF metrics if available */}
-            {scenarioId && <PDFMetricsPanel scenarioId={scenarioId} />}
-            
-            {simulationData && (
-              <>
-                <TimelineProgress
-                  currentScene={simulationData.current_scene.scene_order}
-                  totalScenes={5} // This should come from scenario data
-                  completedScenes={userProgress.scenes_completed}
-                />
-                
-                <GoalPanel
-                  goal={simulationData.current_scene.user_goal || "Complete the scene objectives"}
-                  attempts={userProgress.total_attempts}
-                  maxAttempts={5} // This should come from scene data
-                  hintsUsed={userProgress.hints_used}
-                />
-                
-                <PersonaIndicator
-                  personas={simulationData.current_scene.personas || []}
-                />
+          <CurrentSceneInfo scene={simulationData.current_scene} />
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="text-center">
+                <Badge variant="outline" className="text-xs mb-2">
+                  Scenario #{simulationData.scenario.id}
+                </Badge>
+                <p className="text-xs text-gray-500">
+                  Linear Flow Integration Active
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
-                {showHint && (
-                  <Card className="mb-4 border-yellow-200 bg-yellow-50">
-                    <CardContent className="p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <HelpCircle className="w-4 h-4 text-yellow-600" />
-                          <span className="text-sm font-medium">Hint Available</span>
-                        </div>
-                        <Button size="sm" variant="outline" onClick={requestHint}>
-                          Show Hint
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </>
-            )}
-          </div>
+        {/* Main Chat Area */}
+        <div className="lg:col-span-3">
+          <Card className="h-[85vh] flex flex-col">
+            <CardHeader className="border-b">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg">
+                  {simulationData.scenario.title}
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">
+                    {simulationData.current_scene.title}
+                  </Badge>
+                </div>
+              </div>
+            </CardHeader>
 
-          {/* Main Chat Area */}
-          <div className="lg:col-span-3">
-            <Card className="h-[80vh] flex flex-col">
-              <CardHeader className="border-b">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">
-                    {simulationData ? simulationData.scenario.title : "Sequential Simulation"}
-                  </CardTitle>
-                  {!simulationData && (
-                    <div className="flex items-center gap-2">
-                      <Button onClick={startSimulation} disabled={isLoading || !scenarioId}>
-                        <Play className="w-4 h-4 mr-2" />
-                        {isLoading ? "Starting..." : "Start Simulation"}
-                      </Button>
-                      {scenarioId && (
+            {/* Messages Area */}
+            <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
+                    message.type === 'user'
+                      ? 'bg-blue-500 text-white'
+                      : message.type === 'system'
+                      ? 'bg-gray-100 text-gray-800 border'
+                      : message.type === 'orchestrator'
+                      ? 'bg-white text-gray-800 border border-purple-200'
+                      : 'bg-white text-gray-800 border'
+                  }`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold opacity-75">
+                        {message.sender}
+                      </span>
+                      {message.type === 'orchestrator' && (
                         <Badge variant="secondary" className="text-xs">
-                          Scenario #{scenarioId}
+                          AI
                         </Badge>
                       )}
                     </div>
+                    <div className="text-sm whitespace-pre-wrap">
+                      {/* Simple markdown-like formatting */}
+                      {message.text.split('\n').map((line, index) => {
+                        // Handle bold text with **
+                        const boldFormatted = line.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                        return (
+                          <div key={index} dangerouslySetInnerHTML={{ __html: boldFormatted }} />
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {isTyping && (
+                <TypingIndicator personaName={typingPersona} />
+              )}
+
+              <div ref={messagesEndRef} />
+            </CardContent>
+
+            {/* Input Area */}
+            <div className="border-t p-4">
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="Type your message or command..."
+                    disabled={isLoading || isTyping}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={sendMessage}
+                    disabled={isLoading || isTyping || !input.trim()}
+                  >
+                    {isLoading ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+                
+                {/* Quick command buttons */}
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setInput("begin")}
+                    disabled={isLoading || isTyping}
+                  >
+                    Begin
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setInput("help")}
+                    disabled={isLoading || isTyping}
+                  >
+                    Help
+                  </Button>
+                  {simulationData.current_scene.personas && simulationData.current_scene.personas.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const firstPersona = simulationData.current_scene.personas![0]
+                        const mentionId = firstPersona.name.toLowerCase().replace(/\s+/g, '_')
+                        setInput(`@${mentionId} `)
+                      }}
+                      disabled={isLoading || isTyping}
+                    >
+                      @{simulationData.current_scene.personas[0].name.split(' ')[0]}
+                    </Button>
                   )}
                 </div>
-              </CardHeader>
-
-              {/* Messages Area */}
-              <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
-                {messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                      message.type === 'user'
-                        ? 'bg-blue-500 text-white'
-                        : message.type === 'system'
-                        ? 'bg-gray-100 text-gray-800 border'
-                        : message.type === 'hint'
-                        ? 'bg-yellow-100 text-yellow-800 border border-yellow-200'
-                        : 'bg-white text-gray-800 border'
-                    }`}>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-semibold opacity-75">
-                          {message.sender}
-                        </span>
-                        {message.type === 'ai_persona' && (
-                          <Badge variant="secondary" className="text-xs">
-                            AI
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-sm whitespace-pre-wrap">
-                        {message.text}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {isTyping && (
-                  <TypingIndicator personaName={typingPersona} />
-                )}
-
-                <div ref={messagesEndRef} />
-              </CardContent>
-
-              {/* Input Area */}
-              {simulationData && (
-                <div className="border-t p-4">
-                  <div className="space-y-2">
-                    <div className="flex gap-2">
-                      <Input
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyPress={handleKeyPress}
-                        placeholder="Type your message, @mention agents, or try 'help'..."
-                        disabled={isLoading || isTyping}
-                        className="flex-1"
-                      />
-                      <Button
-                        onClick={sendMessage}
-                        disabled={isLoading || isTyping || !input.trim()}
-                      >
-                        {isLoading ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Send className="w-4 h-4" />
-                        )}
-                      </Button>
-                    </div>
-                    
-                    {/* Quick command buttons */}
-                    <div className="flex gap-2 text-xs">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setInput("begin")}
-                        disabled={isLoading || isTyping}
-                      >
-                        Begin
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setInput("help")}
-                        disabled={isLoading || isTyping}
-                      >
-                        Help
-                      </Button>
-                      {simulationData.current_scene.personas && simulationData.current_scene.personas.length > 0 && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            const firstPersona = simulationData.current_scene.personas![0]
-                            const mentionId = firstPersona.name.toLowerCase().replace(/\s+/g, '_')
-                            setInput(`@${mentionId} `)
-                          }}
-                          disabled={isLoading || isTyping}
-                        >
-                          @{simulationData.current_scene.personas[0].name.split(' ')[0]}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </Card>
-          </div>
+              </div>
+            </div>
+          </Card>
         </div>
       </div>
     </div>

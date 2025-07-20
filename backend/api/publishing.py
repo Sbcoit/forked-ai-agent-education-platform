@@ -38,18 +38,31 @@ async def save_scenario_draft(
     
     try:
         print("[DEBUG] Saving scenario as draft...")
+        print(f"[DEBUG] AI result keys: {list(ai_result.keys())}")
+        
+        # Check if we received the wrapper response instead of direct AI result
+        if "ai_result" in ai_result and isinstance(ai_result["ai_result"], dict):
+            print("[DEBUG] Detected wrapper response, extracting ai_result...")
+            actual_ai_result = ai_result["ai_result"]
+        else:
+            actual_ai_result = ai_result
+        
+        print(f"[DEBUG] Actual AI result keys: {list(actual_ai_result.keys())}")
+        print(f"[DEBUG] Key figures count: {len(actual_ai_result.get('key_figures', []))}")
+        print(f"[DEBUG] Scenes count: {len(actual_ai_result.get('scenes', []))}")
         
         # Extract title from AI result
-        title = ai_result.get("title", "Untitled Scenario")
+        title = actual_ai_result.get("title", "Untitled Scenario")
+        print(f"[DEBUG] Extracted title: {title}")
         
         # Create scenario record as draft
         scenario = Scenario(
             title=title,
-            description=ai_result.get("description", ""),
-            challenge=ai_result.get("description", ""),
+            description=actual_ai_result.get("description", ""),
+            challenge=actual_ai_result.get("description", ""),
             industry="Business",
-            learning_objectives=ai_result.get("learning_outcomes", []),
-            student_role=ai_result.get("student_role", "Business Analyst"),
+            learning_objectives=actual_ai_result.get("learning_outcomes", []),
+            student_role=actual_ai_result.get("student_role", "Business Analyst"),
             source_type="pdf_upload",
             pdf_title=title,
             pdf_source="Uploaded PDF",
@@ -65,10 +78,13 @@ async def save_scenario_draft(
         db.flush()
         
         print(f"[DEBUG] Created draft scenario with ID: {scenario.id}")
+        print(f"[DEBUG] Scenario title: '{scenario.title}'")
+        print(f"[DEBUG] Scenario description length: {len(scenario.description or '')}")
+        print(f"[DEBUG] Scenario description preview: {(scenario.description or '')[:100]}...")
         
         # Save personas
         persona_mapping = {}
-        key_figures = ai_result.get("key_figures", [])
+        key_figures = actual_ai_result.get("key_figures", [])
         
         print(f"[DEBUG] Saving {len(key_figures)} personas...")
         for figure in key_figures:
@@ -90,7 +106,7 @@ async def save_scenario_draft(
                 print(f"[DEBUG] Created persona: {figure['name']} with ID: {persona.id}")
         
         # Save scenes
-        scenes = ai_result.get("scenes", [])
+        scenes = actual_ai_result.get("scenes", [])
         
         print(f"[DEBUG] Saving {len(scenes)} scenes...")
         for i, scene in enumerate(scenes):
@@ -127,6 +143,7 @@ async def save_scenario_draft(
         # Save file metadata
         scenario_file = ScenarioFile(
             scenario_id=scenario.id,
+            filename="Business_Case_Study.pdf",  # Add the missing filename field
             file_path="uploaded_file.pdf",  # Generic name since we don't have file here
             file_type="pdf",
             processing_status="completed",
@@ -175,8 +192,15 @@ async def publish_scenario(
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
     
+    print(f"[DEBUG] Publishing scenario {scenario_id}")
+    print(f"[DEBUG] Found scenario title: '{scenario.title}'")
+    print(f"[DEBUG] Found scenario description length: {len(scenario.description or '')}")
+    print(f"[DEBUG] Scenario personas count: {len(scenario.personas)}")
+    print(f"[DEBUG] Scenario scenes count: {len(scenario.scenes)}")
+    
     # Validate scenario is ready for publishing
     if not scenario.title or not scenario.description:
+        print(f"[DEBUG] Validation failed - title: '{scenario.title}', description: '{scenario.description}'")
         raise HTTPException(
             status_code=400, 
             detail="Scenario must have title and description to publish"

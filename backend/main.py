@@ -34,7 +34,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -71,6 +71,67 @@ async def health_check():
         "database": "connected",
         "api_version": "2.0.0"
     }
+
+@app.get("/api/scenarios/")
+async def get_scenarios(db: Session = Depends(get_db)):
+    """Get all scenarios with their personas and scenes"""
+    try:
+        scenarios = db.query(Scenario).order_by(Scenario.created_at.desc()).all()
+        
+        result = []
+        for scenario in scenarios:
+            # Get personas for this scenario
+            personas = db.query(ScenarioPersona).filter(
+                ScenarioPersona.scenario_id == scenario.id
+            ).all()
+            
+            # Get scenes for this scenario
+            scenes = db.query(ScenarioScene).filter(
+                ScenarioScene.scenario_id == scenario.id
+            ).order_by(ScenarioScene.scene_order).all()
+            
+            scenario_data = {
+                "id": scenario.id,
+                "title": scenario.title,
+                "description": scenario.description,
+                "challenge": scenario.challenge,
+                "industry": scenario.industry,
+                "learning_objectives": scenario.learning_objectives or [],
+                "student_role": scenario.student_role,
+                "created_at": scenario.created_at.isoformat() if scenario.created_at else None,
+                "is_public": scenario.is_public,
+                "personas": [
+                    {
+                        "id": persona.id,
+                        "name": persona.name,
+                        "role": persona.role,
+                        "background": persona.background,
+                        "correlation": persona.correlation,
+                        "primary_goals": persona.primary_goals or [],
+                        "personality_traits": persona.personality_traits or {}
+                    }
+                    for persona in personas
+                ],
+                "scenes": [
+                    {
+                        "id": scene.id,
+                        "title": scene.title,
+                        "description": scene.description,
+                        "user_goal": scene.user_goal,
+                        "scene_order": scene.scene_order,
+                        "estimated_duration": scene.estimated_duration,
+                        "image_url": scene.image_url
+                    }
+                    for scene in scenes
+                ]
+            }
+            result.append(scenario_data)
+        
+        return result
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch scenarios: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch scenarios: {str(e)}")
 
 # --- USER AUTHENTICATION & MANAGEMENT ---
 @app.post("/users/register", response_model=UserResponse)

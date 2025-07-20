@@ -398,18 +398,28 @@ class SimulationStartResponse(BaseModel):
         from_attributes = True
 
 class SimulationChatRequest(BaseModel):
-    user_progress_id: int
-    scene_id: int
+    # Support both old and new formats
+    user_progress_id: Optional[int] = None
+    scenario_id: Optional[int] = None
+    user_id: Optional[int] = None
+    scene_id: Optional[int] = None
     message: str
     target_persona_id: Optional[int] = None  # Which persona to address
 
 class SimulationChatResponse(BaseModel):
-    message_id: int
-    persona_name: str
-    persona_response: str
-    message_order: int
-    processing_time: float
-    ai_model_version: str
+    # Support both formats - regular chat and linear simulation
+    message_id: Optional[int] = None
+    persona_name: Optional[str] = None
+    persona_response: Optional[str] = None
+    message_order: Optional[int] = None
+    processing_time: Optional[float] = None
+    ai_model_version: Optional[str] = None
+    
+    # Linear simulation format
+    message: Optional[str] = None
+    scene_id: Optional[int] = None
+    scene_completed: Optional[bool] = None
+    next_scene_id: Optional[int] = None
     
     class Config:
         from_attributes = True

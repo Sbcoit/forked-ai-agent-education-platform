@@ -167,13 +167,15 @@ class ScenarioFile(Base):
     id = Column(Integer, primary_key=True, index=True)
     scenario_id = Column(Integer, ForeignKey("scenarios.id"), nullable=False)
     
-    file_path = Column(String, nullable=False)
+    filename = Column(String, nullable=False)  # Add missing filename field
+    file_path = Column(String, nullable=True)  # Make nullable since we have filename
     file_size = Column(Integer, nullable=True)
-    file_type = Column(String, nullable=False)
+    file_type = Column(String, nullable=True)
     original_content = Column(Text, nullable=True)
     processed_content = Column(Text, nullable=True)
     processing_status = Column(String, default="pending")
     processing_log = Column(JSON, nullable=True)
+    llamaparse_job_id = Column(String, nullable=True)  # Add missing field from schema
     
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
     processed_at = Column(DateTime(timezone=True), nullable=True)

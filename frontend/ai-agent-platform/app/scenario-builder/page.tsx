@@ -9,9 +9,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Progress } from "@/components/ui/progress"
-import { Upload, Info, Users, Activity, Sparkles, X } from "lucide-react"
+import { Upload, Info, Users, Activity, Sparkles, X, Check } from "lucide-react"
 import Link from "next/link"
 import PersonaCard from "@/components/PersonaCard";
+import SceneCard from "@/components/SceneCard";
 
 
 // Simple Modal component
@@ -63,6 +64,196 @@ export default function ScenarioBuilder() {
  const [editingIdx, setEditingIdx] = useState<number | null>(null);
  const [tempPersonas, setTempPersonas] = useState<any[]>([]); // Track temporary personas that haven't been saved yet
 
+ // Timeline/Tasks state
+ const [tasks, setTasks] = useState<any[]>([]);
+ const [editingTaskIdx, setEditingTaskIdx] = useState<number | null>(null);
+ const [scenes, setScenes] = useState<any[]>([]);
+ const [editingSceneIdx, setEditingSceneIdx] = useState<number | null>(null);
+
+ // Save status state
+ const [isSaved, setIsSaved] = useState(false);
+ const [isPublished, setIsPublished] = useState(false);
+ const [isSaving, setIsSaving] = useState(false);
+ const [isPublishing, setIsPublishing] = useState(false);
+ const [savedScenarioId, setSavedScenarioId] = useState<number | null>(null);
+
+ // Save and Publish handlers
+ const handleSave = async () => {
+   if (!autofillResult) {
+     alert("No scenario data to save. Please upload and process a PDF first.");
+     return;
+   }
+
+   setIsSaving(true);
+   try {
+     const response = await fetch("http://localhost:8001/api/scenarios/save", {
+       method: "POST",
+       headers: {
+         "Content-Type": "application/json",
+       },
+       body: JSON.stringify(autofillResult),
+     });
+
+     if (response.ok) {
+       const result = await response.json();
+       setIsSaved(true);
+       setSavedScenarioId(result.scenario_id); // Store the scenario ID
+       console.log("Scenario saved:", result);
+       
+       // Reset save status after 3 seconds to show it's temporary
+       setTimeout(() => {
+         setIsSaved(false);
+       }, 3000);
+     } else {
+       console.error("Failed to save scenario");
+       alert("Failed to save scenario. Please try again.");
+     }
+   } catch (error) {
+     console.error("Error saving scenario:", error);
+     alert("Error saving scenario. Please try again.");
+   } finally {
+     setIsSaving(false);
+   }
+ };
+
+ const handlePublish = async () => {
+   if (!autofillResult) {
+     alert("No scenario data to publish. Please save the scenario first.");
+     return;
+   }
+
+   setIsPublishing(true);
+   try {
+     // First save if not already saved
+     if (!isSaved) {
+       await handleSave();
+     }
+     
+     // Then publish (placeholder for now)
+     console.log("Publishing scenario...");
+     setIsPublished(true);
+     
+     // Reset publish status after 3 seconds
+     setTimeout(() => {
+       setIsPublished(false);
+     }, 3000);
+   } catch (error) {
+     console.error("Error publishing scenario:", error);
+     alert("Error publishing scenario. Please try again.");
+   } finally {
+     setIsPublishing(false);
+   }
+ };
+
+ // Reset save status when content changes
+ const markAsUnsaved = () => {
+   setIsSaved(false);
+   setIsPublished(false);
+ };
+
+ // Handle Play Scenario - save first if needed, then navigate to chatbox
+ const handlePlayScenario = async () => {
+   if (!autofillResult) {
+     alert("No scenario data to play. Please upload and process a PDF first.");
+     return;
+   }
+
+   let scenarioId = savedScenarioId;
+   
+   // If not saved yet, save first
+   if (!scenarioId) {
+     try {
+       await handleSave();
+       scenarioId = savedScenarioId;
+     } catch (error) {
+       alert("Failed to save scenario before playing. Please try again.");
+       return;
+     }
+   }
+
+   if (!scenarioId) {
+     alert("Failed to get scenario ID. Please save the scenario first.");
+     return;
+   }
+
+   // Store scenario ID for chatbox
+   const chatboxData = {
+     scenario_id: scenarioId,
+     title: autofillResult.title || "Untitled Scenario"
+   };
+   
+   localStorage.setItem("chatboxScenario", JSON.stringify(chatboxData));
+   
+   // Navigate to chatbox
+   window.open("/chat-box", "_blank");
+ };
+
+ // Transform our scenario data to chatbox format
+ const transformTochatboxFormat = (scenarioData: any) => {
+   const characters = scenarioData.key_figures?.map((figure: any) => ({
+     name: figure.name,
+     role: figure.role,
+     personality_profile: {
+       strengths: [],
+       motivations: figure.primary_goals || [],
+       leadership_style: figure.background || "",
+       key_quote: `As ${figure.role}, I focus on achieving our objectives.`,
+       decision_making_approach: "Strategic and analytical",
+       risk_tolerance: "Medium",
+       communication_style: "Professional and direct",
+       background: figure.background || "",
+       correlation: figure.correlation || ""
+     }
+   })) || [];
+
+   const phases = scenarioData.scenes?.map((scene: any, index: number) => ({
+     phase: index + 1,
+     title: scene.title,
+     duration: `${scene.estimated_duration || 30} minutes`,
+     goal: scene.user_goal || "Complete the phase objectives",
+     activities: [scene.description || "Analyze the situation and make decisions"],
+     deliverables: [
+       "Analysis summary",
+       "Strategic recommendations",
+       "Decision rationale"
+     ]
+   })) || [
+     {
+       phase: 1,
+       title: "Initial Analysis",
+       duration: "30 minutes",
+       goal: "Analyze the business situation and identify key challenges",
+       activities: ["Review case study materials", "Identify stakeholders", "Assess current situation"],
+       deliverables: ["Situation analysis", "Stakeholder map", "Problem identification"]
+     }
+   ];
+
+   return {
+     case_study: {
+       title: scenarioData.title,
+       description: scenarioData.description,
+       industry: "Business",
+       primary_challenge: "Strategic decision making",
+       learning_outcomes: (scenarioData.learning_outcomes || []).map((outcome: string) => ({
+         outcome: outcome.replace(/^\d+\.\s*/, ''), // Remove numbering
+         description: `Students will ${outcome.toLowerCase()}`
+       })),
+       characters: characters,
+       simulation_timeline: {
+         total_duration: `${phases.length * 30} minutes`,
+         phases: phases
+       },
+       teaching_notes: {
+         preparation_required: "Students should review the case study materials thoroughly",
+         key_concepts: [
+           "Strategic analysis",
+           "Decision making", 
+           "Business problem solving"
+         ]
+       }
+     }
+   };
+ };
 
  // Placeholder handlers for personas and timeline
  const handleAddPersona = () => {
@@ -93,7 +284,19 @@ export default function ScenarioBuilder() {
    setTempPersonas(tempPersonas => [newPersona, ...tempPersonas]);
    setEditingIdx(0); // Open the new persona for editing (it's at index 0 now)
  }
- const handleAddScene = () => {}
+ const handleAddScene = () => {
+   const newScene = {
+     id: `scene-${Date.now()}`,
+     title: "New Scene",
+     description: "",
+     personas_involved: [],
+     user_goal: "",
+     sequence_order: scenes.length + 1,
+     image_url: ""
+   };
+   setScenes(scenes => [...scenes, newScene]);
+   setEditingSceneIdx(scenes.length); // Open the new scene for editing
+ }
 
 
  // Handler to clear the uploaded file and open the file picker
@@ -184,7 +387,7 @@ export default function ScenarioBuilder() {
      setAutofillStep("Sending files to backend...");
      setAutofillProgress(50);
      
-     const response = await fetch("http://127.0.0.1:8000/api/parse-pdf/", {
+     const response = await fetch("http://127.0.0.1:8001/api/parse-pdf/", {
        method: "POST",
        body: formData,
      });
@@ -329,6 +532,42 @@ export default function ScenarioBuilder() {
        } else {
          console.log("[DEBUG] No key_figures found in aiData, creating empty personas array");
          setPersonas([]);
+       }
+       
+       // Process scenes from AI results
+       console.log("[DEBUG] Checking for scenes in aiData:", aiData.scenes);
+       if (aiData.scenes && Array.isArray(aiData.scenes)) {
+         console.log("=== SCENES DEBUG ===");
+         console.log("Total scenes identified:", aiData.scenes.length);
+         console.log("All scenes:", aiData.scenes);
+         
+         const processedScenes = aiData.scenes
+           .sort((a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0)) // Sort by sequence order
+           .map((scene: any, index: number) => {
+             console.log(`[DEBUG] Processing scene ${index + 1}:`, scene);
+             return {
+               id: `scene-${Date.now()}-${index}`,
+               title: scene.title || `Scene ${index + 1}`,
+               description: scene.description || '',
+               personas_involved: scene.personas_involved || [],
+               user_goal: scene.user_goal || '',
+               sequence_order: scene.sequence_order || index + 1,
+               image_url: scene.image_url || ''
+             };
+           });
+         
+         console.log("=== FINAL SCENES ===");
+         console.log(`Total scenes created: ${processedScenes.length}`);
+         processedScenes.forEach((scene: any, index: number) => {
+           console.log(`Scene ${index + 1}: ${scene.title}`);
+           console.log(`  Goal: ${scene.user_goal}`);
+           console.log(`  Personas: ${scene.personas_involved.join(', ')}`);
+           console.log(`  Image: ${scene.image_url ? 'Generated' : 'None'}`);
+         });
+         setScenes(processedScenes);
+       } else {
+         console.log("[DEBUG] No scenes found in aiData, creating empty scenes array");
+         setScenes([]);
        }
       
      } else {
@@ -547,6 +786,17 @@ export default function ScenarioBuilder() {
    setEditingIdx(null);
  };
 
+ // Scene management handlers
+ const handleSaveScene = (idx: number, updatedScene: any) => {
+   setScenes(scenes => scenes.map((s, i) => i === idx ? { ...updatedScene } : s));
+   setEditingSceneIdx(null);
+ };
+
+ const handleDeleteScene = (idx: number) => {
+   setScenes(scenes => scenes.filter((_, i) => i !== idx));
+   setEditingSceneIdx(null);
+ };
+
 
 
 
@@ -568,8 +818,55 @@ export default function ScenarioBuilder() {
      <div className="fixed top-0 left-0 w-full z-40 bg-background shadow-lg flex items-center justify-between h-14 px-8">
        <span className="text-lg font-semibold">Simulation Builder</span>
        <div className="flex gap-4">
-         <button className="bg-white text-black rounded px-4 py-2 font-medium shadow hover:bg-gray-200 transition">Save</button>
-         <button className="bg-black text-white rounded px-4 py-2 font-medium shadow hover:bg-gray-800 transition">Publish</button>
+         <button 
+           onClick={handleSave}
+           disabled={isSaving}
+           className={`rounded px-4 py-2 font-medium shadow transition flex items-center gap-2 ${
+             isSaved 
+               ? "bg-green-100 text-green-800 border border-green-300" 
+               : "bg-white text-black hover:bg-gray-200"
+           } ${isSaving ? "opacity-50 cursor-not-allowed" : ""}`}
+         >
+           {isSaving ? (
+             "Saving..."
+           ) : isSaved ? (
+             <>
+               <Check className="h-4 w-4" />
+               Saved
+             </>
+           ) : (
+             "Save"
+           )}
+         </button>
+         <button 
+           onClick={handlePublish}
+           disabled={isPublishing}
+           className={`rounded px-4 py-2 font-medium shadow transition flex items-center gap-2 ${
+             isPublished 
+               ? "bg-green-600 text-white" 
+               : "bg-black text-white hover:bg-gray-800"
+           } ${isPublishing ? "opacity-50 cursor-not-allowed" : ""}`}
+         >
+           {isPublishing ? (
+             "Publishing..."
+           ) : isPublished ? (
+             <>
+               <Check className="h-4 w-4" />
+               Published
+             </>
+           ) : (
+             "Publish"
+           )}
+         </button>
+         {autofillResult && (
+           <button 
+             onClick={handlePlayScenario}
+             className="bg-blue-600 text-white rounded px-4 py-2 font-medium shadow hover:bg-blue-700 transition flex items-center gap-2"
+           >
+             <Activity className="h-4 w-4" />
+             Play Scenario
+           </button>
+         )}
        </div>
      </div>
      {/* Add top padding to prevent content from being hidden under the bar */}
@@ -708,14 +1005,20 @@ export default function ScenarioBuilder() {
                <div className="space-y-5 pt-4 w-full mx-auto overflow-visible">
                  <div className="overflow-visible focus-within:overflow-visible">
                    <Label htmlFor="name">Name</Label>
-                   <Input id="name" value={name} onChange={e => setName(e.target.value)} className="mt-1 w-full box-border p-2" />
+                   <Input id="name" value={name} onChange={e => {
+                  setName(e.target.value);
+                  markAsUnsaved();
+                }} className="mt-1 w-full box-border p-2" />
                  </div>
                  <div className="overflow-visible focus-within:overflow-visible rounded-none">
                    <Label htmlFor="description">Description/Background</Label>
                    <Textarea
                      id="description"
                      value={description}
-                     onChange={e => setDescription(e.target.value)}
+                     onChange={e => {
+                       setDescription(e.target.value);
+                       markAsUnsaved();
+                     }}
                      className="mt-1 w-full overflow-visible rounded-none z-10 p-2 min-h-[200px] resize-y"
                      style={{ minHeight: '200px', maxHeight: '400px' }}
                    />
@@ -725,7 +1028,10 @@ export default function ScenarioBuilder() {
                    <Textarea
                      id="learning-outcomes"
                      value={learningOutcomes}
-                     onChange={e => setLearningOutcomes(e.target.value)}
+                     onChange={e => {
+                       setLearningOutcomes(e.target.value);
+                       markAsUnsaved();
+                     }}
                      className="mt-1 w-full box-border p-2 min-h-[200px] resize-y"
                      style={{ minHeight: '200px', maxHeight: '400px' }}
                    />
@@ -829,6 +1135,27 @@ export default function ScenarioBuilder() {
                  <p className="text-muted-foreground text-sm mb-6">Think of each segment as a self-contained mini-level in your simulation. Arrange them from top to bottom, this will be the sequence each scene will take place in.</p>
                  <div className="flex flex-col items-center">
                    <Button onClick={handleAddScene} variant="outline" className="w-60">Add new Scene</Button>
+                   
+                   {/* Render scene cards */}
+                   {scenes.length > 0 && (
+                     <div className="w-full flex flex-col items-center mt-6">
+                       {scenes
+                         .sort((a, b) => a.sequence_order - b.sequence_order)
+                         .map((scene: any, idx: number) => (
+                         <div key={scene.id} className="relative w-full">
+                           <div onClick={() => setEditingSceneIdx(idx)} style={{ cursor: 'pointer' }}>
+                             <SceneCard
+                               scene={scene}
+                               onSave={updatedScene => handleSaveScene(idx, updatedScene)}
+                               onDelete={() => handleDeleteScene(idx)}
+                               editMode={false}
+                               allPersonas={[...personas, ...tempPersonas]}
+                             />
+                           </div>
+                         </div>
+                       ))}
+                     </div>
+                   )}
                  </div>
                </div>
              </AccordionContent>
@@ -849,6 +1176,19 @@ export default function ScenarioBuilder() {
            onSave={updatedPersona => handleSavePersona(editingIdx, updatedPersona)}
            onDelete={() => handleDeletePersona(editingIdx)}
            editMode={true}
+         />
+       </Modal>
+     )}
+     
+     {/* Modal for editing scene */}
+     {editingSceneIdx !== null && (
+       <Modal isOpen={true} onClose={() => setEditingSceneIdx(null)}>
+         <SceneCard
+           scene={scenes[editingSceneIdx]}
+           onSave={updatedScene => handleSaveScene(editingSceneIdx, updatedScene)}
+           onDelete={() => handleDeleteScene(editingSceneIdx)}
+           editMode={true}
+           allPersonas={[...personas, ...tempPersonas]}
          />
        </Modal>
      )}

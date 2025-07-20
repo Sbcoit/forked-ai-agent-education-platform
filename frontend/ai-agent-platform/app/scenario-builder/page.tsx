@@ -102,42 +102,13 @@ export default function ScenarioBuilder() {
 
  // Placeholder handlers for personas and timeline
  const handleAddPersona = () => {
-    const newPersona = {
-      id: `persona-${Date.now()}`,
-      name: "New Persona",
-      position: "Role",
-      description: "Description of this persona's background and role in the simulation.",
-      primaryGoals: "Goals not specified in the case study.",
-      traits: {
-        assertiveness: 3,
-        cooperativeness: 3,
-        openness: 3,
-        risk_tolerance: 3,
-        emotional_stability: 3
-      },
-      defaultTraits: {
-        assertiveness: 3,
-        cooperativeness: 3,
-        openness: 3,
-        risk_tolerance: 3,
-        emotional_stability: 3
-      }
-    };
-    setTempPersonas(prev => [...prev, newPersona]);
-    setEditingIdx(tempPersonas.length); // Edit the new persona immediately
+    // Just open the modal for editing a new persona
+    setEditingIdx(-1); // Use -1 to indicate this is a new persona
   };
 
   const handleAddTimelineEvent = () => {
-    const newEvent: TimelineEvent = {
-      id: `event-${Date.now()}`,
-      title: "",
-      goal: "",
-      sceneDescription: "",
-      successMetric: "",
-      timeoutTurns: 15
-    };
-    setTempTimelineEvents(prev => [...prev, newEvent]);
-    setEditingTimelineIdx(tempTimelineEvents.length); // Edit the new event immediately
+    // Just open the modal for editing a new event
+    setEditingTimelineIdx(-1); // Use -1 to indicate this is a new event
   };
 
 
@@ -1111,27 +1082,111 @@ export default function ScenarioBuilder() {
      {editingIdx !== null && (
        <PersonaModal isOpen={true} onClose={() => setEditingIdx(null)}>
          <PersonaCard
-           persona={{ 
-             ...(editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]), 
-             traits: (editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]).traits 
+           persona={editingIdx === -1 
+             ? {
+                 id: `persona-${Date.now()}`,
+                 name: "New Persona",
+                 position: "Role",
+                 description: "Description of this persona's background and role in the simulation.",
+                 primaryGoals: "Goals not specified in the case study.",
+                 traits: {
+                   assertiveness: 3,
+                   cooperativeness: 3,
+                   openness: 3,
+                   risk_tolerance: 3,
+                   emotional_stability: 3
+                 },
+                 defaultTraits: {
+                   assertiveness: 3,
+                   cooperativeness: 3,
+                   openness: 3,
+                   risk_tolerance: 3,
+                   emotional_stability: 3
+                 }
+               }
+             : { 
+                 ...(editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]), 
+                 traits: (editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]).traits 
+               }
+           }
+           defaultTraits={editingIdx === -1 
+             ? {
+                 assertiveness: 3,
+                 cooperativeness: 3,
+                 openness: 3,
+                 risk_tolerance: 3,
+                 emotional_stability: 3
+               }
+             : (editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]).defaultTraits
+           }
+           onTraitsChange={newTraits => {
+             if (editingIdx !== -1) {
+               handleTraitsChange(editingIdx, newTraits);
+             }
            }}
-           defaultTraits={(editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]).defaultTraits}
-           onTraitsChange={newTraits => handleTraitsChange(editingIdx, newTraits)}
-           onSave={updatedPersona => handleSavePersona(editingIdx, updatedPersona)}
-           onDelete={() => handleDeletePersona(editingIdx)}
+           onSave={updatedPersona => {
+             console.log("[DEBUG] PersonaModal onSave called with:", updatedPersona);
+             console.log("[DEBUG] editingIdx:", editingIdx);
+             if (editingIdx === -1) {
+               // This is a new persona - add it to the array
+               console.log("[DEBUG] Adding new persona to tempPersonas");
+               setTempPersonas(prev => [...prev, updatedPersona]);
+             } else {
+               // This is an existing persona - update it
+               console.log("[DEBUG] Updating existing persona");
+               handleSavePersona(editingIdx, updatedPersona);
+             }
+             setEditingIdx(null);
+           }}
+           onDelete={() => {
+             if (editingIdx !== -1) {
+               handleDeletePersona(editingIdx);
+             }
+             setEditingIdx(null);
+           }}
            editMode={true}
          />
        </PersonaModal>
      )}
      {editingTimelineIdx !== null && (
-       <TimelineModal isOpen={true} onClose={() => setEditingTimelineIdx(null)}>
+       <TimelineModal isOpen={true} onClose={() => {
+         console.log("[DEBUG] TimelineModal onClose called");
+         setEditingTimelineIdx(null);
+       }}>
          <TimelineCard
-           event={editingTimelineIdx < tempTimelineEvents.length 
-             ? tempTimelineEvents[editingTimelineIdx]
-             : timelineEvents[editingTimelineIdx - tempTimelineEvents.length]
+           event={editingTimelineIdx === -1 
+             ? {
+                 id: `event-${Date.now()}`,
+                 title: "",
+                 goal: "",
+                 sceneDescription: "",
+                 successMetric: "",
+                 timeoutTurns: 15
+               }
+             : editingTimelineIdx < tempTimelineEvents.length 
+               ? tempTimelineEvents[editingTimelineIdx]
+               : timelineEvents[editingTimelineIdx - tempTimelineEvents.length]
            }
-           onSave={updatedEvent => handleSaveTimelineEvent(editingTimelineIdx, updatedEvent)}
-           onDelete={() => handleDeleteTimelineEvent(editingTimelineIdx)}
+           onSave={updatedEvent => {
+             console.log("[DEBUG] TimelineCard onSave called with:", updatedEvent);
+             console.log("[DEBUG] editingTimelineIdx:", editingTimelineIdx);
+             if (editingTimelineIdx === -1) {
+               // This is a new event - add it to the array
+               console.log("[DEBUG] Adding new event to tempTimelineEvents");
+               setTempTimelineEvents(prev => [...prev, updatedEvent]);
+             } else {
+               // This is an existing event - update it
+               console.log("[DEBUG] Updating existing event");
+               handleSaveTimelineEvent(editingTimelineIdx, updatedEvent);
+             }
+             setEditingTimelineIdx(null);
+           }}
+           onDelete={() => {
+             if (editingTimelineIdx !== -1) {
+               handleDeleteTimelineEvent(editingTimelineIdx);
+             }
+             setEditingTimelineIdx(null);
+           }}
            editMode={true}
          />
        </TimelineModal>

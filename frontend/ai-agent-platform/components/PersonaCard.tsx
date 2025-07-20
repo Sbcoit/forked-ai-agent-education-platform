@@ -121,7 +121,16 @@ export default function PersonaCard({
   };
 
   const handleSave = () => {
+    console.log("[DEBUG] PersonaCard handleSave called");
     if (onSave) {
+      console.log("[DEBUG] PersonaCard calling onSave with:", {
+        ...persona,
+        name: editFields.name,
+        position: editFields.position,
+        description: editFields.description,
+        primaryGoals: editFields.primaryGoals,
+        traits: { ...editFields.traits },
+      });
       onSave({
         ...persona,
         name: editFields.name,

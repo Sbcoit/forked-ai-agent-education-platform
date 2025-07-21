@@ -708,6 +708,17 @@ async def process_with_ai(parsed_content: str, context_text: str = "") -> dict:
         preprocessed = preprocess_case_study_content(parsed_content)
         title = preprocessed["title"]
         cleaned_content = preprocessed["cleaned_content"]
+        # Truncate context_text and main_markdown if too long
+        MAX_CONTEXT_CHARS = 5000
+        MAX_MAIN_CHARS = 5000
+        context_truncated = False
+        main_truncated = False
+        if context_text and len(context_text) > MAX_CONTEXT_CHARS:
+            context_text = context_text[:MAX_CONTEXT_CHARS] + "\n[TRUNCATED]\n"
+            context_truncated = True
+        if parsed_content and len(parsed_content) > MAX_MAIN_CHARS:
+            parsed_content = parsed_content[:MAX_MAIN_CHARS] + "\n[TRUNCATED]\n"
+            main_truncated = True
         # Prepend context files' content as most important
         if context_text.strip():
             combined_content = f"""
@@ -778,7 +789,7 @@ Your task is to analyze the following business case study content and return a J
       "scene_title": "<Short, clear title for this scene (e.g., 'Executive Team Faces Budget Cuts')>",
       "goal": "<What the characters or learners are trying to accomplish in this scene. Reference or support one or more of the main learning outcomes in the way this goal is written, but do not list them explicitly.>",
       "core_challenge": "<The main business dilemma, conflict, or tradeoff happening in this scene. Reference or support the learning outcomes in the narrative, but do not list them explicitly.>",
-      "scene_description": "<A multi-paragraph (1-2) narrative summary of what happens in this scene, including people, setting, and decisions. The description must always center the narrative around the student role (the figure/position/role the student is playing as), making them the main decision-maker or central figure in the scene. Write this description in a way that supports or is inspired by the main learning outcomes, and narratively reference the personas involved in this scene. Ensure the description is grounded in the content of the case study and any additional context files provided.>",
+      "scene_description": "<A multi-paragraph (1-2) narrative summary of what happens in this scene, including people, setting, and decisions. Write the scene_description in the second person, immersing the reader in the role of the central figure. Do not mention ‘the student’ or ‘the player’; instead, describe actions and decisions as if the reader is the protagonist. The description must always center the narrative around the student role (the figure/position/role the student is playing as), making them the main decision-maker or central figure in the scene. Write this description in a way that supports or is inspired by the main learning outcomes, and narratively reference the personas involved in this scene. Ensure the description is grounded in the content of the case study and any additional context files provided.>",
       "success_metric": "<A clear, measurable way to determine if the goal of the scene was achieved. Write this in a way that reflects the learning outcomes, but do not list them explicitly.>",
       "personas_involved": [
         "<Persona Name 1>",

@@ -885,6 +885,14 @@ export default function ScenarioBuilder() {
              </div>
            </div>
          )}
+         {autofillResult && autofillResult.ai_result && autofillResult.ai_result.truncation_warning && (
+           <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+             <div className="flex items-center">
+               <span className="text-yellow-600 font-medium">Warning:</span>
+               <span className="text-yellow-600 ml-2">{autofillResult.ai_result.truncation_warning}</span>
+             </div>
+           </div>
+         )}
        </div>
 
 

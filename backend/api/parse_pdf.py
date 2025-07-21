@@ -738,8 +738,7 @@ Instructions for key_figures identification:
 - Include both named and unnamed entities that are part of the business story - do not prioritize one over the other
 - Even if someone/thing is mentioned only once or briefly, include them if they have a discernible role in the narrative
 - Do not skip anyone/anything based on perceived importance - include ALL relevant figures and entities from the story
-- EXCLUDE authors, researchers, case study creators, or other people who are not characters in the business narrative
-- CRITICAL: The student will be playing the role identified in "student_role" - DO NOT include that person/role in the key_figures array
+- CRITICAL: Do NOT include the student, the player, or the role/position the student is playing (as specified in "student_role") in the key_figures array. Only include non-player characters (NPCs) and entities from the business narrative. The player/student role must be excluded even if mentioned by name or title in the content.
 
 Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
 
@@ -779,7 +778,7 @@ Your task is to analyze the following business case study content and return a J
       "scene_title": "<Short, clear title for this scene (e.g., 'Executive Team Faces Budget Cuts')>",
       "goal": "<What the characters or learners are trying to accomplish in this scene. Reference or support one or more of the main learning outcomes in the way this goal is written, but do not list them explicitly.>",
       "core_challenge": "<The main business dilemma, conflict, or tradeoff happening in this scene. Reference or support the learning outcomes in the narrative, but do not list them explicitly.>",
-      "scene_description": "<A short narrative summary of what happens in this scene, including people, setting, and decisions. Write this description in a way that supports or is inspired by the main learning outcomes, and narratively reference the personas involved in this scene.>",
+      "scene_description": "<A multi-paragraph (1-2) narrative summary of what happens in this scene, including people, setting, and decisions. The description must always center the narrative around the student role (the figure/position/role the student is playing as), making them the main decision-maker or central figure in the scene. Write this description in a way that supports or is inspired by the main learning outcomes, and narratively reference the personas involved in this scene. Ensure the description is grounded in the content of the case study and any additional context files provided.>",
       "success_metric": "<A clear, measurable way to determine if the goal of the scene was achieved. Write this in a way that reflects the learning outcomes, but do not list them explicitly.>",
       "personas_involved": [
         "<Persona Name 1>",

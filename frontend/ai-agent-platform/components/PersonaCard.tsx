@@ -1,24 +1,20 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
-interface Persona {
+export interface Persona {
+  id: string;
   name: string;
   position: string;
   description: string;
-  primaryGoals?: string;
-  traits: {
-    assertiveness: number;
-    cooperativeness: number;
-    openness: number;
-    risk_tolerance: number;
-    emotional_stability: number;
-  };
-  defaultTraits?: Persona["traits"];
-  imageUrl?: string;
+  primaryGoals: string;
+  traits: any;
+  defaultTraits?: any;
+  imageFile?: File | null;
+  imagePreviewUrl?: string | null;
 }
 
 const traitLabels = [
@@ -47,13 +43,27 @@ export default function PersonaCard({
   editMode = false 
 }: PersonaCardProps) {
   const [traits, setTraits] = useState({ ...persona.traits });
-  const [editFields, setEditFields] = useState({
+  // Update the type for editFields to include imageFile and imagePreviewUrl
+  const [editFields, setEditFields] = useState<{
+    name: string;
+    position: string;
+    description: string;
+    primaryGoals: string;
+    traits: any;
+    imageFile?: File | null;
+    imagePreviewUrl?: string | null;
+  }>({
     name: persona.name,
     position: persona.position,
     description: persona.description,
     primaryGoals: persona.primaryGoals,
-    traits: { ...persona.traits }
+    traits: { ...persona.traits },
+    imageFile: persona.imageFile ?? null,
+    imagePreviewUrl: persona.imagePreviewUrl ?? null,
   });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(persona.imagePreviewUrl || null);
 
   // Sync local traits state with props when persona.traits or defaultTraits change
   useEffect(() => {
@@ -65,6 +75,10 @@ export default function PersonaCard({
   useEffect(() => {
     if (!editMode) setTraits({ ...persona.traits });
   }, [persona.traits, editMode]);
+
+  useEffect(() => {
+    setImagePreviewUrl(persona.imagePreviewUrl || null);
+  }, [persona.imagePreviewUrl]);
 
   const handleSliderChange = (key: keyof typeof traits, value: number[]) => {
     if (editMode) {
@@ -123,14 +137,6 @@ export default function PersonaCard({
   const handleSave = () => {
     console.log("[DEBUG] PersonaCard handleSave called");
     if (onSave) {
-      console.log("[DEBUG] PersonaCard calling onSave with:", {
-        ...persona,
-        name: editFields.name,
-        position: editFields.position,
-        description: editFields.description,
-        primaryGoals: editFields.primaryGoals,
-        traits: { ...editFields.traits },
-      });
       onSave({
         ...persona,
         name: editFields.name,
@@ -138,6 +144,8 @@ export default function PersonaCard({
         description: editFields.description,
         primaryGoals: editFields.primaryGoals,
         traits: { ...editFields.traits },
+        imageFile: editFields.imageFile,
+        imagePreviewUrl: imagePreviewUrl || editFields.imagePreviewUrl,
       });
     }
     // setEditMode(false); // This is now handled by the parent
@@ -145,6 +153,30 @@ export default function PersonaCard({
 
   const handleDelete = () => {
     if (onDelete) onDelete();
+  };
+
+  const handleImageClick = () => {
+    if (editMode && fileInputRef.current) fileInputRef.current.click();
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && (file.type.startsWith("image/png") || file.type.startsWith("image/jpeg"))) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreviewUrl(reader.result as string);
+        // Only update local state, do not call onSave here
+        setEditFields(fields => ({ ...fields, imageFile: file, imagePreviewUrl: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveImage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setImagePreviewUrl(null);
+    setEditFields(fields => ({ ...fields, imageFile: undefined, imagePreviewUrl: undefined }));
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   // Display mode
@@ -157,14 +189,49 @@ export default function PersonaCard({
       >
         {/* Left: Avatar and Info */}
         <div className="flex flex-col items-center justify-center w-32 mr-4">
-          <div className="w-16 h-16 rounded-full bg-gray-200 overflow-hidden flex items-center justify-center mb-1">
-            {persona.imageUrl ? (
-              <img src={persona.imageUrl} alt={persona.name} className="object-cover w-full h-full" />
+          <div
+            className="w-24 h-24 flex items-center justify-center rounded-lg border bg-gray-100 relative cursor-pointer group"
+            onClick={handleImageClick}
+            title={editMode ? "Click to upload image" : undefined}
+          >
+            {imagePreviewUrl ? (
+              <>
+                <img
+                  src={imagePreviewUrl}
+                  alt="Persona"
+                  className="object-cover w-full h-full rounded-lg"
+                />
+                {editMode && (
+                  <button
+                    type="button"
+                    className="absolute top-1 right-1 bg-white bg-opacity-80 rounded-full p-1 text-gray-700 hover:text-red-600 shadow"
+                    onClick={handleRemoveImage}
+                    title="Remove image"
+                  >
+                    &times;
+                  </button>
+                )}
+              </>
             ) : (
-              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <circle cx="12" cy="8" r="4" />
-                <path d="M6 20c0-2.2 3-4 6-4s6 1.8 6 4" />
-              </svg>
+              <>
+                {/* Default icon here (e.g., user icon SVG) */}
+                <svg className="w-16 h-16 text-gray-400 block mx-auto my-auto" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M6 20c0-2.21 3.58-4 8-4s8 1.79 8 4" />
+                </svg>
+                {editMode && (
+                  <span className="absolute bottom-1 left-1 text-xs text-gray-500 bg-white bg-opacity-80 rounded px-1 py-0.5 hidden group-hover:block">Upload</span>
+                )}
+              </>
+            )}
+            {editMode && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg"
+                className="hidden"
+                onChange={handleImageChange}
+              />
             )}
           </div>
         </div>
@@ -224,14 +291,49 @@ export default function PersonaCard({
       {/* Left Column */}
       <div className="flex flex-col space-y-6">
         <div className="flex items-center space-x-4">
-          <div className="w-24 h-24 rounded-lg bg-gray-200 overflow-hidden flex items-center justify-center">
-            {persona.imageUrl ? (
-              <img src={persona.imageUrl} alt={editFields.name} className="object-cover w-full h-full" />
+          <div
+            className="w-24 h-24 flex items-center justify-center rounded-lg border bg-gray-100 relative cursor-pointer group"
+            onClick={handleImageClick}
+            title={editMode ? "Click to upload image" : undefined}
+          >
+            {imagePreviewUrl ? (
+              <>
+                <img
+                  src={imagePreviewUrl}
+                  alt="Persona"
+                  className="object-cover w-full h-full rounded-lg"
+                />
+                {editMode && (
+                  <button
+                    type="button"
+                    className="absolute top-1 right-1 bg-white bg-opacity-80 rounded-full p-1 text-gray-700 hover:text-red-600 shadow"
+                    onClick={handleRemoveImage}
+                    title="Remove image"
+                  >
+                    &times;
+                  </button>
+                )}
+              </>
             ) : (
-              <svg className="w-12 h-12 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <circle cx="12" cy="8" r="4" />
-                <path d="M6 20c0-2.2 3-4 6-4s6 1.8 6 4" />
-              </svg>
+              <>
+                {/* Default icon here (e.g., user icon SVG) */}
+                <svg className="w-16 h-16 text-gray-400 block mx-auto my-auto" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M6 20c0-2.21 3.58-4 8-4s8 1.79 8 4" />
+                </svg>
+                {editMode && (
+                  <span className="absolute bottom-1 left-1 text-xs text-gray-500 bg-white bg-opacity-80 rounded px-1 py-0.5 hidden group-hover:block">Upload</span>
+                )}
+              </>
+            )}
+            {editMode && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg"
+                className="hidden"
+                onChange={handleImageChange}
+              />
             )}
           </div>
           <div className="flex-1">

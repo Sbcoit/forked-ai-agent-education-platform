@@ -2,13 +2,15 @@ import os
 import asyncio
 import json
 import re
-from fastapi import APIRouter, UploadFile, File, HTTPException, Request
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 import httpx
 from dotenv import load_dotenv
 import openai
 from typing import List
 from PyPDF2 import PdfReader
 import time
+from database.connection import get_db
+from sqlalchemy.orm import Session
 
 # Explicitly load the .env file from the backend directory (parent of api)
 backend_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../.env'))
@@ -166,7 +168,13 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
         raise HTTPException(status_code=500, detail=f"Failed to parse {file.filename}: {str(e)}")
 
 @router.post("/api/parse-pdf/")
-async def parse_pdf(file: UploadFile = File(...), context_files: List[UploadFile] = File(default=[])):
+async def parse_pdf(
+    file: UploadFile = File(...),
+    context_files: List[UploadFile] = File(default=[]),
+    save_to_db: bool = False,  # Restored parameter
+    user_id: int = 1,  # TODO: Get from authentication
+    db: Session = Depends(get_db)
+):
     print("[DEBUG] /api/parse-pdf/ endpoint hit")
     if not LLAMAPARSE_API_KEY:
         raise HTTPException(status_code=500, detail="LlamaParse API key not configured.")
@@ -219,7 +227,22 @@ async def parse_pdf(file: UploadFile = File(...), context_files: List[UploadFile
         print("[DEBUG] Calling process_with_ai...")
         ai_result = await process_with_ai(main_markdown, context_text)
         print("[DEBUG] AI processing completed successfully")
-        return {"status": "completed", "ai_result": ai_result}
+
+        # Save to database if requested
+        scenario_id = None
+        if save_to_db:
+            print("[DEBUG] Saving AI results to database...")
+            scenario_id = await save_scenario_to_db(
+                ai_result, file, context_files, main_markdown, context_text, user_id, db
+            )
+            print(f"[DEBUG] Scenario saved with ID: {scenario_id}")
+
+        # Return the new structure with scene_cards
+        return {
+            "status": "completed",
+            "ai_result": ai_result,
+            "scenario_id": scenario_id
+        }
             
     except Exception as e:
         print(f"[ERROR] Exception in parse_pdf endpoint: {str(e)}")
@@ -696,6 +719,7 @@ CASE STUDY CONTENT (main PDF):
 """
         else:
             combined_content = cleaned_content
+        # --- BEGIN: NEW PROMPT FOR SCENE CARDS AND PERSONAS (scene fields reference learning outcomes, personas_involved added) ---
         prompt = f"""
 You are a highly structured JSON-only generator trained to analyze business case studies for college business education.
 
@@ -721,7 +745,7 @@ Your task is to analyze the following business case study content and return a J
 
 {{
   "title": "<The exact title of the business case study>",
-  "description": "<A minimum 300-word, 3-paragraph detailed background including: 1) business context and situation, 2) main challenges or decisions, 3) explicit statement that the student will be assuming the role of the primary decision-maker or central figure in the case study, and 4) explicit reference to the key figures and their roles/correlations as part of the narrative>",
+  "description": "<A highly comprehensive, multi-paragraph, and in-depth background that includes: 1) the business context, history, and market environment, 2) the main challenges, decisions, and their implications, 3) an explicit and prominent statement that the student will be tackling the case study as the primary decision-maker or central figure (include their name/title if available), 4) clear references to the key figures, their roles, and their relationships to the student’s role, and 5) a synthesis of deeper context, connections, and business analysis inferred from the case study. The description should be analytical, engaging, and written in a professional tone suitable for business education.>",
   "student_role": "<The specific role or position the student will assume in this case study. This should be the primary decision-maker or central figure in the case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', 'Founder', etc.). This person/role will NOT be included in key_figures since the student will be playing this role.>",
   "key_figures": [
     {{
@@ -749,56 +773,49 @@ Your task is to analyze the following business case study content and return a J
     "3. <Outcome 3>",
     "4. <Outcome 4>",
     "5. <Outcome 5>"
+  ],
+  "scene_cards": [
+    {{
+      "scene_title": "<Short, clear title for this scene (e.g., 'Executive Team Faces Budget Cuts')>",
+      "goal": "<What the characters or learners are trying to accomplish in this scene. Reference or support one or more of the main learning outcomes in the way this goal is written, but do not list them explicitly.>",
+      "core_challenge": "<The main business dilemma, conflict, or tradeoff happening in this scene. Reference or support the learning outcomes in the narrative, but do not list them explicitly.>",
+      "scene_description": "<A short narrative summary of what happens in this scene, including people, setting, and decisions. Write this description in a way that supports or is inspired by the main learning outcomes, and narratively reference the personas involved in this scene.>",
+      "success_metric": "<A clear, measurable way to determine if the goal of the scene was achieved. Write this in a way that reflects the learning outcomes, but do not list them explicitly.>",
+      "personas_involved": [
+        "<Persona Name 1>",
+        "<Persona Name 2>"
+      ]
+    }}
   ]
 }}
 
+Scene Card generation instructions:
+- Break the case into 4–6 important scenes.
+- Each scene_card MUST be unique: do not repeat or duplicate scene_title, goal, core_challenge, scene_description, success_metric, or personas_involved across different scenes. Each scene must cover a different part of the narrative or a different business challenge/decision.
+- If the case study content is limited, synthesize plausible but non-repetitive scenes based on the available information, but do not copy or repeat any field between scenes.
+- Each scene should align to one of the following simplified stages of business case analysis:
+  * Context & Setup
+  * Analysis & Challenges
+  * Decisions & Tradeoffs
+  * Actions & Outcomes
+- For each scene_card, ensure the goal, core_challenge, scene_description, and success_metric are written in a way that references or supports the main learning outcomes, but do not embed or list the learning outcomes directly in the scene_card fields.
+- The scene_title must NOT include stage names, numbers, or generic labels (such as “Context & Setup”, “Analysis & Challenges”, “Decisions & Tradeoffs”, “Actions & Outcomes”, or similar). The title should be a concise, descriptive summary of the scene’s unique content only.
+- For each scene_card, include a personas_involved field listing the names of personas (from the key_figures array) who are actively participating in or relevant to the scene. The scene_description and goal should narratively reference these personas.
+- Do not invent facts; only use what is in the case study content.
+- Each scene_card object must include exactly those 6 fields listed above. 
+- Success metric must be measurable (not vague like “learn something”).
+
 Important generation rules:
 - Output ONLY a valid JSON object. Do not include any extra commentary, markdown, or formatting.
-- The "description" must be at least 300 words, written in textbook-quality paragraphs, and must explicitly reference the key figures and their roles/correlations as part of the narrative. The description MUST include an explicit statement that the student will be assuming the role of the primary decision-maker or central figure in the case study. Do not summarize.
-- The "student_role" field should clearly identify the position the student will assume in the case study.
-- The "key_figures" array must list **EVERY SINGLE important figure, entity, group, or organization** mentioned in the case study that is essential to understanding and progressing the narrative. This includes:
-  * ALL named individuals (e.g., "John Smith", "Mary Johnson", "The CEO", "The Manager")
-  * ALL unnamed but important figures (e.g., "The CEO", "The Marketing Director", "The Founder", "The Manager")
-  * ALL entities and groups (e.g., "The Board of Directors", "Competitors", "Customers", "Suppliers", "Distributors")
-  * ALL organizations mentioned (e.g., "The Company", "Competitors", "Regulatory Bodies", "Government Agencies")
-  * ALL stakeholders (e.g., "Shareholders", "Employees", "Partners", "Vendors")
-  * ANY person or entity that influences the narrative or decision-making process
-- You MUST be extremely thorough and comprehensive. If you're unsure whether someone is important, INCLUDE them. It's better to have too many key figures than to miss important ones.
-- Look for EVERY mention of people, companies, groups, or entities in the text and evaluate their importance to the case study narrative.
-- For personality_traits, you MUST assign specific numerical values from 0-10 based on the case study content. Do NOT use 0 for all traits. Consider:
-  * analytical: How data-driven and logical is this person/entity?
-  * creative: How innovative and out-of-the-box thinking do they show?
-  * assertive: How direct and forceful are they in their approach?
-  * collaborative: How much do they work with others vs. independently?
-  * detail_oriented: How focused are they on specifics vs. big picture?
-- If you cannot determine a specific trait, use 5 as a neutral default, NOT 0.
-- All five "learning_outcomes" must be unique, specific, measurable, and each MUST be numbered (e.g., '1. ...', '2. ...', etc.). If the outcomes are not numbered, your answer will be rejected.
-- If any additional files or context are provided, treat them as the most important and authoritative sources. Prioritize information from these files when generating the description, key figures, and learning outcomes.
-
-CRITICAL: Before finalizing your response, double-check that you have identified EVERY person, organization, group, or entity mentioned in the case study content. Your key_figures array should be comprehensive and include ALL stakeholders, decision-makers, influencers, and important entities mentioned in the text.
-
-FINAL CHECK: Scan the entire case study content one more time and ensure you have not missed any:
-- Named individuals (even if mentioned only once)
-- Companies, organizations, or institutions
-- Unnamed but important roles or positions (e.g., "The CEO", "The Manager")
-- Groups, committees, or boards
-- External stakeholders, competitors, or partners
-- Customers, suppliers, distributors, or other business partners
-- Government agencies, regulatory bodies, or industry groups
-- Any entity that could influence the narrative or decision-making process
-- Both prominent and background figures/entities
-
-If you find any additional figures or entities, add them to the key_figures array. Remember to include a diverse mix of named individuals, organizations, and unnamed but important roles.
-
-VALIDATION CHECK: Before submitting your response, verify:
-1. The student_role is clearly identified as the primary decision-maker or central figure
-2. The student_role person/entity is NOT included in the key_figures array
-3. All other important figures and entities ARE included in key_figures
-4. You have at least 8-12 key figures for a comprehensive simulation
+- All fields are required.
+- The "scene_cards" field must be an array of 4–6 complete, well-structured scene card objects.
 
 CASE STUDY CONTENT (context files first, then main PDF):
 {combined_content}
 """
+        # --- END: NEW PROMPT FOR SCENE CARDS AND PERSONAS (scene fields reference learning outcomes, personas_involved added) ---
+
+        # The rest of the function remains the same, but we will need to adjust downstream logic to use 'scene_cards' instead of 'scenes'.
         print("[DEBUG] Combined content length:", len(combined_content))
         print("[DEBUG] Combined content preview:", combined_content[:1000])
         print("[DEBUG] Looking for named individuals in content...")
@@ -862,8 +879,27 @@ CASE STUDY CONTENT (context files first, then main PDF):
         match = re.search(r'({[\s\S]*})', generated_text)
         if match:
             json_str = match.group(1)
+            json_str = fix_json(json_str)
             try:
                 ai_result = json.loads(json_str)
+                # Deduplicate scene_cards by all main fields
+                unique_scenes = []
+                seen = set()
+                for scene in ai_result.get("scene_cards", []):
+                    key = (
+                        scene.get("scene_title", "").strip().lower(),
+                        scene.get("goal", "").strip().lower(),
+                        scene.get("core_challenge", "").strip().lower(),
+                        scene.get("scene_description", "").strip().lower(),
+                        scene.get("success_metric", "").strip().lower(),
+                        tuple(sorted([p.strip().lower() for p in scene.get("personas_involved", [])]))
+                    )
+                    if key not in seen:
+                        unique_scenes.append(scene)
+                        seen.add(key)
+                removed_count = len(ai_result.get("scene_cards", [])) - len(unique_scenes)
+                if removed_count > 0:
+                    print(f"[DEBUG] Removed {removed_count} duplicate scene_cards from LLM output")
                 final_result = {
                     "title": ai_result.get("title") or title,
                     "description": ai_result.get("description") or (cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content),
@@ -875,7 +911,8 @@ CASE STUDY CONTENT (context files first, then main PDF):
                         "3. Develop strategic recommendations based on the analysis",
                         "4. Evaluate the impact of decisions on organizational performance",
                         "5. Apply business concepts and frameworks to real-world scenarios"
-                    ]
+                    ],
+                    "scene_cards": unique_scenes
                 }
                 
                 # Post-processing validation to ensure student role is not in key_figures
@@ -903,14 +940,27 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 print(f"[DEBUG] Final AI result sent to frontend with {len(final_result.get('key_figures', []))} key figures")
                 print("[DEBUG] Key figures names:", [fig.get('name', 'Unknown') for fig in final_result.get('key_figures', [])])
                 print(f"[DEBUG] Student role: {final_result.get('student_role', 'Not specified')}")
-                return final_result
+                return {'ai_result': final_result}
             except json.JSONDecodeError as e:
                     print(f"[ERROR] Failed to parse JSON from AI response: {e}")
                     print(f"[ERROR] Raw AI response: {json_str}")
+                    return {'ai_result': {
+                        "title": title,
+                        "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
+                        "key_figures": [],
+                        "learning_outcomes": [
+                            "1. Analyze the business situation presented in the case study",
+                            "2. Identify key stakeholders and their interests",
+                            "3. Develop strategic recommendations based on the analysis",
+                            "4. Evaluate the impact of decisions on organizational performance",
+                            "5. Apply business concepts and frameworks to real-world scenarios"
+                        ],
+                        "scene_cards": []
+                    }}
         else:
             print("[ERROR] No JSON object found in OpenAI response.")
             # Fallback: return structured content
-            return {
+            return {'ai_result': {
                         "title": title,
                         "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
                 "key_figures": [],
@@ -920,8 +970,9 @@ CASE STUDY CONTENT (context files first, then main PDF):
                             "3. Develop strategic recommendations based on the analysis",
                             "4. Evaluate the impact of decisions on organizational performance",
                             "5. Apply business concepts and frameworks to real-world scenarios"
-                        ]
-                    }
+                        ],
+                        "scene_cards": []
+                    }}
     except Exception as e:
         print(f"[ERROR] AI processing failed: {str(e)}")
         # Fallback: return basic structured content
@@ -935,12 +986,13 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 "4. Evaluate the impact of decisions on organizational performance",
                 "5. Apply business concepts and frameworks to real-world scenarios"
             ]
-        return {
+        return {'ai_result': {
             "title": fallback_title,
             "description": fallback_description,
             "key_figures": [],
-            "learning_outcomes": fallback_learning_outcomes
-        } 
+            "learning_outcomes": fallback_learning_outcomes,
+            "scene_cards": []
+        }} 
 
 def extract_markdown(parsed_content):
     """Extract markdown text from LlamaParse result, whether dict or JSON string."""
@@ -962,3 +1014,8 @@ def extract_markdown(parsed_content):
             pass
         return parsed_content
     return str(parsed_content) 
+
+def fix_json(text):
+    # Remove trailing commas before } or ]
+    text = re.sub(r',([ \t\r\n]*[}\]])', r'\1', text)
+    return text 

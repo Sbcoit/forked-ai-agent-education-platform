@@ -213,6 +213,7 @@ export default function ScenarioBuilder() {
      setAutofillProgress(75);
      
      const resultData = await response.json();
+     console.log("Full backend response:", resultData);
      console.log("Backend response:", resultData);
      console.log("Response status:", resultData.status);
      console.log("AI result exists:", !!resultData.ai_result);
@@ -224,7 +225,7 @@ export default function ScenarioBuilder() {
        setAutofillResult(resultData);
       
        // Populate form fields with AI results
-       const aiData = resultData.ai_result;
+       const aiData = resultData.ai_result.ai_result || resultData.ai_result;
        console.log("AI Result:", aiData);
        console.log("AI Result keys:", Object.keys(aiData));
       
@@ -359,7 +360,28 @@ export default function ScenarioBuilder() {
          console.log("[DEBUG] No key_figures found in aiData, creating empty personas array");
          setPersonas([]);
        }
-      
+       
+       // Set timeline events from scene_cards
+       if (aiData.scene_cards && Array.isArray(aiData.scene_cards)) {
+         console.log('[DEBUG] aiData.scene_cards:', aiData.scene_cards);
+         const baseId = Date.now();
+         const mappedEvents = aiData.scene_cards.map((scene: any, idx: number) => ({
+           id: `scene-${baseId}-${idx}`,
+           title: scene.scene_title || `Scene ${idx + 1}`,
+           goal: scene.goal || '',
+           sceneDescription: scene.scene_description || '',
+           successMetric: scene.success_metric || '',
+           timeoutTurns: 15, // default, can be edited later
+           personasInvolved: Array.isArray(scene.personas_involved) ? scene.personas_involved : []
+         }));
+         console.log('[DEBUG] mappedEvents:', mappedEvents);
+         setTimelineEvents(mappedEvents);
+         setTempTimelineEvents([]);
+       } else {
+         setTimelineEvents([]);
+         setTempTimelineEvents([]);
+       }
+       
      } else {
        console.log("No AI result found in response:", resultData);
        console.log("Full result data:", resultData);
@@ -1000,7 +1022,7 @@ export default function ScenarioBuilder() {
                <div className="flex flex-col items-center py-6">
                  <Button onClick={handleAddTimelineEvent} variant="outline" className="w-60">Add new Scene</Button>
                  {/* Render timeline event cards here */}
-                                  {(tempTimelineEvents.length > 0 || timelineEvents.length > 0) && (
+                 {(tempTimelineEvents.length > 0 || timelineEvents.length > 0) && (
   <div ref={timelineContainerRef} className="w-full flex flex-col items-center mt-6">
     {/* Drop zone at the top - always rendered, only visible when dragging */}
     <div
@@ -1012,23 +1034,24 @@ export default function ScenarioBuilder() {
     >
       <span className="text-blue-600 text-sm font-medium">Drop here to move to top</span>
     </div>
-    {/* Render temporary timeline events first (at the top) */}
+                     {/* Render temporary timeline events first (at the top) */}
     {tempTimelineEvents.map((event: TimelineEvent, idx: number) => (
       <React.Fragment key={`temp-event-${event.id}`}>
         <div className="relative w-full">
-          <div onClick={() => setEditingTimelineIdx(idx)} style={{ cursor: 'pointer' }}>
-            <TimelineCard
-              event={event}
-              onSave={updatedEvent => handleSaveTimelineEvent(idx, updatedEvent)}
-              onDelete={() => handleDeleteTimelineEvent(idx)}
-              editMode={false}
+                         <div onClick={() => setEditingTimelineIdx(idx)} style={{ cursor: 'pointer' }}>
+                           <TimelineCard
+                             event={event}
+                             onSave={updatedEvent => handleSaveTimelineEvent(idx, updatedEvent)}
+                             onDelete={() => handleDeleteTimelineEvent(idx)}
+                             editMode={false}
               draggable={true}
               onDragStart={(e) => handleTimelineDragStart(e, event.id)}
               onDragEnd={handleTimelineDragEnd}
               isDragged={draggedEventId === event.id}
-            />
-          </div>
-        </div>
+              allPersonas={personas.map(p => p.name) || []}
+                           />
+                         </div>
+                       </div>
         {/* Drop zone after each temp event - always rendered, only visible when dragging */}
         <div
           data-drop-zone
@@ -1040,38 +1063,40 @@ export default function ScenarioBuilder() {
           <span className="text-blue-600 text-sm font-medium">Drop here to reorder</span>
         </div>
       </React.Fragment>
-    ))}
-    {/* Render permanent timeline events */}
+                     ))}
+                     {/* Render permanent timeline events */}
     {timelineEvents.map((event: TimelineEvent, idx: number) => (
-      <React.Fragment key={`perm-event-${event.id}`}>
-        <div className="relative w-full">
-          <div onClick={() => setEditingTimelineIdx(idx + tempTimelineEvents.length)} style={{ cursor: 'pointer' }}>
-            <TimelineCard
-              event={event}
-              onSave={updatedEvent => handleSaveTimelineEvent(idx + tempTimelineEvents.length, updatedEvent)}
-              onDelete={() => handleDeleteTimelineEvent(idx + tempTimelineEvents.length)}
-              editMode={false}
-              draggable={true}
-              onDragStart={(e) => handleTimelineDragStart(e, event.id)}
-              onDragEnd={handleTimelineDragEnd}
-              isDragged={draggedEventId === event.id}
-            />
-          </div>
-        </div>
-        {/* Drop zone after each perm event - always rendered, only visible when dragging */}
-        <div
-          data-drop-zone
-          className={`w-full ${draggedEventId ? 'h-8 my-3 opacity-100' : 'h-0 my-0 opacity-0'} bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center transition-all duration-200 cursor-pointer`}
-          onDragOver={handleTimelineDragOver}
-          onDragLeave={handleTimelineDragLeave}
-          onDrop={(e) => handleTimelineDrop(e, tempTimelineEvents.length + idx + 1)}
-        >
-          <span className="text-blue-600 text-sm font-medium">Drop here to reorder</span>
-        </div>
-      </React.Fragment>
-    ))}
-  </div>
-)}
+  <React.Fragment key={`perm-event-${event.id}`}>
+    <div className="relative w-full">
+      <div onClick={() => setEditingTimelineIdx(idx + tempTimelineEvents.length)} style={{ cursor: 'pointer' }}>
+        <TimelineCard
+          key={event.id + '-' + personas.length + '-' + tempPersonas.length}
+          event={event}
+          onSave={updatedEvent => handleSaveTimelineEvent(idx + tempTimelineEvents.length, updatedEvent)}
+          onDelete={() => handleDeleteTimelineEvent(idx + tempTimelineEvents.length)}
+          editMode={false}
+          draggable={true}
+          onDragStart={(e) => handleTimelineDragStart(e, event.id)}
+          onDragEnd={handleTimelineDragEnd}
+          isDragged={draggedEventId === event.id}
+          allPersonas={[...tempPersonas, ...personas].map(p => p.name) || []}
+        />
+      </div>
+    </div>
+    {/* Drop zone after each perm event - always rendered, only visible when dragging */}
+    <div
+      data-drop-zone
+      className={`w-full ${draggedEventId ? 'h-8 my-3 opacity-100' : 'h-0 my-0 opacity-0'} bg-blue-50 border-2 border-dashed border-blue-300 rounded-lg flex items-center justify-center transition-all duration-200 cursor-pointer`}
+      onDragOver={handleTimelineDragOver}
+      onDragLeave={handleTimelineDragLeave}
+      onDrop={(e) => handleTimelineDrop(e, tempTimelineEvents.length + idx + 1)}
+    >
+      <span className="text-blue-600 text-sm font-medium">Drop here to reorder</span>
+    </div>
+  </React.Fragment>
+))}
+                   </div>
+                 )}
                </div>
              </AccordionContent>
            </AccordionItem>
@@ -1105,8 +1130,8 @@ export default function ScenarioBuilder() {
                  }
                }
              : { 
-                 ...(editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]), 
-                 traits: (editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]).traits 
+             ...(editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]), 
+             traits: (editingIdx < tempPersonas.length ? tempPersonas[editingIdx] : personas[editingIdx - tempPersonas.length]).traits 
                }
            }
            defaultTraits={editingIdx === -1 
@@ -1148,49 +1173,32 @@ export default function ScenarioBuilder() {
          />
        </PersonaModal>
      )}
-     {editingTimelineIdx !== null && (
-       <TimelineModal isOpen={true} onClose={() => {
-         console.log("[DEBUG] TimelineModal onClose called");
-         setEditingTimelineIdx(null);
-       }}>
-         <TimelineCard
-           event={editingTimelineIdx === -1 
-             ? {
-                 id: `event-${Date.now()}`,
-                 title: "",
-                 goal: "",
-                 sceneDescription: "",
-                 successMetric: "",
-                 timeoutTurns: 15
-               }
-             : editingTimelineIdx < tempTimelineEvents.length 
-               ? tempTimelineEvents[editingTimelineIdx]
-               : timelineEvents[editingTimelineIdx - tempTimelineEvents.length]
-           }
-           onSave={updatedEvent => {
-             console.log("[DEBUG] TimelineCard onSave called with:", updatedEvent);
-             console.log("[DEBUG] editingTimelineIdx:", editingTimelineIdx);
-             if (editingTimelineIdx === -1) {
-               // This is a new event - add it to the array
-               console.log("[DEBUG] Adding new event to tempTimelineEvents");
-               setTempTimelineEvents(prev => [...prev, updatedEvent]);
-             } else {
-               // This is an existing event - update it
-               console.log("[DEBUG] Updating existing event");
-               handleSaveTimelineEvent(editingTimelineIdx, updatedEvent);
-             }
-             setEditingTimelineIdx(null);
-           }}
-           onDelete={() => {
-             if (editingTimelineIdx !== -1) {
-               handleDeleteTimelineEvent(editingTimelineIdx);
-             }
-             setEditingTimelineIdx(null);
-           }}
-           editMode={true}
-         />
-       </TimelineModal>
-     )}
+     {typeof editingTimelineIdx === 'number' && (() => {
+  const isTemp = editingTimelineIdx < tempTimelineEvents.length;
+  const event = isTemp
+    ? tempTimelineEvents[editingTimelineIdx]
+    : timelineEvents[editingTimelineIdx - tempTimelineEvents.length];
+  return (
+    <TimelineModal isOpen={true} onClose={() => {
+      setEditingTimelineIdx(null);
+    }}>
+      <TimelineCard
+        key={event.id + '-' + personas.length + '-' + tempPersonas.length}
+        event={{
+          ...event,
+          personasInvolved: event.personasInvolved ?? [],
+          imageFile: (event as any).imageFile ?? undefined,
+          imagePreviewUrl: (event as any).imagePreviewUrl ?? undefined,
+        }}
+        onSave={updatedEvent => handleSaveTimelineEvent(editingTimelineIdx, updatedEvent)}
+        onDelete={() => handleDeleteTimelineEvent(editingTimelineIdx)}
+        editMode={true}
+        draggable={false}
+        allPersonas={[...tempPersonas, ...personas].map(p => p.name) || []}
+      />
+    </TimelineModal>
+  );
+})()}
    </div>
  )
 }

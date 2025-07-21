@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,9 @@ export interface TimelineEvent {
   sceneDescription: string;
   successMetric: string;
   timeoutTurns?: number;
+  personasInvolved: string[];
+  imageFile?: File | null;
+  imagePreviewUrl?: string | null;
 }
 
 interface EditFields {
@@ -19,6 +22,9 @@ interface EditFields {
   sceneDescription: string;
   successMetric: string;
   timeoutTurns: string;
+  personasInvolved: string[];
+  imageFile?: File | null;
+  imagePreviewUrl?: string | null;
 }
 
 interface TimelineCardProps {
@@ -30,6 +36,7 @@ interface TimelineCardProps {
   onDragStart?: (e: React.DragEvent) => void;
   onDragEnd?: (e: React.DragEvent) => void;
   isDragged?: boolean;
+  allPersonas: string[];
 }
 
 export default function TimelineCard({ 
@@ -40,15 +47,28 @@ export default function TimelineCard({
   draggable = false,
   onDragStart,
   onDragEnd,
-  isDragged = false
+  isDragged = false,
+  allPersonas
 }: TimelineCardProps) {
   const [editFields, setEditFields] = useState<EditFields>({
     title: "",
     goal: "",
     sceneDescription: "",
     successMetric: "",
-    timeoutTurns: ""
+    timeoutTurns: "",
+    personasInvolved: [],
+    imageFile: undefined,
+    imagePreviewUrl: undefined
   });
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+
+  // Add local state for allPersonas to ensure it updates with prop changes
+  const [localAllPersonas, setLocalAllPersonas] = useState<string[]>(allPersonas);
+  useEffect(() => {
+    setLocalAllPersonas(allPersonas);
+  }, [allPersonas]);
 
   // Sync local state with props when event changes
   useEffect(() => {
@@ -57,8 +77,12 @@ export default function TimelineCard({
       goal: event.goal || "Core challenge for this scene.",
       sceneDescription: event.sceneDescription || "Description of what happens in this scene.",
       successMetric: event.successMetric || "How to measure success in this scene.",
-      timeoutTurns: event.timeoutTurns ? event.timeoutTurns.toString() : ""
+      timeoutTurns: event.timeoutTurns ? event.timeoutTurns.toString() : "",
+      personasInvolved: event.personasInvolved || [],
+      imageFile: event.imageFile,
+      imagePreviewUrl: event.imagePreviewUrl
     });
+    setImagePreviewUrl(event.imagePreviewUrl || null);
   }, [event]);
 
   const handleEditFieldChange = (field: string, value: string | number) => {
@@ -69,6 +93,40 @@ export default function TimelineCard({
     setEditFields(fields => ({ ...fields, timeoutTurns: value }));
   };
 
+  const handlePersonaToggle = (persona: string) => {
+    setEditFields(fields => {
+      const exists = fields.personasInvolved.includes(persona);
+      return {
+        ...fields,
+        personasInvolved: exists
+          ? fields.personasInvolved.filter(p => p !== persona)
+          : [...fields.personasInvolved, persona]
+      };
+    });
+  };
+
+  const handleImageClick = () => {
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && (file.type.startsWith("image/png") || file.type.startsWith("image/jpeg"))) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreviewUrl(reader.result as string);
+        setEditFields(fields => ({ ...fields, imageFile: file, imagePreviewUrl: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImagePreviewUrl(null);
+    setEditFields(fields => ({ ...fields, imageFile: undefined, imagePreviewUrl: undefined }));
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const handleSave = () => {
     if (onSave) {
       onSave({
@@ -77,7 +135,10 @@ export default function TimelineCard({
         goal: editFields.goal,
         sceneDescription: editFields.sceneDescription,
         successMetric: editFields.successMetric,
-        timeoutTurns: editFields.timeoutTurns ? parseInt(editFields.timeoutTurns) || 15 : 15
+        timeoutTurns: editFields.timeoutTurns ? parseInt(editFields.timeoutTurns) || 15 : 15,
+        personasInvolved: editFields.personasInvolved,
+        imageFile: editFields.imageFile,
+        imagePreviewUrl: editFields.imagePreviewUrl
       });
     }
   };
@@ -100,15 +161,23 @@ export default function TimelineCard({
         onDragEnd={onDragEnd}
       >
         {/* Left: Icon and Info */}
-        <div className="flex flex-col items-center justify-center w-32 mr-4">
-          <div className="w-16 h-16 rounded-full bg-gray-200 overflow-hidden flex items-center justify-center mb-1">
-            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12,6 12,12 16,14" />
-            </svg>
+        <div className="flex flex-col items-center justify-center w-40 mr-4">
+          <div className="w-32 h-32 flex items-center justify-center rounded-lg border bg-gray-100 overflow-hidden mb-1">
+            {event.imagePreviewUrl ? (
+              <img
+                src={event.imagePreviewUrl}
+                alt="Scene"
+                className="object-cover w-full h-full rounded-lg"
+              />
+            ) : (
+              <svg className="w-20 h-20 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12,6 12,12 16,14" />
+              </svg>
+            )}
           </div>
         </div>
-        {/* Middle: Title, Goal, Description */}
+        {/* Middle: Title/Goal Stack (no big icon here) */}
         <div className="flex-1 flex flex-col justify-center pr-6">
           <div className="text-xl font-bold leading-tight mb-0.5">{event.title}</div>
           <div className="text-base text-gray-500 mb-2">{event.goal}</div>
@@ -116,6 +185,11 @@ export default function TimelineCard({
           {event.successMetric && (
             <div className="text-xs text-blue-800 mt-1">
               <span className="font-semibold">Success Metric:</span> {event.successMetric}
+            </div>
+          )}
+          {event.personasInvolved && event.personasInvolved.length > 0 && (
+            <div className="text-xs text-purple-800 mt-1">
+              <span className="font-semibold">Personas Involved:</span> {event.personasInvolved.join(', ')}
             </div>
           )}
         </div>
@@ -148,15 +222,55 @@ export default function TimelineCard({
           </div>
         </div>
       </div>
-      
       {/* Content */}
-      <div className="flex-1 p-6">
+      <div className="flex-1 p-6 overflow-y-auto">
         <div className="grid grid-cols-3 gap-6">
           {/* Main Content Area */}
           <div className="col-span-3 flex flex-col space-y-4">
             <div className="flex items-center space-x-4">
+              {/* Big icon to the left of both fields */}
+              <div className="flex-shrink-0 flex items-center justify-center">
+                <div
+                  className="w-32 h-32 flex items-center justify-center rounded-lg border bg-gray-100 relative cursor-pointer group"
+                  onClick={handleImageClick}
+                  title="Click to upload image"
+                >
+                  {imagePreviewUrl ? (
+                    <>
+                      <img
+                        src={imagePreviewUrl}
+                        alt="Scene"
+                        className="object-cover w-full h-full rounded-lg"
+                      />
+                      <button
+                        type="button"
+                        className="absolute top-1 right-1 bg-white bg-opacity-80 rounded-full p-1 text-gray-700 hover:text-red-600 shadow"
+                        onClick={e => { e.stopPropagation(); handleRemoveImage(); }}
+                        title="Remove image"
+                      >
+                        &times;
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-20 h-20 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12,6 12,12 16,14" />
+                      </svg>
+                      <span className="absolute bottom-1 left-1 text-xs text-gray-500 bg-white bg-opacity-80 rounded px-1 py-0.5 hidden group-hover:block">Upload</span>
+                    </>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg"
+                    className="hidden"
+                    onChange={handleImageChange}
+                  />
+                </div>
+              </div>
               <div className="flex-1">
-                <span className="block text-gray-700 font-semibold text-sm">Scenario Title</span>
+                <span className="block text-gray-700 font-semibold text-sm">Scene Title</span>
                 <Input
                   id="event-title"
                   className="mt-1 block w-full rounded border-gray-300 text-sm font-medium"
@@ -185,6 +299,47 @@ export default function TimelineCard({
                   placeholder="Description of what happens in this scene."
                   rows={10}
                 />
+                {/* Personas involved pills/chips UI */}
+                <div className="mt-4">
+                  <span className="block text-xs font-semibold text-purple-800 mb-1">Personas Involved in this Scene:</span>
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {editFields.personasInvolved.map((persona, idx) => (
+                      <span key={idx} className="inline-flex items-center px-3 py-1 rounded-full bg-purple-100 text-purple-800 text-xs font-medium shadow-sm">
+                        {persona}
+                        <button
+                          type="button"
+                          className="ml-2 text-purple-600 hover:text-purple-900 focus:outline-none"
+                          onClick={() => handlePersonaToggle(persona)}
+                          aria-label={`Remove ${persona}`}
+                        >
+                          &times;
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  {/* Dropdown to add more personas */}
+                  <div className="relative mt-1 w-full">
+                    <select
+                      className="appearance-none w-full rounded-lg border border-purple-300 bg-white text-xs text-gray-800 px-3 py-2 pr-8 shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400 transition-all cursor-pointer"
+                      value=""
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val) handlePersonaToggle(val);
+                      }}
+                    >
+                      <option value="" disabled className="text-gray-400">+ Add persona...</option>
+                      {localAllPersonas.filter(p => !editFields.personasInvolved.includes(p)).map((persona, idx) => (
+                        <option key={idx} value={persona} className="hover:bg-purple-100">{persona}</option>
+                      ))}
+                    </select>
+                    {/* Custom caret icon */}
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-purple-400">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="flex flex-col space-y-4">
                 <div>
@@ -200,23 +355,22 @@ export default function TimelineCard({
                 </div>
                 <div>
                   <span className="block text-gray-700 font-semibold text-sm">Timeout Turns</span>
-                                <Input
-                id="event-timeout"
-                type="number"
-                className="mt-1 block w-full rounded border-gray-300 text-sm"
-                value={editFields.timeoutTurns}
-                onChange={e => handleTimeoutChange(e.target.value)}
-                placeholder="Turns before the scenario ends."
-                min="1"
-                max="100"
-              />
+                  <Input
+                    id="event-timeout"
+                    type="number"
+                    className="mt-1 block w-full rounded border-gray-300 text-sm"
+                    value={editFields.timeoutTurns}
+                    onChange={e => handleTimeoutChange(e.target.value)}
+                    placeholder="Turns before the scenario ends."
+                    min="1"
+                    max="100"
+                  />
                 </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-      
       {/* Action Buttons - Fixed at bottom */}
       <div className="flex justify-end space-x-4 p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg flex-shrink-0">
         <Button 

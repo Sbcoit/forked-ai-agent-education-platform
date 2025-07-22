@@ -33,6 +33,228 @@ router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 # OpenAI configuration
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+def validate_goal_with_function_calling(
+    conversation_history: str,
+    scene_goal: str,
+    scene_description: str,
+    current_attempts: int,
+    max_attempts: int,
+    db: Session = None,
+    user_progress_id: int = None,
+    current_scene_id: int = None
+) -> dict:
+    """
+    Use OpenAI function calling to validate if user has achieved the scene goal
+    """
+    import json
+    
+    # Define the function for scene progression
+    function_definitions = [
+        {
+            "name": "progress_to_next_scene",
+            "description": "Progress to the next scene when the user has achieved the current scene goal",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "goal_achieved": {
+                        "type": "boolean",
+                        "description": "Whether the user has achieved the scene goal"
+                    },
+                    "confidence_score": {
+                        "type": "number",
+                        "description": "Confidence score from 0.0 to 1.0"
+                    },
+                    "reasoning": {
+                        "type": "string",
+                        "description": "Brief explanation of why the goal was or wasn't achieved"
+                    },
+                    "next_action": {
+                        "type": "string",
+                        "enum": ["continue", "progress", "hint", "force_progress"],
+                        "description": "What action to take next"
+                    },
+                    "hint_message": {
+                        "type": "string",
+                        "description": "Optional hint message if the user needs guidance"
+                    },
+                    "should_progress": {
+                        "type": "boolean",
+                        "description": "Whether to actually progress to the next scene in the database"
+                    }
+                },
+                "required": ["goal_achieved", "confidence_score", "reasoning", "next_action", "should_progress"]
+            }
+        }
+    ]
+    
+    # Create the evaluation prompt
+    evaluation_prompt = f"""You are a goal validation agent for a business simulation. Analyze the conversation and determine if the user has achieved the scene goal.
+
+SCENE GOAL: {scene_goal}
+
+SCENE DESCRIPTION: {scene_description}
+
+RECENT CONVERSATION:
+{conversation_history}
+
+CURRENT ATTEMPTS: {current_attempts}/{max_attempts}
+
+Analyze the conversation and determine:
+1. Has the user achieved the scene goal? Consider if they've gathered the necessary information, understood the situation, or completed the required tasks.
+2. Confidence score (0.0-1.0) based on how clearly the goal was achieved
+3. Brief reasoning for your decision
+4. Next action: 
+   - "continue" if they need more interaction
+   - "progress" if goal is achieved and ready to move on
+   - "hint" if they're stuck and need guidance
+   - "force_progress" if max attempts reached
+5. Optional hint message if action is "hint"
+6. Should progress: Set to true if the goal is achieved and you want to actually move to the next scene
+
+Look for indicators like:
+- User saying they understand the situation
+- User gathering key information from team members
+- User expressing readiness to move forward
+- User saying "I have everything I need" or "let's move on"
+- User demonstrating comprehension of the current challenges
+- User asking multiple team members about their perspectives
+- User showing they understand the distribution challenges
+- User summarizing what they've learned
+- User saying "I think I understand" or "I got it"
+- User asking to move to the next scene
+
+CRITICAL: If the user has:
+1. Interacted with multiple team members (at least 2 different personas)
+2. AND either says they understand the challenges OR asks to move to the next scene
+3. THEN consider the goal achieved and set should_progress to true
+
+The user should NOT need to interact with every single team member to achieve the goal. Focus on whether they've gained sufficient understanding of the key challenges and obstacles.
+
+Call the progress_to_next_scene function with your analysis."""
+
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise Exception("OpenAI API key not found in environment variables")
+        
+        client = openai.OpenAI(api_key=api_key)
+        
+        # First call to get function call
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",  # Updated to current model
+            messages=[{"role": "user", "content": evaluation_prompt}],
+            tools=[{"type": "function", "function": function_definitions[0]}],
+            tool_choice={"type": "function", "function": {"name": "progress_to_next_scene"}},
+            max_tokens=300,
+            temperature=0.3
+        )
+        
+        message = response.choices[0].message
+        
+        if message.tool_calls:
+            # Parse the tool call arguments
+            tool_call = message.tool_calls[0]
+            arguments = json.loads(tool_call.function.arguments)
+            
+            # Check if we should actually progress to the next scene
+            should_progress = arguments.get("should_progress", False)
+            
+            if should_progress and db and user_progress_id and current_scene_id:
+                print(f"[DEBUG] Executing scene progression for user {user_progress_id}, scene {current_scene_id}")
+                
+                # Get user progress
+                user_progress = db.query(UserProgress).filter(UserProgress.id == user_progress_id).first()
+                if user_progress:
+                    # Get current scene
+                    current_scene = db.query(ScenarioScene).filter(ScenarioScene.id == current_scene_id).first()
+                    if current_scene:
+                        # Find next scene
+                        next_scene = db.query(ScenarioScene).filter(
+                            and_(
+                                ScenarioScene.scenario_id == user_progress.scenario_id,
+                                ScenarioScene.scene_order > current_scene.scene_order
+                            )
+                        ).order_by(ScenarioScene.scene_order).first()
+                        
+                        if next_scene:
+                            # Update user progress to next scene
+                            user_progress.current_scene_id = next_scene.id
+                            user_progress.last_activity = datetime.utcnow()
+                            
+                            # Mark current scene as completed
+                            completed_scenes = user_progress.scenes_completed or []
+                            if current_scene_id not in completed_scenes:
+                                completed_scenes.append(current_scene_id)
+                                user_progress.scenes_completed = completed_scenes
+                            
+                            # Update scene progress
+                            scene_progress = db.query(SceneProgress).filter(
+                                and_(
+                                    SceneProgress.user_progress_id == user_progress_id,
+                                    SceneProgress.scene_id == current_scene_id
+                                )
+                            ).first()
+                            
+                            if scene_progress:
+                                scene_progress.status = "completed"
+                                scene_progress.goal_achieved = True
+                                scene_progress.completed_at = datetime.utcnow()
+                            
+                            # Create scene progress for next scene
+                            next_scene_progress = SceneProgress(
+                                user_progress_id=user_progress_id,
+                                scene_id=next_scene.id,
+                                status="in_progress",
+                                started_at=datetime.utcnow()
+                            )
+                            db.add(next_scene_progress)
+                            
+                            # Commit the changes
+                            db.commit()
+                            print(f"[DEBUG] Successfully progressed to scene {next_scene.id}")
+                            
+                            # Add progression info to result
+                            arguments["next_scene_id"] = next_scene.id
+                            arguments["next_scene_title"] = next_scene.title
+                        else:
+                            # No more scenes - simulation complete
+                            user_progress.simulation_status = "completed"
+                            user_progress.completed_at = datetime.utcnow()
+                            db.commit()
+                            print(f"[DEBUG] Simulation completed")
+                            arguments["simulation_complete"] = True
+            
+            # Return the parsed result
+            return {
+                "goal_achieved": arguments.get("goal_achieved", False),
+                "confidence_score": arguments.get("confidence_score", 0.0),
+                "reasoning": arguments.get("reasoning", ""),
+                "next_action": arguments.get("next_action", "continue"),
+                "hint_message": arguments.get("hint_message"),
+                "next_scene_id": arguments.get("next_scene_id"),
+                "next_scene_title": arguments.get("next_scene_title"),
+                "simulation_complete": arguments.get("simulation_complete", False)
+            }
+        else:
+            # Fallback if no function call
+            return {
+                "goal_achieved": False,
+                "confidence_score": 0.0,
+                "reasoning": "No function call made",
+                "next_action": "continue",
+                "hint_message": None
+            }
+            
+    except Exception as e:
+        print(f"[ERROR] Goal validation failed: {str(e)}")
+        return {
+            "goal_achieved": False,
+            "confidence_score": 0.0,
+            "reasoning": f"Error during validation: {str(e)}",
+            "next_action": "continue",
+            "hint_message": None
+        }
+
 @router.post("/start", response_model=SimulationStartResponse)
 async def start_simulation(
     request: SimulationStartRequest,
@@ -687,6 +909,52 @@ async def get_user_progress(
         last_activity=user_progress.last_activity
     ) 
 
+@router.get("/scenes/{scene_id}", response_model=ScenarioSceneResponse)
+async def get_scene_by_id(
+    scene_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get scene data by ID"""
+    
+    scene = db.query(ScenarioScene).filter(ScenarioScene.id == scene_id).first()
+    if not scene:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    
+    # Get personas for this scene
+    scene_personas = db.query(ScenarioPersona).filter(
+        ScenarioPersona.scenario_id == scene.scenario_id
+    ).all()
+    
+    personas_data = [
+        ScenarioPersonaResponse(
+            id=persona.id,
+            scenario_id=persona.scenario_id,
+            name=persona.name,
+            role=persona.role,
+            background=persona.background,
+            correlation=persona.correlation,
+            primary_goals=persona.primary_goals or [],
+            personality_traits=persona.personality_traits or {},
+            created_at=persona.created_at,
+            updated_at=persona.updated_at
+        ) for persona in scene_personas
+    ]
+    
+    return ScenarioSceneResponse(
+        id=scene.id,
+        scenario_id=scene.scenario_id,
+        title=scene.title,
+        description=scene.description,
+        user_goal=scene.user_goal,
+        scene_order=scene.scene_order,
+        estimated_duration=scene.estimated_duration,
+        image_url=scene.image_url,
+        image_prompt=scene.image_prompt,
+        created_at=scene.created_at,
+        updated_at=scene.updated_at,
+        personas=personas_data
+    )
+
 @router.post("/linear-chat", response_model=SimulationChatResponse)
 async def linear_simulation_chat(
     request: SimulationChatRequest,
@@ -730,6 +998,8 @@ async def linear_simulation_chat(
         if request.message.lower().strip() == "begin":
             if orchestrator.state.simulation_started:
                 ai_response = "The simulation has already begun. You can now interact with team members using @mentions (e.g., @rahul_ashok) or ask for help."
+                persona_name = "ChatOrchestrator"
+                persona_id = None
             else:
                 # Start simulation
                 orchestrator.state.simulation_started = True
@@ -788,6 +1058,8 @@ You are about to enter a multi-scene simulation where you'll interact with vario
 *The simulation begins now...*
 """
                 ai_response = prologue
+                persona_name = "ChatOrchestrator"
+                persona_id = None
         
         elif request.message.lower().strip() == "help":
             ai_response = f"""**Help - Simulation Commands**
@@ -802,6 +1074,8 @@ You are about to enter a multi-scene simulation where you'll interact with vario
 
 **Current Scene:** Scene {orchestrator.state.current_scene_index + 1} of {len(orchestrator.scenes)}
 """
+            persona_name = "ChatOrchestrator"
+            persona_id = None
         
         else:
             # Regular chat interaction
@@ -809,6 +1083,8 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                 ai_response = """Welcome to the simulation! 
 
 Please type **"begin"** when you're ready to start, or **"help"** for more information."""
+                persona_name = "ChatOrchestrator"
+                persona_id = None
             else:
                 # Check if user is addressing a specific persona with @mention
                 import re
@@ -822,16 +1098,40 @@ Please type **"begin"** when you're ready to start, or **"help"** for more infor
                     # User is addressing a specific persona
                     persona_id = mention_match.group(1)
                     
-                    # Find the persona in the scenario data
+                    # Find the persona in the scenario data with fuzzy matching
                     target_persona = None
                     available_personas = [p['id'] for p in orchestrator.scenario.get('personas', [])]
                     print(f"[DEBUG] Looking for persona: {persona_id}")
                     print(f"[DEBUG] Available personas: {available_personas}")
                     
+                    # Create a mapping of name variations to persona IDs
+                    name_mapping = {}
                     for persona in orchestrator.scenario.get('personas', []):
-                        if persona['id'] == persona_id:
-                            target_persona = persona
-                            break
+                        name = persona['identity']['name'].lower()
+                        # Add various name variations
+                        name_mapping[name] = persona['id']
+                        name_mapping[name.replace("'", "").replace(" ", "_")] = persona['id']
+                        name_mapping[name.replace("'", "").replace(" ", "")] = persona['id']
+                        # Add first name only
+                        first_name = name.split()[0]
+                        name_mapping[first_name] = persona['id']
+                        name_mapping[first_name.replace("'", "")] = persona['id']
+                    
+                    print(f"[DEBUG] Name mapping: {name_mapping}")
+                    
+                    # Try to find the persona by name
+                    search_name = persona_id.lower()
+                    if search_name in name_mapping:
+                        persona_id = name_mapping[search_name]
+                        target_persona = next((p for p in orchestrator.scenario.get('personas', []) if p['id'] == persona_id), None)
+                    else:
+                        # Try fuzzy matching
+                        for name, pid in name_mapping.items():
+                            if (search_name in name or name in search_name or
+                                search_name.replace("'", "").replace("_", "") in name.replace("'", "").replace("_", "")):
+                                persona_id = pid
+                                target_persona = next((p for p in orchestrator.scenario.get('personas', []) if p['id'] == persona_id), None)
+                                break
                     
                     if target_persona:
                         # Create a more focused system prompt for persona interaction
@@ -839,15 +1139,18 @@ Please type **"begin"** when you're ready to start, or **"help"** for more infor
 
 PERSONA BACKGROUND: {target_persona['identity']['bio']}
 
-CURRENT SCENE: Crisis Assessment Meeting - {orchestrator.scenario.get('scenes', [{}])[0].get('description', 'Team meeting to assess the HS Holdings outage')}
+CURRENT SCENE: Crisis Assessment Meeting - {orchestrator.scenario.get('scenes', [{}])[0].get('description', 'Team meeting to assess distribution challenges')}
 
 SCENARIO CONTEXT: {orchestrator.scenario.get('description', '')}
 
 PERSONALITY: {target_persona.get('personality', {})}
 
-You are in a crisis meeting about the HS Holdings system outage. Respond as {target_persona['identity']['name']} would, providing information and insights relevant to your role. Be professional but show the urgency of the situation.
+You are in a meeting about Kaskazi Network Ltd's distribution challenges in Kenya's micro retail market. Respond as {target_persona['identity']['name']} would, providing information and insights relevant to your role and the current distribution challenges. Be professional and provide specific insights about the distribution network, kiosks, or your role in the business.
+
+IMPORTANT: This is about Kaskazi Network Ltd and distribution challenges in Kenya, NOT about HS Holdings or system outages.
 
 User's message: {request.message}"""
+                        persona_name = target_persona['identity']['name']
                     else:
                         # Fallback to orchestrator
                         system_prompt = f"""You are the ChatOrchestrator managing a business simulation. The user tried to mention @{persona_id} but that persona wasn't found. 
@@ -855,21 +1158,27 @@ User's message: {request.message}"""
 Available personas: {', '.join([p['id'] for p in orchestrator.scenario.get('personas', [])])}
 
 Gently redirect them to use a valid persona mention or provide general guidance."""
+                        persona_name = "ChatOrchestrator"
+                        persona_id = None
                 else:
                     # General orchestrator response
                     system_prompt = f"""You are the ChatOrchestrator for a business simulation about {orchestrator.scenario.get('title', 'team management')}.
 
 CURRENT SCENE: Crisis Assessment Meeting
-OBJECTIVE: Understand the scope and impact of the HS Holdings outage
+OBJECTIVE: Understand the current distribution challenges and identify key obstacles
 
 The user can:
-- Use @mentions to talk to specific team members (e.g., @rahul_ashok, @nick_elliott, @elisabeth_fournier)
+- Use @mentions to talk to specific team members (e.g., @ng'ang'a_wanjohi, @hussein_bakari, @george, @david)
 - Ask general questions about the situation
 - Request help or guidance
 
-Respond helpfully and guide them toward productive interactions with the team members.
+IMPORTANT: This is about Kaskazi Network Ltd and distribution challenges in Kenya's micro retail market, NOT about HS Holdings or system outages.
+
+Respond helpfully and guide them toward productive interactions with the team members. If they ask about previous conversations, remind them that you can only see the current message and suggest they ask the specific person again.
 
 User's message: {request.message}"""
+                    persona_name = "ChatOrchestrator"
+                    persona_id = None
                 
                 # Make OpenAI API call
                 import openai
@@ -888,6 +1197,111 @@ User's message: {request.message}"""
                 )
                 
                 ai_response = response.choices[0].message.content
+        
+        # Check for goal completion and scene progression using AI function calling
+        scene_completed = False
+        next_scene_id = None
+        
+        # Only check goal completion if simulation is started and not a system command
+        if (orchestrator.state.simulation_started and 
+            request.message.lower().strip() not in ["begin", "help"]):
+            
+            # Get current scene goal
+            current_scene = orchestrator.scenes[orchestrator.state.current_scene_index] if orchestrator.scenes else None
+            if current_scene and current_scene.get('objectives'):
+                scene_goal = current_scene['objectives'][0]
+                scene_description = current_scene.get('description', '')
+                
+                # Get recent conversation for context - include the current message
+                scene_id_to_use = request.scene_id if request.scene_id is not None else user_progress.current_scene_id
+                recent_messages = db.query(ConversationLog).filter(
+                    and_(
+                        ConversationLog.user_progress_id == user_progress.id,
+                        ConversationLog.scene_id == scene_id_to_use
+                    )
+                ).order_by(desc(ConversationLog.message_order)).limit(10).all()
+                
+                # Build conversation history
+                conversation_history = []
+                for msg in reversed(recent_messages):
+                    speaker = msg.sender_name or "System"
+                    conversation_history.append(f"{speaker}: {msg.message_content}")
+                
+                # Add the current user message
+                conversation_history.append(f"User: {request.message}")
+                
+                conversation_text = "\n".join(conversation_history)
+                print(f"[DEBUG] Conversation history: {conversation_text[:500]}...")
+                
+                # Get current attempts
+                scene_progress = db.query(SceneProgress).filter(
+                    and_(
+                        SceneProgress.user_progress_id == user_progress.id,
+                        SceneProgress.scene_id == scene_id_to_use
+                    )
+                ).first()
+                
+                current_attempts = scene_progress.attempts if scene_progress else 0
+                max_attempts = current_scene.get('max_attempts', 5)
+                print(f"[DEBUG] Current attempts: {current_attempts}/{max_attempts}")
+                
+                # Use AI function calling to validate goal
+                try:
+                    validation_result = validate_goal_with_function_calling(
+                        conversation_history=conversation_text,
+                        scene_goal=scene_goal,
+                        scene_description=scene_description,
+                        current_attempts=current_attempts,
+                        max_attempts=max_attempts,
+                        db=db,
+                        user_progress_id=user_progress.id,
+                        current_scene_id=scene_id_to_use
+                    )
+                    
+                    print(f"[DEBUG] Goal validation result: {validation_result}")
+                except Exception as e:
+                    print(f"[ERROR] Goal validation failed: {str(e)}")
+                    # Fallback to simple validation
+                    validation_result = {
+                        "goal_achieved": False,
+                        "confidence_score": 0.0,
+                        "reasoning": f"Error during validation: {str(e)}",
+                        "next_action": "continue",
+                        "hint_message": None,
+                        "next_scene_id": None,
+                        "next_scene_title": None,
+                        "simulation_complete": False
+                    }
+                
+                # Handle the validation result
+                if validation_result.get("next_scene_id") or validation_result.get("simulation_complete"):
+                    # Scene progression was triggered by the AI function call
+                    scene_completed = True
+                    next_scene_id = validation_result.get("next_scene_id")
+                    
+                    if validation_result.get("simulation_complete"):
+                        ai_response += "\n\n🎉 **Congratulations! You have completed the entire simulation.**"
+                    elif validation_result.get("next_scene_title"):
+                        ai_response += f"\n\n🎉 **Scene Completed!** Moving to next scene:\n\n**{validation_result['next_scene_title']}**\n\n**Objective:** Continue working with the team to address the distribution challenges."
+                    
+                    # Update orchestrator state to match database
+                    if next_scene_id:
+                        # Find the scene index for the new scene
+                        for i, scene in enumerate(orchestrator.scenes):
+                            if scene.get('id') == next_scene_id:
+                                orchestrator.state.current_scene_index = i
+                                break
+                        orchestrator.state.turn_count = 0
+                        orchestrator.state.scene_completed = False
+                        orchestrator.state.current_scene_id = next_scene_id
+                
+                elif validation_result["next_action"] == "hint" and validation_result["hint_message"]:
+                    # Add hint to response
+                    ai_response += f"\n\n💡 **Hint:** {validation_result['hint_message']}"
+                
+                elif validation_result["next_action"] == "force_progress":
+                    # Force progression due to max attempts - handled by the function call now
+                    pass
         
         # Update orchestrator state in database
         user_progress.last_activity = datetime.utcnow()
@@ -913,13 +1327,14 @@ User's message: {request.message}"""
         flag_modified(user_progress, "orchestrator_data")
         print(f"[DEBUG] Saving state at end - simulation_started: {state_dict['simulation_started']}")
         
-        # Log conversation
+        # Log conversation with persona information
         conversation_log = ConversationLog(
             user_progress_id=user_progress.id,
             scene_id=request.scene_id or user_progress.current_scene_id,
-            message_type="orchestrator",
-            sender_name="ChatOrchestrator",
-            message_content=f"User: {request.message}\n\nOrchestrator: {ai_response}",
+            message_type="ai_persona" if persona_name != "ChatOrchestrator" else "orchestrator",
+            sender_name=persona_name,
+            persona_id=persona_id,  # This will be None for orchestrator messages
+            message_content=f"User: {request.message}\n\n{persona_name}: {ai_response}",
             message_order=1,  # Simplified for now
             timestamp=datetime.utcnow()
         )
@@ -932,8 +1347,10 @@ User's message: {request.message}"""
         return SimulationChatResponse(
             message=ai_response,
             scene_id=request.scene_id or user_progress.current_scene_id,
-            scene_completed=False,  # Let LLM determine this
-            next_scene_id=None
+            scene_completed=scene_completed,
+            next_scene_id=next_scene_id,
+            persona_name=persona_name,
+            persona_id=persona_id
         )
         
     except Exception as e:

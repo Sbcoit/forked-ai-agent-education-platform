@@ -31,7 +31,7 @@ function Modal({ isOpen, onClose, children }: { isOpen: boolean; onClose: () => 
  if (!isOpen) return null;
  return (
    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-60">
-     <div className="bg-white rounded-lg shadow-lg w-[700px] h-[80vh] flex flex-col relative p-0 resize-none">
+     <div className="bg-white rounded-lg shadow-lg w-[1000px] h-[80vh] flex flex-col relative p-0 resize-none">
        <button
          className="absolute top-4 right-4 text-gray-400 text-2xl font-bold hover:text-gray-600 z-10"
          onClick={onClose}
@@ -590,7 +590,8 @@ export default function ScenarioBuilder() {
                personas_involved: scene.personas_involved || [],
                user_goal: scene.user_goal || '',
                sequence_order: scene.sequence_order || index + 1,
-               image_url: scene.image_url || ''
+               image_url: scene.image_url || '',
+               successMetric: scene.successMetric || ''
              };
            });
          
@@ -603,6 +604,7 @@ export default function ScenarioBuilder() {
            console.log(`  Image: ${scene.image_url ? 'Generated' : 'None'}`);
          });
          setScenes(processedScenes);
+         console.log("Processed scenes:", processedScenes.map((s: any) => ({ title: s.title, personas_involved: s.personas_involved })));
        } else {
          console.log("[DEBUG] No scenes found in aiData, creating empty scenes array");
          setScenes([]);
@@ -637,10 +639,7 @@ export default function ScenarioBuilder() {
 
  // Helper to normalize names for comparison
  function normalizeName(name: string) {
-   return name
-     .replace(/[^a-zA-Z ]/g, "") // Remove punctuation
-     .toLowerCase()
-     .trim();
+   return name ? name.replace(/[^a-zA-Z ]/g, "").toLowerCase().trim() : "";
  }
 
 
@@ -1188,6 +1187,7 @@ export default function ScenarioBuilder() {
                                onDelete={() => handleDeleteScene(idx)}
                                editMode={false}
                                allPersonas={[...personas, ...tempPersonas]}
+                               studentRole={autofillResult?.student_role || ""}
                              />
                            </div>
                          </div>
@@ -1227,6 +1227,7 @@ export default function ScenarioBuilder() {
            onDelete={() => handleDeleteScene(editingSceneIdx)}
            editMode={true}
            allPersonas={[...personas, ...tempPersonas]}
+           studentRole={autofillResult?.student_role || ""}
          />
        </Modal>
      )}

@@ -420,6 +420,7 @@ class SimulationChatResponse(BaseModel):
     scene_id: Optional[int] = None
     scene_completed: Optional[bool] = None
     next_scene_id: Optional[int] = None
+    persona_id: Optional[str] = None  # Persona ID for @mentions
     
     class Config:
         from_attributes = True

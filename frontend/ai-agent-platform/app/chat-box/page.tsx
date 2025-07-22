@@ -70,6 +70,9 @@ interface Message {
   timestamp: Date
   type: 'user' | 'ai_persona' | 'system' | 'orchestrator'
   persona_id?: number
+  persona_name?: string  // Add persona name for display
+  scene_completed?: boolean  // Add scene completion flag
+  next_scene_id?: number  // Add next scene ID for progression
 }
 
 // Scenario Selection Component
@@ -381,6 +384,8 @@ export default function LinearSimulationChat() {
     }
   }
 
+
+
   // Send message to orchestrator
   const sendMessage = async () => {
     if (!simulationData || !input.trim() || isLoading) return
@@ -421,13 +426,17 @@ export default function LinearSimulationChat() {
       setTimeout(() => {
         setIsTyping(false)
         
-        // Add orchestrator response
+        // Add orchestrator response with persona information
         const aiMessage: Message = {
           id: Date.now() + 1,
-          sender: "ChatOrchestrator",
+          sender: chatData.persona_name || "ChatOrchestrator",
           text: chatData.message,
           timestamp: new Date(),
-          type: 'orchestrator'
+          type: chatData.persona_name && chatData.persona_name !== "ChatOrchestrator" ? 'ai_persona' : 'orchestrator',
+          persona_name: chatData.persona_name,
+          persona_id: chatData.persona_id,
+          scene_completed: chatData.scene_completed,
+          next_scene_id: chatData.next_scene_id
         }
         setMessages(prev => [...prev, aiMessage])
 
@@ -436,16 +445,44 @@ export default function LinearSimulationChat() {
           setCompletedScenes(prev => [...prev, simulationData.current_scene.id])
           
           if (chatData.next_scene_id) {
-            // Update to next scene (would need to fetch scene data)
-            // For now, just show completion
-            const completionMessage: Message = {
-              id: Date.now() + 2,
-              sender: "System",
-              text: "🎉 Scene completed! Moving to the next scene...",
-              timestamp: new Date(),
-              type: 'system'
-            }
-            setMessages(prev => [...prev, completionMessage])
+            // Fetch next scene data and update simulationData
+            fetch(buildApiUrl(`/api/simulation/scenes/${chatData.next_scene_id}`))
+              .then(response => {
+                if (response.ok) {
+                  return response.json()
+                }
+                throw new Error('Failed to fetch next scene')
+              })
+              .then(nextSceneData => {
+                // Update simulation data with new scene
+                setSimulationData(prev => prev ? {
+                  ...prev,
+                  current_scene: nextSceneData
+                } : null)
+                
+                // Add scene transition message
+                const transitionMessage: Message = {
+                  id: Date.now() + 2,
+                  sender: "System",
+                  text: `🎉 **Scene Completed!** Moving to Scene ${nextSceneData.scene_order}:\n\n**${nextSceneData.title}**\n${nextSceneData.description}\n\n**Objective:** ${nextSceneData.user_goal || 'Complete the scene'}`,
+                  timestamp: new Date(),
+                  type: 'system'
+                }
+                setMessages(prev => [...prev, transitionMessage])
+              })
+              .catch(error => {
+                console.error("Failed to fetch next scene:", error)
+                
+                // Fallback completion message
+                const completionMessage: Message = {
+                  id: Date.now() + 2,
+                  sender: "System",
+                  text: "🎉 Scene completed! Moving to the next scene...",
+                  timestamp: new Date(),
+                  type: 'system'
+                }
+                setMessages(prev => [...prev, completionMessage])
+              })
           }
         }
         
@@ -549,6 +586,8 @@ export default function LinearSimulationChat() {
                       ? 'bg-blue-500 text-white'
                       : message.type === 'system'
                       ? 'bg-gray-100 text-gray-800 border'
+                      : message.type === 'ai_persona'
+                      ? 'bg-green-50 text-gray-800 border border-green-200'
                       : message.type === 'orchestrator'
                       ? 'bg-white text-gray-800 border border-purple-200'
                       : 'bg-white text-gray-800 border'
@@ -557,6 +596,11 @@ export default function LinearSimulationChat() {
                       <span className="text-xs font-semibold opacity-75">
                         {message.sender}
                       </span>
+                      {message.type === 'ai_persona' && (
+                        <Badge variant="secondary" className="text-xs bg-green-100 text-green-800">
+                          {message.persona_name || 'Persona'}
+                        </Badge>
+                      )}
                       {message.type === 'orchestrator' && (
                         <Badge variant="secondary" className="text-xs">
                           AI

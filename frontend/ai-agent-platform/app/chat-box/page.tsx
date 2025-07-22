@@ -193,10 +193,28 @@ const ScenarioSelector = ({
                   </div>
                 </div>
                 
-                <div className="ml-4">
+                <div className="ml-4 flex flex-col items-end gap-2">
                   <Badge variant="outline" className="text-xs">
                     ID: {scenario.id}
                   </Badge>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!window.confirm(`Delete scenario '${scenario.title}'? This cannot be undone.`)) return;
+                      try {
+                        const res = await fetch(buildApiUrl(`/api/scenarios/${scenario.id}`), { method: 'DELETE' });
+                        if (!res.ok) throw new Error('Failed to delete');
+                        setScenarios(scenarios => scenarios.filter(s => s.id !== scenario.id));
+                        if (selectedScenario === scenario.id) setSelectedScenario(null);
+                      } catch (err) {
+                        alert('Failed to delete scenario.');
+                      }
+                    }}
+                  >
+                    Delete
+                  </Button>
                 </div>
               </div>
             </div>

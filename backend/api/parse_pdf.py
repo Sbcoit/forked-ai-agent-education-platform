@@ -10,6 +10,7 @@ import openai
 from typing import List
 from PyPDF2 import PdfReader
 from datetime import datetime
+import string
 
 from database.connection import get_db
 from database.models import Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, scene_personas
@@ -209,6 +210,12 @@ async def parse_pdf(
         print("[DEBUG] Calling process_with_ai...")
         ai_result = await process_with_ai(main_markdown, context_text)
         print("[DEBUG] AI processing completed successfully")
+
+        # Debug: Log personas_involved for all scenes and scene_cards before saving
+        for key in ["scenes", "scene_cards"]:
+            if key in ai_result:
+                for scene in ai_result[key]:
+                    print(f"[DEBUG] Scene '{scene.get('title', scene.get('scene_title', ''))}' personas_involved: {scene.get('personas_involved', [])}")
         
         # Save to database if requested
         scenario_id = None
@@ -218,9 +225,8 @@ async def parse_pdf(
                 ai_result, file, context_files, main_markdown, context_text, user_id, db
             )
             print(f"[DEBUG] Scenario saved with ID: {scenario_id}")
-        
         return {
-            "status": "completed", 
+            "status": "completed",
             "ai_result": ai_result,
             "scenario_id": scenario_id
         }
@@ -489,22 +495,39 @@ CASE STUDY CONTENT (main PDF):
         else:
             combined_content = cleaned_content
             
+        # --- AI Prompt for Scenario Extraction ---
         prompt = f"""
-Analyze this business case study and extract key information. Output ONLY valid JSON.
+You are a highly structured JSON-only generator trained to analyze business case studies for college business education.
 
-Your JSON response MUST contain these exact fields:
-- title: The case study title
-- description: 200+ word detailed background covering context, challenges, and student role  
-- student_role: The role the student will assume
-- key_figures: Array of 6-10 important people/entities with full details
-- learning_outcomes: Array of 5 numbered learning objectives
+CRITICAL: You must identify ALL named individuals, companies, organizations, and significant unnamed roles mentioned within the case study narrative. Focus ONLY on characters and entities that are part of the business story being told.
 
-Focus on extracting comprehensive information about all key figures and their relationships.
+Instructions for key_figures identification:
+- Find ALL types of key figures that can be turned into personas, including:
+  * Named individuals who are characters in the case study (people with first and last names like "John Smith", "Mary Johnson", "Wanjohi", etc.)
+  * Companies and organizations mentioned in the narrative (e.g., "Kaskazi Network", "Competitors", "Suppliers")
+  * Unnamed but important roles within the story (e.g., "The CEO", "The Board of Directors", "The Marketing Manager")
+  * Groups and stakeholders in the narrative (e.g., "Customers", "Employees", "Shareholders", "Partners")
+  * External entities mentioned in the story (e.g., "Government Agencies", "Regulatory Bodies", "Industry Analysts")
+  * Any entity that influences the narrative or decision-making process within the case study
+- Look for names in the format: "FirstName LastName" or "Title LastName" or "FirstName Title"
+- Focus ONLY on the case study narrative content - ignore author sections, acknowledgments, footnotes, or other metadata
+- Include both named and unnamed entities that are part of the business story - do not prioritize one over the other
+- Even if someone/thing is mentioned only once or briefly, include them if they have a discernible role in the narrative
+- Do not skip anyone/anything based on perceived importance - include ALL relevant figures and entities from the story
+- CRITICAL: Do NOT include the student, the player, or the role/position the student is playing (as specified in "student_role") in the key_figures array. Only include non-player characters (NPCs) and entities from the business narrative. The player/student role must be excluded even if mentioned by name or title in the content.
+
+IMPORTANT SCENE GENERATION RULES:
+- For each scene:
+  * The personas_involved array must list only non-student figures (from key_figures) who are actively referenced in the scene_description.
+  * The scene_description must always mention, in-depth and narratively, at least one non-student persona from the personas/key_figures list. The figure(s) must be woven into the scene in a way that makes narrative sense and advances the business scenario. The description should be multi-paragraph, detailed, and immersive, not superficial.
+  * Do not include the main character (student role) in personas_involved.
+
+Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
 
 {{
   "title": "<The exact title of the business case study>",
-  "description": "<A minimum 300-word, 3-paragraph detailed background including: 1) business context and situation, 2) main challenges or decisions, 3) the specific role or position the student will assume in the case, and 4) explicit reference to the key figures and their roles/correlations as part of the narrative>",
-  "student_role": "<The specific role or position the student will assume in this case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', etc.)>",
+  "description": "<A highly comprehensive, multi-paragraph, and in-depth background that includes: 1) the business context, history, and market environment, 2) the main challenges, decisions, and their implications, 3) an explicit and prominent statement that the student will be tackling the case study as the primary decision-maker or central figure (include their name/title if available), 4) clear references to the key figures, their roles, and their relationships to the student’s role, and 5) a synthesis of deeper context, connections, and business analysis inferred from the case study. The description should be analytical, engaging, and written in a professional tone suitable for business education.>",
+  "student_role": "<The specific role or position the student will assume in this case study. This should be the primary decision-maker or central figure in the case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', 'Founder', etc.). This person/role will NOT be included in key_figures since the student will be playing this role.>",
   "key_figures": [
     {{
       "name": "<Full name of figure (e.g., 'John Smith', 'Wanjohi', 'Lisa Mwezi Schuepbach'), or descriptive title if unnamed (e.g., 'The Board of Directors', 'Competitor CEO', 'Industry Analyst')>",
@@ -522,24 +545,52 @@ Focus on extracting comprehensive information about all key figures and their re
         "assertive": <0-10 rating>,
         "collaborative": <0-10 rating>,
         "detail_oriented": <0-10 rating>
-      }}
+      }},
+      "is_main_character": <true if this figure matches the student_role, otherwise false or omit>
     }}
   ],
-
   "learning_outcomes": [
     "1. <Outcome 1>",
     "2. <Outcome 2>",
     "3. <Outcome 3>",
     "4. <Outcome 4>",
     "5. <Outcome 5>"
+  ],
+  "scene_cards": [
+    {{
+      "scene_title": "<Short, clear title for this scene (e.g., 'Executive Team Faces Budget Cuts')>",
+      "goal": "<What the characters or learners are trying to accomplish in this scene. Reference or support one or more of the main learning outcomes in the way this goal is written, but do not list them explicitly.>",
+      "core_challenge": "<The main business dilemma, conflict, or tradeoff happening in this scene. Reference or support the learning outcomes in the narrative, but do not list them explicitly.>",
+      "scene_description": "<A highly detailed, immersive, and at least 200-word, multi-paragraph narrative summary of what happens in this scene. Write in the second person, always centering the experience around the main character (the student role) as the decision-maker. Explicitly mention and involve all personas_involved by name, describing their actions, dialogue, and interactions with the main character. Make the narrative realistic, in-depth, and grounded in the case study context.>",
+      "success_metric": "<A clear, measurable way to determine if the student (main character) has accomplished the specific goal of the scene, written in a way that is directly tied to the actions and decisions required in the narrative. Focus on what the student must do or achieve in the context of this scene, not just a generic outcome.>",
+      "personas_involved": [
+        "<Persona Name 1>",
+        "<Persona Name 2>"
+      ]
+    }}
   ]
 }}
 
-Rules:
-- Output ONLY valid JSON
-- Include all required fields: title, description, student_role, key_figures, learning_outcomes
-- Provide detailed information for each key figure including personality traits and goals
-- Use realistic personality trait ratings (1-10, not all 5s)
+Scene Card generation instructions:
+- Break the case into 4–6 important scenes.
+- Each scene_card MUST be unique: do not repeat or duplicate scene_title, goal, core_challenge, scene_description, success_metric, or personas_involved across different scenes. Each scene must cover a different part of the narrative or a different business challenge/decision.
+- If the case study content is limited, synthesize plausible but non-repetitive scenes based on the available information, but do not copy or repeat any field between scenes.
+- Each scene should align to one of the following simplified stages of business case analysis:
+  * Context & Setup
+  * Analysis & Challenges
+  * Decisions & Tradeoffs
+  * Actions & Outcomes
+- For each scene_card, ensure the goal, core_challenge, scene_description, and success_metric are written in a way that references or supports the main learning outcomes, but do not embed or list the learning outcomes directly in the scene_card fields.
+- The scene_title must NOT include stage names, numbers, or generic labels (such as “Context & Setup”, “Analysis & Challenges”, “Decisions & Tradeoffs”, “Actions & Outcomes”, or similar). The title should be a concise, descriptive summary of the scene’s unique content only.
+- For each scene_card, include a personas_involved field listing the names of personas (from the key_figures array) who are actively participating in or relevant to the scene. The scene_description and goal should narratively reference these personas.
+- Do not invent facts; only use what is in the case study content.
+- Each scene_card object must include exactly those 6 fields listed above. 
+- The success_metric field is required for every scene and must be a clear, measurable metric but make sure to avoid anything numeric related (not vague like “learn something”).
+
+Important generation rules:
+- Output ONLY a valid JSON object. Do not include any extra commentary, markdown, or formatting.
+- All fields are required.
+- The "scene_cards" field must be an array of 4–6 complete, well-structured scene card objects.
 
 CASE STUDY CONTENT (context files first, then main PDF):
 {combined_content}
@@ -552,7 +603,7 @@ CASE STUDY CONTENT (context files first, then main PDF):
         
         # Try with high token limit first, fallback to lower if needed
         max_tokens_attempts = [16384, 12288, 8192]
-        
+        response = None
         for attempt, max_tokens in enumerate(max_tokens_attempts):
             try:
                 print(f"[DEBUG] Attempting OpenAI call with max_tokens={max_tokens} (attempt {attempt + 1})")
@@ -573,21 +624,20 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 print(f"[DEBUG] OpenAI call failed with max_tokens={max_tokens}: {str(api_error)}")
                 if attempt == len(max_tokens_attempts) - 1:  # Last attempt
                     raise api_error  # Re-raise the last error
-                continue  # Try next lower token limit
-                
+                # Try next lower token limit
+                continue
+        if response is None:
+            raise Exception("OpenAI call failed for all token limits.")
         generated_text = response.choices[0].message.content
         print(f"[DEBUG] Raw OpenAI response length: {len(generated_text)} characters")
         print(f"[DEBUG] First 500 characters of response: {generated_text[:500]}...")
         print(f"[DEBUG] Last 500 characters of response: ...{generated_text[-500:]}")
-        
         # Check if response was likely truncated
         finish_reason = response.choices[0].finish_reason
         print(f"[DEBUG] OpenAI finish_reason: {finish_reason}")
-        
         if finish_reason == "length":
             print("[WARNING] OpenAI response was truncated due to max_tokens limit!")
             print("[WARNING] Consider using a more concise prompt or higher token limit")
-            
         # Check if response contains key fields
         if '"key_figures"' in generated_text:
             print("[DEBUG] ✓ Response contains 'key_figures' field")
@@ -696,7 +746,8 @@ CASE STUDY CONTENT (context files first, then main PDF):
                                 "personas_involved": scene.get("personas_involved", []),
                                 "user_goal": scene.get("user_goal", ""),
                                 "sequence_order": scene.get("sequence_order", i+1),
-                                "image_url": image_urls[i] if i < len(image_urls) and not isinstance(image_urls[i], Exception) else ""
+                                "image_url": image_urls[i] if i < len(image_urls) and not isinstance(image_urls[i], Exception) else "",
+                                "successMetric": scene.get("success_metric", "")
                             }
                             processed_scenes.append(processed_scene)
                             print(f"[DEBUG] Scene {i+1}: {processed_scene['title']} - Image: {'Generated' if processed_scene['image_url'] else 'Failed'}")
@@ -720,6 +771,106 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 print("[DEBUG] Scene titles:", [scene.get('title', 'Unknown') for scene in processed_scenes])
                 print(f"[DEBUG] Final result keys: {list(final_result.keys())}")
                 print(f"[DEBUG] Scenes in final result: {len(final_result.get('scenes', []))}")
+                print("[DEBUG] Raw AI scenes:", ai_result.get("scene_cards", []))
+                
+                # Post-processing validation to ensure student role is not in key_figures
+                student_role = final_result.get("student_role", "").lower()
+                key_figures = final_result.get("key_figures", [])
+
+                # After parsing key_figures, filter out any with is_main_character true
+                filtered_key_figures = []
+                for fig in key_figures:
+                    if fig.get("is_main_character", False):
+                        print(f"[DEBUG] Removing main character from key_figures: {fig.get('name', '')}")
+                        continue
+                    filtered_key_figures.append(fig)
+                final_result["key_figures"] = filtered_key_figures
+
+                # Ensure every scene has personas_involved and successMetric (fallback to scene_cards if needed)
+                if "scenes" in final_result and "scene_cards" in ai_result:
+                    scene_cards = ai_result["scene_cards"]
+                    key_figure_names = [fig["name"] for fig in final_result["key_figures"]]
+                    student_role = final_result.get("student_role", "").strip().lower()
+                    for i, scene in enumerate(final_result["scenes"]):
+                        # Fallback for personas_involved
+                        if (not scene.get("personas_involved") or len(scene.get("personas_involved", [])) == 0) and i < len(scene_cards):
+                            pi = scene_cards[i].get("personas_involved", [])
+                            if pi:
+                                scene["personas_involved"] = pi
+                        # --- ENFORCE: At least one non-student persona in personas_involved ---
+                        personas = scene.get("personas_involved", [])
+                        # Remove main character if present
+                        personas = [p for p in personas if p.strip().lower() != student_role]
+                        # Parse description for persona names
+                        desc = scene.get("description", "")
+                        mentioned = [name for name in key_figure_names if name in desc and name.strip().lower() != student_role]
+                        for name in mentioned:
+                            if name not in personas:
+                                personas.append(name)
+                        # If still empty, add the first non-student persona
+                        if not personas and key_figure_names:
+                            first_non_student = next((n for n in key_figure_names if n.strip().lower() != student_role), None)
+                            if first_non_student:
+                                personas.append(first_non_student)
+                                # Optionally, append a sentence to the description
+                                scene["description"] = desc + f"\n\n{first_non_student} is present in this scene."
+                        scene["personas_involved"] = personas
+                        # Fallback for successMetric
+                        if not scene.get("successMetric") and i < len(scene_cards):
+                            metric = scene_cards[i].get("success_metric")
+                            if metric:
+                                scene["successMetric"] = metric
+                print("[DEBUG] Final processed scenes:", final_result.get("scenes", []))
+                
+                # Robustly remove main character from personas_involved in all scenes (final step)
+                def normalize_name(name):
+                    return ''.join(c for c in name.lower().strip() if c.isalnum())
+
+                def is_likely_same_person(student_role, persona_name):
+                    n_role = normalize_name(student_role)
+                    n_name = normalize_name(persona_name)
+                    if not n_role or not n_name:
+                        return False
+                    if n_role == n_name:
+                        return True
+                    # Split into words and check for overlap
+                    role_words = n_role.split()
+                    name_words = n_name.split()
+                    overlap = [w for w in role_words if w in name_words]
+                    return len(overlap) >= 1  # At least one word matches
+
+                student_role = final_result.get("student_role", "")
+                student_role_norm = normalize_name(student_role)
+                key_figures = final_result.get("key_figures", [])
+
+                # Mark main character in key_figures
+                for fig in key_figures:
+                    fig_name = fig.get("name", "")
+                    fig_role = fig.get("role", "")
+                    fig["is_main_character"] = (
+                        is_likely_same_person(student_role, fig_name) or
+                        is_likely_same_person(student_role, fig_role)
+                    )
+
+                main_character_names = {fig["name"] for fig in final_result["key_figures"] if fig.get("is_main_character", False)}
+
+                # Fallback: if main_character_names is empty, try to detect it
+                if not main_character_names:
+                    student_role = final_result.get("student_role", "")
+                    student_role_norm = normalize_name(student_role)
+                    for fig in final_result["key_figures"]:
+                        if student_role_norm in normalize_name(fig.get("name", "")) or student_role_norm in normalize_name(fig.get("role", "")):
+                            main_character_names.add(fig.get("name", ""))
+                            print(f"[DEBUG] Fallback: Detected main character as {fig.get('name', '')}")
+
+                for scene in final_result.get("scenes", []):
+                    before = list(scene.get("personas_involved", []))
+                    scene["personas_involved"] = [
+                        p for p in scene.get("personas_involved", [])
+                        if normalize_name(p) not in {normalize_name(n) for n in main_character_names}
+                    ]
+                    print(f"[DEBUG] Filtering personas_involved: {before} | main_character_names: {main_character_names} | after: {scene['personas_involved']}")
+                
                 return final_result
             except json.JSONDecodeError as e:
                 print(f"[ERROR] Failed to parse JSON from AI response even after fixing: {e}")
@@ -727,20 +878,20 @@ CASE STUDY CONTENT (context files first, then main PDF):
         else:
             print("[ERROR] No JSON object found in OpenAI response.")
             
-        # Fallback: return structured content
-        return {
-            "title": title,
-            "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
-            "key_figures": [],
+            # Fallback: return structured content
+            return {
+                        "title": title,
+                        "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
+                "key_figures": [],
             "scenes": [],
-            "learning_outcomes": [
-                "1. Analyze the business situation presented in the case study",
-                "2. Identify key stakeholders and their interests",
-                "3. Develop strategic recommendations based on the analysis",
-                "4. Evaluate the impact of decisions on organizational performance",
-                "5. Apply business concepts and frameworks to real-world scenarios"
-            ]
-        }
+                        "learning_outcomes": [
+                            "1. Analyze the business situation presented in the case study",
+                            "2. Identify key stakeholders and their interests",
+                            "3. Develop strategic recommendations based on the analysis",
+                            "4. Evaluate the impact of decisions on organizational performance",
+                            "5. Apply business concepts and frameworks to real-world scenarios"
+                        ]
+                    }
     
     except Exception as e:
         print(f"[ERROR] AI processing failed: {str(e)}")
@@ -823,7 +974,6 @@ async def save_scenario_to_db(
         
         # Save scenes
         scenes = ai_result.get("scenes", [])
-        
         for i, scene in enumerate(scenes):
             if isinstance(scene, dict) and scene.get("title"):
                 scene_record = ScenarioScene(
@@ -840,17 +990,17 @@ async def save_scenario_to_db(
                 )
                 db.add(scene_record)
                 db.flush()
-                
                 print(f"[DEBUG] Created scene: {scene['title']} with ID: {scene_record.id}")
-                
                 # Link personas to scene (if personas_involved exists)
                 personas_involved = scene.get("personas_involved", [])
-                for persona_name in personas_involved:
+                unique_persona_names = set(personas_involved)
+                for persona_name in unique_persona_names:
                     if persona_name in persona_mapping:
+                        pid = persona_mapping[persona_name]
                         db.execute(
                             scene_personas.insert().values(
                                 scene_id=scene_record.id,
-                                persona_id=persona_mapping[persona_name],
+                                persona_id=pid,
                                 involvement_level="participant"
                             )
                         )

@@ -13,7 +13,7 @@ from datetime import datetime
 from database.connection import get_db
 from database.models import (
     Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, 
-    ScenarioReview, User, scene_personas
+    ScenarioReview, User, scene_personas, UserProgress
 )
 from database.schemas import (
     ScenarioPublishingResponse, ScenarioPublishRequest, MarketplaceFilters,
@@ -464,6 +464,37 @@ async def clone_scenario(
         "new_scenario_id": new_scenario.id,
         "message": f"Scenario cloned successfully as '{new_scenario.title}'"
     }
+
+@router.delete("/{scenario_id}")
+async def delete_scenario(
+    scenario_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a scenario and all related data by scenario ID.
+    """
+    scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    # Delete related user progress
+    db.query(UserProgress).filter(UserProgress.scenario_id == scenario_id).delete()
+    # Delete related scene_personas links
+    scene_ids = [s.id for s in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario_id).all()]
+    if scene_ids:
+        db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(scene_ids)))
+    # Delete related personas
+    db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == scenario_id).delete()
+    # Delete related scenes
+    db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario_id).delete()
+    # Delete related files
+    db.query(ScenarioFile).filter(ScenarioFile.scenario_id == scenario_id).delete()
+    # Delete related reviews
+    db.query(ScenarioReview).filter(ScenarioReview.scenario_id == scenario_id).delete()
+    # Delete the scenario itself
+    db.delete(scenario)
+    db.commit()
+    return {"status": "success", "message": f"Scenario {scenario_id} deleted."}
 
 # --- SCENARIO REVIEW ENDPOINTS ---
 

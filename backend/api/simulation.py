@@ -323,7 +323,7 @@ async def start_simulation(
                     "objectives": [scene.user_goal] if scene.user_goal else ["Complete the scene interaction"],
                     "image_url": scene.image_url,
                     "agent_ids": [p.name.lower().replace(" ", "_") for p in all_personas],  # All personas available
-                    "max_turns": 20,
+                    "max_turns": scene.timeout_turns if scene.timeout_turns is not None else 15,
                     "success_criteria": f"User achieves: {scene.user_goal or 'scene completion'}"
                 }
                 for scene in all_scenes
@@ -390,10 +390,11 @@ async def start_simulation(
     )
     
     # Get all personas for the scenario (not just scene-specific ones)
+    main_character_name = (scenario.student_role or '').strip().lower()
     scene_personas = db.query(ScenarioPersona).filter(
         ScenarioPersona.scenario_id == scenario.id
     ).all()
-    
+
     personas_data = [
         ScenarioPersonaResponse(
             id=persona.id,
@@ -410,6 +411,7 @@ async def start_simulation(
             created_at=persona.created_at,
             updated_at=persona.updated_at
         ) for persona in scene_personas
+        if persona.name.strip().lower() != main_character_name
     ]
     
     scene_data = ScenarioSceneResponse(
@@ -944,7 +946,10 @@ async def get_scene_by_id(
             role=persona.role,
             background=persona.background,
             correlation=persona.correlation,
-            primary_goals=persona.primary_goals or [],
+            primary_goals=(
+                [persona.primary_goals] if isinstance(persona.primary_goals, str) and persona.primary_goals else
+                persona.primary_goals if isinstance(persona.primary_goals, list) else []
+            ),
             personality_traits=persona.personality_traits or {},
             created_at=persona.created_at,
             updated_at=persona.updated_at

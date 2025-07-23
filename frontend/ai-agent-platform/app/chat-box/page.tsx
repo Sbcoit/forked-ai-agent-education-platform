@@ -54,6 +54,7 @@ interface Scene {
   estimated_duration?: number
   image_url?: string
   personas: Persona[]
+  timeout_turns?: number // Add this line
 }
 
 interface SimulationData {
@@ -308,6 +309,12 @@ const CurrentSceneInfo = ({ scene }: { scene: Scene }) => {
             <p className="text-sm text-blue-700">{scene.user_goal}</p>
           </div>
         )}
+        
+        {/* Always display timeout_turns */}
+        <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mb-3">
+          <p className="text-sm font-medium text-yellow-800">Timeout Turns:</p>
+          <p className="text-sm text-yellow-700">{typeof scene.timeout_turns === 'number' ? scene.timeout_turns : 'Not set'}</p>
+        </div>
         
         {scene.personas && scene.personas.length > 0 && (
           <div>

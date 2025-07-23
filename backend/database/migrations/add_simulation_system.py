@@ -32,6 +32,9 @@ def run_migration():
             "ALTER TABLE scenario_scenes ADD COLUMN hint_triggers TEXT;",
             "ALTER TABLE scenario_scenes ADD COLUMN scene_context TEXT;",
             "ALTER TABLE scenario_scenes ADD COLUMN persona_instructions TEXT;",
+            # New fields for timeline cards
+            "ALTER TABLE scenario_scenes ADD COLUMN timeout_turns INTEGER;",
+            "ALTER TABLE scenario_scenes ADD COLUMN success_metric TEXT;",
         ]
         
         for query in enhancement_queries:
@@ -200,10 +203,40 @@ def rollback_migration():
         if conn:
             conn.close()
 
+def add_timeout_turns_column():
+    """Add timeout_turns column to scenario_scenes if it does not exist"""
+    db_path = Path(__file__).parent.parent.parent / "ai_agent_platform.db"
+    if not db_path.exists():
+        print(f"Database not found at {db_path}")
+        return False
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        # Check if column exists
+        cursor.execute("PRAGMA table_info(scenario_scenes);")
+        columns = [row[1] for row in cursor.fetchall()]
+        if "timeout_turns" in columns:
+            print("timeout_turns column already exists in scenario_scenes.")
+            return True
+        # Add the column
+        cursor.execute("ALTER TABLE scenario_scenes ADD COLUMN timeout_turns INTEGER;")
+        conn.commit()
+        print("✓ Added timeout_turns column to scenario_scenes.")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to add timeout_turns column: {e}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == "__main__":
     import sys
-    
     if len(sys.argv) > 1 and sys.argv[1] == "rollback":
         rollback_migration()
+    elif len(sys.argv) > 1 and sys.argv[1] == "add_timeout_turns":
+        add_timeout_turns_column()
     else:
         run_migration() 

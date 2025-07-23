@@ -139,6 +139,10 @@ class ScenarioScene(Base):
     scene_order = Column(Integer, default=0)
     estimated_duration = Column(Integer, nullable=True)
     
+    # New fields for simulation control
+    timeout_turns = Column(Integer, nullable=True)  # Number of turns before timeout
+    success_metric = Column(String, nullable=True)  # How to measure scene success
+    
     # Sequential simulation features
     max_attempts = Column(Integer, default=5)
     success_threshold = Column(Float, default=0.7)

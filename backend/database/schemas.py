@@ -91,6 +91,9 @@ class ScenarioSceneCreate(BaseModel):
     estimated_duration: Optional[int] = None
     image_url: Optional[str] = None
     image_prompt: Optional[str] = None
+    # New fields
+    timeout_turns: Optional[int] = None
+    success_metric: Optional[str] = None
     persona_ids: Optional[List[int]] = None  # IDs of personas involved
 
 class ScenarioSceneResponse(BaseModel):
@@ -103,6 +106,9 @@ class ScenarioSceneResponse(BaseModel):
     estimated_duration: Optional[int]
     image_url: Optional[str]
     image_prompt: Optional[str]
+    # New fields
+    timeout_turns: Optional[int] = None
+    success_metric: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     personas: Optional[List[ScenarioPersonaResponse]] = None

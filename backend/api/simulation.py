@@ -373,13 +373,19 @@ async def start_simulation(
     db.commit()
     
     # Prepare response data
+    # Ensure learning_objectives is always a list
+    learning_objectives = scenario.learning_objectives
+    if isinstance(learning_objectives, str):
+        learning_objectives = [learning_objectives]
+    elif learning_objectives is None:
+        learning_objectives = []
     scenario_data = SimulationScenarioResponse(
         id=scenario.id,
         title=scenario.title,
         description=scenario.description,
         challenge=scenario.challenge,
         industry=scenario.industry,
-        learning_objectives=scenario.learning_objectives or [],
+        learning_objectives=learning_objectives,
         student_role=scenario.student_role
     )
     
@@ -396,7 +402,10 @@ async def start_simulation(
             role=persona.role,
             background=persona.background,
             correlation=persona.correlation,
-            primary_goals=persona.primary_goals or [],
+            primary_goals=(
+                [persona.primary_goals] if isinstance(persona.primary_goals, str) and persona.primary_goals else
+                persona.primary_goals if isinstance(persona.primary_goals, list) else []
+            ),
             personality_traits=persona.personality_traits or {},
             created_at=persona.created_at,
             updated_at=persona.updated_at
@@ -413,6 +422,8 @@ async def start_simulation(
         estimated_duration=current_scene.estimated_duration,
         image_url=current_scene.image_url,
         image_prompt=current_scene.image_prompt,
+        timeout_turns=current_scene.timeout_turns,  # Ensure this is included
+        success_metric=current_scene.success_metric,  # Ensure this is included
         created_at=current_scene.created_at,
         updated_at=current_scene.updated_at,
         personas=personas_data

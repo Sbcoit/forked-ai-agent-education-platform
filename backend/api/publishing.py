@@ -55,39 +55,51 @@ async def save_scenario_draft(
         title = actual_ai_result.get("title", "Untitled Scenario")
         print(f"[DEBUG] Extracted title: {title}")
         
-        # Create scenario record as draft
-        scenario = Scenario(
-            title=title,
-            description=actual_ai_result.get("description", ""),
-            challenge=actual_ai_result.get("description", ""),
-            industry="Business",
-            learning_objectives=actual_ai_result.get("learning_outcomes", []),
-            student_role=actual_ai_result.get("student_role", "Business Analyst"),
-            source_type="pdf_upload",
-            pdf_title=title,
-            pdf_source="Uploaded PDF",
-            processing_version="1.0",
-            is_public=False,  # Draft - not public
-            allow_remixes=True,
-            created_by=user_id,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
-        )
-        
-        db.add(scenario)
-        db.flush()
-        
-        print(f"[DEBUG] Created draft scenario with ID: {scenario.id}")
-        print(f"[DEBUG] Scenario title: '{scenario.title}'")
-        print(f"[DEBUG] Scenario description length: {len(scenario.description or '')}")
-        print(f"[DEBUG] Scenario description preview: {(scenario.description or '')[:100]}...")
-        
+        # Try to find an existing scenario by title and user (or use a better unique key if available)
+        scenario = db.query(Scenario).filter_by(title=title, created_by=user_id).first()
+        if scenario:
+            print(f"[DEBUG] Updating existing scenario with ID: {scenario.id}")
+            scenario.title = title
+            scenario.description = actual_ai_result.get("description", "")
+            scenario.challenge = actual_ai_result.get("description", "")
+            scenario.learning_objectives = actual_ai_result.get("learning_outcomes", [])
+            scenario.student_role = actual_ai_result.get("student_role", "Business Analyst")
+            scenario.updated_at = datetime.utcnow()
+            db.flush()
+            # Remove existing personas and scenes
+            db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == scenario.id).delete()
+            db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario.id).delete()
+            db.flush()
+        else:
+            # Create scenario record as draft
+            scenario = Scenario(
+                title=title,
+                description=actual_ai_result.get("description", ""),
+                challenge=actual_ai_result.get("description", ""),
+                industry="Business",
+                learning_objectives=actual_ai_result.get("learning_outcomes", []),
+                student_role=actual_ai_result.get("student_role", "Business Analyst"),
+                source_type="pdf_upload",
+                pdf_title=title,
+                pdf_source="Uploaded PDF",
+                processing_version="1.0",
+                is_public=False,  # Draft - not public
+                allow_remixes=True,
+                created_by=user_id,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.add(scenario)
+            db.flush()
+            print(f"[DEBUG] Created draft scenario with ID: {scenario.id}")
+
         # Save personas
         persona_mapping = {}
         key_figures = actual_ai_result.get("key_figures", [])
-        
-        print(f"[DEBUG] Saving {len(key_figures)} personas...")
-        for figure in key_figures:
+        personas = actual_ai_result.get("personas", [])
+        persona_list = key_figures if key_figures else personas
+        print(f"[DEBUG] Saving {len(persona_list)} personas...")
+        for figure in persona_list:
             if isinstance(figure, dict) and figure.get("name"):
                 persona = ScenarioPersona(
                     scenario_id=scenario.id,
@@ -95,8 +107,8 @@ async def save_scenario_draft(
                     role=figure.get("role", ""),
                     background=figure.get("background", ""),
                     correlation=figure.get("correlation", ""),
-                    primary_goals=figure.get("primary_goals", []),
-                    personality_traits=figure.get("personality_traits", {}),
+                    primary_goals=figure.get("primary_goals", []) or figure.get("primaryGoals", []),
+                    personality_traits=figure.get("personality_traits", {}) or figure.get("traits", {}),
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
@@ -104,10 +116,9 @@ async def save_scenario_draft(
                 db.flush()
                 persona_mapping[figure["name"]] = persona.id
                 print(f"[DEBUG] Created persona: {figure['name']} with ID: {persona.id}")
-        
+
         # Save scenes
         scenes = actual_ai_result.get("scenes", [])
-        
         print(f"[DEBUG] Saving {len(scenes)} scenes...")
         for i, scene in enumerate(scenes):
             if isinstance(scene, dict) and scene.get("title"):
@@ -120,16 +131,15 @@ async def save_scenario_draft(
                     estimated_duration=scene.get("estimated_duration", 30),
                     image_url=scene.get("image_url", ""),
                     image_prompt=f"Business scene: {scene.get('title', '')}",
+                    timeout_turns=int(scene.get("timeout_turns") or 15),
+                    success_metric=scene.get("success_metric"),
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
                 db.add(scene_record)
                 db.flush()
-                
                 print(f"[DEBUG] Created scene: {scene['title']} with ID: {scene_record.id}")
-                
                 # Link all personas to each scene (since we don't have personas_involved in the AI result)
-                # In a real scenario, we'd want to be more specific about which personas are in which scenes
                 for persona_name, persona_id in persona_mapping.items():
                     db.execute(
                         scene_personas.insert().values(
@@ -139,27 +149,8 @@ async def save_scenario_draft(
                         )
                     )
                     print(f"[DEBUG] Linked persona {persona_name} to scene {scene['title']}")
-        
-        # Save file metadata
-        scenario_file = ScenarioFile(
-            scenario_id=scenario.id,
-            filename="Business_Case_Study.pdf",  # Add the missing filename field
-            file_path="uploaded_file.pdf",  # Generic name since we don't have file here
-            file_type="pdf",
-            processing_status="completed",
-            processing_log={
-                "personas_count": len(key_figures),
-                "scenes_count": len(scenes),
-                "processing_timestamp": datetime.utcnow().isoformat()
-            },
-            uploaded_at=datetime.utcnow(),
-            processed_at=datetime.utcnow()
-        )
-        db.add(scenario_file)
-        
         db.commit()
         print(f"[DEBUG] Successfully saved draft scenario {scenario.id}")
-        
         return {
             "status": "saved",
             "scenario_id": scenario.id,

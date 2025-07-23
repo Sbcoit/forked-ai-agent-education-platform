@@ -15,7 +15,7 @@ interface Scene {
   image_url?: string;
   // For future extensibility
   successMetric?: string;
-  timeoutTurns?: number;
+  timeout_turns?: number;
 }
 
 interface SceneCardProps {
@@ -42,7 +42,7 @@ export default function SceneCard({
     user_goal: scene.user_goal,
     sequence_order: scene.sequence_order,
     image_url: scene.image_url || "",
-    timeoutTurns: scene.timeoutTurns !== undefined ? String(scene.timeoutTurns) : "15",
+    timeout_turns: scene.timeout_turns !== undefined && scene.timeout_turns !== null ? String(scene.timeout_turns) : "15", // Default to 15
     successMetric: scene.successMetric || ""
   });
 
@@ -60,7 +60,7 @@ export default function SceneCard({
       user_goal: scene.user_goal,
       sequence_order: scene.sequence_order,
       image_url: scene.image_url || "",
-      timeoutTurns: scene.timeoutTurns !== undefined ? String(scene.timeoutTurns) : "15",
+      timeout_turns: scene.timeout_turns !== undefined && scene.timeout_turns !== null ? String(scene.timeout_turns) : "15", // Default to 15
       successMetric: scene.successMetric || ""
     });
     setImagePreviewUrl(scene.image_url || null);
@@ -105,6 +105,8 @@ export default function SceneCard({
   };
 
   const handleSave = () => {
+    // Debug log to check editFields before saving
+    console.log("editFields before save:", editFields);
     if (onSave) {
       onSave({
         ...scene,
@@ -114,7 +116,7 @@ export default function SceneCard({
         user_goal: editFields.user_goal,
         sequence_order: editFields.sequence_order,
         image_url: editFields.image_url,
-        timeoutTurns: editFields.timeoutTurns ? parseInt(editFields.timeoutTurns) || 15 : 15,
+        timeout_turns: editFields.timeout_turns ? parseInt(editFields.timeout_turns) || 15 : 15, // Ensure timeout_turns is included
         successMetric: editFields.successMetric || ""
       });
     }
@@ -351,8 +353,8 @@ export default function SceneCard({
                     id="scene-timeout-turns"
                     type="number"
                     className="mt-1 block w-full rounded border-gray-300 text-sm"
-                    value={editFields.timeoutTurns}
-                    onChange={e => handleFieldChange("timeoutTurns", e.target.value)}
+                    value={editFields.timeout_turns}
+                    onChange={e => handleFieldChange("timeout_turns", e.target.value)}
                     placeholder="Turns before the scenario ends."
                     min="1"
                   />

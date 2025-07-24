@@ -370,6 +370,21 @@ export default function LinearSimulationChat() {
   // Add a state to block input when scene is completed and next scene is loading
   const [inputBlocked, setInputBlocked] = useState(false);
 
+  // Add a state for all scenes
+  const [allScenes, setAllScenes] = useState<Scene[]>([]);
+
+  // Helper to add a scene to allScenes if not already present
+  const addSceneIfMissing = (scene: Scene) => {
+    setAllScenes(prev => {
+      if (!scene || !scene.id) return prev;
+      const exists = prev.some(s => s.id === scene.id);
+      if (!exists) {
+        return [...prev, scene];
+      }
+      return prev;
+    });
+  };
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom
@@ -400,6 +415,23 @@ export default function LinearSimulationChat() {
       const data: SimulationData = await response.json()
       setSimulationData(data)
       
+      // Try to fetch all scenes for the scenario
+      const scenesRes = await fetch(buildApiUrl(`/api/scenarios/${scenarioId}/full`));
+      if (scenesRes.ok) {
+        const scenarioDetail = await scenesRes.json();
+        console.log("[DEBUG] Scenario detail response:", scenarioDetail);
+        if (scenarioDetail.scenes && Array.isArray(scenarioDetail.scenes) && scenarioDetail.scenes.length > 0) {
+          setAllScenes(scenarioDetail.scenes);
+          console.log("[DEBUG] allScenes set to:", scenarioDetail.scenes);
+        } else {
+          setAllScenes([data.current_scene]);
+          console.log("[DEBUG] allScenes fallback to current_scene:", [data.current_scene]);
+        }
+      } else {
+        setAllScenes([data.current_scene]);
+        console.log("[DEBUG] allScenes fallback to current_scene (fetch error):", [data.current_scene]);
+      }
+
       // Add welcome message
       setMessages([{
         id: Date.now(),
@@ -485,47 +517,70 @@ export default function LinearSimulationChat() {
           setTurnCount(chatData.turn_count);
         }
         // In sendMessage, after receiving chatData, immediately block input and fetch the next scene if scene_completed is true and next_scene_id is present
-        if (chatData.scene_completed && chatData.next_scene_id) {
-          setInputBlocked(true);
-          // Fetch next scene data and update simulationData
-          fetch(buildApiUrl(`/api/simulation/scenes/${chatData.next_scene_id}`))
-            .then(response => {
-              if (response.ok) {
-                return response.json();
-              }
-              throw new Error('Failed to fetch next scene');
-            })
-            .then(nextSceneData => {
-              setSimulationData(prev => prev ? {
-                ...prev,
-                current_scene: nextSceneData
-              } : null);
-              setTurnCount(0);
-              setInputBlocked(false); // Unblock input after scene loads
-              // Add scene transition message
-              const transitionMessage: Message = {
-                id: Date.now() + 2,
-                sender: "System",
-                text: `🎉 **Scene Completed!** Moving to Scene ${nextSceneData.scene_order}:\n\n**${nextSceneData.title}**\n${nextSceneData.description}\n\n**Objective:** ${nextSceneData.user_goal || 'Complete the scene'}`,
-                timestamp: new Date(),
-                type: 'system'
-              };
-              setMessages(prev => [...prev, transitionMessage]);
-            })
-            .catch(error => {
-              console.error("Failed to fetch next scene:", error);
-              setInputBlocked(false);
-              // Fallback completion message
-              const completionMessage: Message = {
-                id: Date.now() + 2,
-                sender: "System",
-                text: "🎉 Scene completed! Moving to the next scene...",
-                timestamp: new Date(),
-                type: 'system'
-              };
-              setMessages(prev => [...prev, completionMessage]);
-            });
-          return; // Prevent further UI updates or typing delay
+        if (chatData.scene_completed) {
+          setCompletedScenes(prev => {
+            // Always add the current scene if not already present
+            if (!prev.includes(simulationData.current_scene.id)) {
+              return [...prev, simulationData.current_scene.id];
+            }
+            return prev;
+          });
+          addSceneIfMissing(simulationData.current_scene);
+
+          if (chatData.next_scene_id) {
+            setInputBlocked(true);
+            // Fetch next scene data and update simulationData
+            fetch(buildApiUrl(`/api/simulation/scenes/${chatData.next_scene_id}`))
+              .then(response => {
+                if (response.ok) {
+                  return response.json();
+                }
+                throw new Error('Failed to fetch next scene');
+              })
+              .then(nextSceneData => {
+                setSimulationData(prev => prev ? {
+                  ...prev,
+                  current_scene: nextSceneData
+                } : null);
+                setTurnCount(0);
+                setInputBlocked(false);
+                addSceneIfMissing(nextSceneData);
+                // Add scene transition message
+                const transitionMessage: Message = {
+                  id: Date.now() + 2,
+                  sender: "System",
+                  text: `🎉 **Scene Completed!** Moving to Scene ${nextSceneData.scene_order}:\n\n**${nextSceneData.title}**\n${nextSceneData.description}\n\n**Objective:** ${nextSceneData.user_goal || 'Complete the scene'}`,
+                  timestamp: new Date(),
+                  type: 'system'
+                };
+                setMessages(prev => [...prev, transitionMessage]);
+              })
+              .catch(error => {
+                console.error("Failed to fetch next scene:", error);
+                setInputBlocked(false);
+                // Fallback completion message
+                const completionMessage: Message = {
+                  id: Date.now() + 2,
+                  sender: "System",
+                  text: "🎉 Scene completed! Moving to the next scene...",
+                  timestamp: new Date(),
+                  type: 'system'
+                };
+                setMessages(prev => [...prev, completionMessage]);
+              });
+            return;
+          } else {
+            // Last scene completed, unblock input and show completion message
+            setInputBlocked(false);
+            setMessages(prev => [...prev, {
+              id: Date.now() + 3,
+              sender: "System",
+              text: "🎉 Simulation complete! You have finished all scenes.",
+              timestamp: new Date(),
+              type: 'system'
+            }]);
+          }
+          return;
         }
         
       }, 1500) // 1.5 second typing delay
@@ -572,15 +627,21 @@ export default function LinearSimulationChat() {
   }
 
   // Main simulation interface
+  // Calculate totalScenes before the JSX return
+  const totalScenes = allScenes.length > 0
+    ? allScenes.length
+    : Math.max(simulationData?.current_scene?.scene_order || 1, 1);
+
   return (
     <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* Left Sidebar - Progress & Scene Info */}
         <div className="lg:col-span-1">
+          {/* In the render, use totalScenes for SceneProgress */}
           <SceneProgress
             currentScene={simulationData.current_scene.scene_order}
-            totalScenes={4} // This should come from scenario data
+            totalScenes={totalScenes}
             completedScenes={completedScenes}
           />
           

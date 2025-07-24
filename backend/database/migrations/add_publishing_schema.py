@@ -11,6 +11,7 @@ from pathlib import Path
 
 # Get database URL from environment
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ai_agent_platform.db")
+print(f"[DEBUG] Using DATABASE_URL: {DATABASE_URL}")
 
 def run_migration():
     """Run the publishing schema migration"""
@@ -244,10 +245,20 @@ def rollback_migration():
         print(f"❌ Database connection failed: {e}")
         raise e
 
+def add_published_scenarios_column():
+    """Add published_scenarios column to users table if missing"""
+    engine = create_engine(DATABASE_URL)
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE users ADD COLUMN published_scenarios INTEGER DEFAULT 0;"))
+            print("✓ Added published_scenarios column to users table.")
+        except Exception as e:
+            print(f"[ERROR] Full exception: {repr(e)}")
+            if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+                print("⚠ published_scenarios column already exists.")
+            else:
+                print(f"✗ Error adding published_scenarios column: {e}")
+
 if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) > 1 and sys.argv[1] == "rollback":
-        rollback_migration()
-    else:
-        run_migration() 
+    print("Adding published_scenarios column to users table...")
+    add_published_scenarios_column() 

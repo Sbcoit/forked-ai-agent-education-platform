@@ -305,33 +305,58 @@ async def get_scenario_full(
     Get full scenario details with personas, scenes, and reviews
     Increments usage count for public scenarios
     """
-    
     scenario = db.query(Scenario).options(
         selectinload(Scenario.personas),
         selectinload(Scenario.scenes).selectinload(ScenarioScene.personas),
         selectinload(Scenario.files),
         selectinload(Scenario.creator)
     ).filter(Scenario.id == scenario_id).first()
-    
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
-    
-    # Increment usage count for public scenarios
     if scenario.is_public:
         scenario.usage_count += 1
         db.commit()
-    
-    # Get recent reviews
     reviews = db.query(ScenarioReview).options(
         selectinload(ScenarioReview.reviewer)
     ).filter(
         ScenarioReview.scenario_id == scenario_id
     ).order_by(desc(ScenarioReview.created_at)).limit(10).all()
-    
-    # Attach reviews to response
     scenario_dict = scenario.__dict__.copy()
     scenario_dict['reviews'] = reviews
-    
+    scenes = db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario_id).order_by(ScenarioScene.scene_order).all()
+    from database.schemas import ScenarioSceneResponse
+    scene_dicts = []
+    for scene in scenes:
+        scene_data = scene.__dict__.copy()
+        # Build personas as dicts and decode primary_goals
+        persona_dicts = []
+        if hasattr(scene, 'personas') and scene.personas:
+            for persona in scene.personas:
+                persona_data = persona.__dict__.copy()
+                if 'primary_goals' in persona_data and isinstance(persona_data['primary_goals'], str):
+                    try:
+                        persona_data['primary_goals'] = json.loads(persona_data['primary_goals'])
+                    except Exception:
+                        persona_data['primary_goals'] = []
+                persona_dicts.append(persona_data)
+        scene_data['personas'] = persona_dicts
+        scene_dicts.append(scene_data)
+    scenario_dict['scenes'] = [ScenarioSceneResponse.model_validate(scene).model_dump() for scene in scene_dicts]
+    # Ensure all required fields for ScenarioPublishingResponse are present
+    required_fields = [
+        'id', 'title', 'description', 'challenge', 'industry', 'learning_objectives',
+        'student_role', 'category', 'difficulty_level', 'estimated_duration', 'tags',
+        'pdf_title', 'pdf_source', 'processing_version', 'rating_avg', 'rating_count',
+        'source_type', 'is_public', 'is_template', 'allow_remixes', 'usage_count',
+        'clone_count', 'created_by', 'created_at', 'updated_at'
+    ]
+    for field in required_fields:
+        if field not in scenario_dict:
+            scenario_dict[field] = getattr(scenario, field, None)
+    # Fix learning_objectives if it's a string
+    if isinstance(scenario_dict.get('learning_objectives'), str):
+        items = [item.strip() for item in scenario_dict['learning_objectives'].split('\n') if item.strip()]
+        scenario_dict['learning_objectives'] = items
     return scenario_dict
 
 @router.post("/{scenario_id}/clone")

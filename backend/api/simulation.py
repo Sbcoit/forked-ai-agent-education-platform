@@ -560,6 +560,7 @@ SIMULATION INSTRUCTIONS:
 - Don't directly give away answers, but provide realistic business insights
 - Keep responses concise and professional
 - If the user seems stuck, provide subtle hints through natural conversation
+- Keep your response concise. Use paragraph breaks for readability.
 """
     
     try:
@@ -1012,6 +1013,7 @@ async def linear_simulation_chat(
             orchestrator.state.turn_count = saved_state.get('turn_count', 0)
             orchestrator.state.state_variables = saved_state.get('state_variables', {})
             print(f"[DEBUG] Loaded state - simulation_started: {orchestrator.state.simulation_started}")
+            print(f"[DEBUG] NEW SCENE START (after load): index={orchestrator.state.current_scene_index}, turn_count={orchestrator.state.turn_count}")
         else:
             print(f"[DEBUG] No saved state found. orchestrator_data keys: {list(user_progress.orchestrator_data.keys()) if user_progress.orchestrator_data else 'None'}")
         
@@ -1099,64 +1101,132 @@ You are about to enter a multi-scene simulation where you'll interact with vario
             persona_id = None
         
         else:
-            # Regular chat interaction
-            if not orchestrator.state.simulation_started:
-                ai_response = """Welcome to the simulation! 
-
-Please type **"begin"** when you're ready to start, or **"help"** for more information."""
-                persona_name = "ChatOrchestrator"
+            # --- PATCH START: Timeout Turns Enforcement ---
+            # Get current scene and timeout_turns
+            current_scene = orchestrator.scenario.get('scenes', [{}])[orchestrator.state.current_scene_index]
+            timeout_turns = current_scene.get('timeout_turns') or current_scene.get('max_turns', 15)
+            print(f"[DEBUG] Scene index: {orchestrator.state.current_scene_index}, timeout_turns: {timeout_turns}, scene: {current_scene}")
+            should_increment = request.message.lower().strip() not in ["help", "begin"]
+            if should_increment:
+                orchestrator.state.turn_count = orchestrator.state.turn_count + 1 if hasattr(orchestrator.state, 'turn_count') else 1
+                print(f"[DEBUG] AFTER INCREMENT: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
+            print(f"[DEBUG] ABOUT TO CHECK TURN LIMIT: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
+            if orchestrator.state.turn_count >= timeout_turns:
+                print(f"[DEBUG] TIMEOUT TRIGGERED: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
+                # Timeout reached: generate dynamic suggestion
+                recent_messages = db.query(ConversationLog).filter(
+                    and_(
+                        ConversationLog.user_progress_id == user_progress.id,
+                        ConversationLog.scene_id == orchestrator.state.current_scene_id
+                    )
+                ).order_by(desc(ConversationLog.message_order)).limit(10).all()
+                conversation_summary = []
+                for msg in reversed(recent_messages):
+                    speaker = msg.sender_name or "System"
+                    conversation_summary.append(f"{speaker}: {msg.message_content}")
+                conversation_text = "\n".join(conversation_summary)
+                suggestion_prompt = f"""The following is a conversation between a student and AI personas in a business simulation scene.\n\nCONVERSATION:\n{conversation_text}\n\nBased on this conversation, what is one concise, actionable thing the user could have done to progress the scene or achieve the goal? Respond in 1-2 sentences."""
+                try:
+                    import openai
+                    suggestion_response = openai.chat.completions.create(
+                        model="gpt-4o",
+                        messages=[{"role": "user", "content": suggestion_prompt}],
+                        max_tokens=80,
+                        temperature=0.5
+                    )
+                    suggestion = suggestion_response.choices[0].message.content.strip()
+                except Exception as e:
+                    suggestion = "Try to ask more targeted questions or summarize your understanding earlier next time."
+                ai_response = (
+                    "You've reached the maximum number of turns for this scene.\n\n"
+                    f"Suggestion: {suggestion}\n\n"
+                    "Moving to the next scene..."
+                )
+                persona_name = "System"
                 persona_id = None
-            else:
-                # Check if user is addressing a specific persona with @mention
-                import re
-                mention_match = re.search(r'@(\w+)', request.message)
+                if orchestrator.state.current_scene_index + 1 < len(orchestrator.scenario.get('scenes', [])):
+                    orchestrator.state.current_scene_index += 1
+                    orchestrator.state.turn_count = 0
+                    print(f"[DEBUG] TURN COUNT RESET TO 0 ON TIMEOUT PROGRESSION")
+                    orchestrator.state.scene_completed = False
+                    orchestrator.state.current_scene_id = orchestrator.scenario.get('scenes', [])[orchestrator.state.current_scene_index].get('id')
+                    print(f"[DEBUG] PROGRESSED TO NEW SCENE: index={orchestrator.state.current_scene_index}, id={orchestrator.state.current_scene_id}, turn_count={orchestrator.state.turn_count}")
+                    print(f"[DEBUG] NEW SCENE START (after timeout progression): index={orchestrator.state.current_scene_index}, turn_count={orchestrator.state.turn_count}")
+                else:
+                    ai_response += "\n\nYou have completed all scenes in this simulation."
+                state_dict = {
+                    'current_scene_id': orchestrator.state.current_scene_id,
+                    'current_scene_index': orchestrator.state.current_scene_index,
+                    'turn_count': orchestrator.state.turn_count,
+                    'simulation_started': orchestrator.state.simulation_started,
+                    'user_ready': orchestrator.state.user_ready,
+                    'state_variables': orchestrator.state.state_variables
+                }
+                user_progress.orchestrator_data['state'] = state_dict
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(user_progress, "orchestrator_data")
+                db.commit()
+                return SimulationChatResponse(
+                    message=ai_response,
+                    scene_id=orchestrator.state.current_scene_id,
+                    scene_completed=True,
+                    next_scene_id=orchestrator.scenario.get('scenes', [])[orchestrator.state.current_scene_index].get('id') if orchestrator.state.current_scene_index < len(orchestrator.scenario.get('scenes', [])) else None,
+                    persona_name=persona_name,
+                    persona_id=persona_id,
+                    turn_count=orchestrator.state.turn_count
+                )
+            # --- PATCH END: Timeout Turns Enforcement ---
+            # All persona mention handling, OpenAI calls, and goal validation logic must be below this line, not inside any else or after any return
+            # Check if user is addressing a specific persona with @mention
+            import re
+            mention_match = re.search(r'@(\w+)', request.message)
+            
+            print(f"[DEBUG] User message: {request.message}")
+            print(f"[DEBUG] Simulation started: {orchestrator.state.simulation_started}")
+            print(f"[DEBUG] Mention match: {mention_match.group(1) if mention_match else None}")
+            
+            if mention_match:
+                # User is addressing a specific persona
+                persona_id = mention_match.group(1)
                 
-                print(f"[DEBUG] User message: {request.message}")
-                print(f"[DEBUG] Simulation started: {orchestrator.state.simulation_started}")
-                print(f"[DEBUG] Mention match: {mention_match.group(1) if mention_match else None}")
+                # Find the persona in the scenario data with fuzzy matching
+                target_persona = None
+                available_personas = [p['id'] for p in orchestrator.scenario.get('personas', [])]
+                print(f"[DEBUG] Looking for persona: {persona_id}")
+                print(f"[DEBUG] Available personas: {available_personas}")
                 
-                if mention_match:
-                    # User is addressing a specific persona
-                    persona_id = mention_match.group(1)
-                    
-                    # Find the persona in the scenario data with fuzzy matching
-                    target_persona = None
-                    available_personas = [p['id'] for p in orchestrator.scenario.get('personas', [])]
-                    print(f"[DEBUG] Looking for persona: {persona_id}")
-                    print(f"[DEBUG] Available personas: {available_personas}")
-                    
-                    # Create a mapping of name variations to persona IDs
-                    name_mapping = {}
-                    for persona in orchestrator.scenario.get('personas', []):
-                        name = persona['identity']['name'].lower()
-                        # Add various name variations
-                        name_mapping[name] = persona['id']
-                        name_mapping[name.replace("'", "").replace(" ", "_")] = persona['id']
-                        name_mapping[name.replace("'", "").replace(" ", "")] = persona['id']
-                        # Add first name only
-                        first_name = name.split()[0]
-                        name_mapping[first_name] = persona['id']
-                        name_mapping[first_name.replace("'", "")] = persona['id']
-                    
-                    print(f"[DEBUG] Name mapping: {name_mapping}")
-                    
-                    # Try to find the persona by name
-                    search_name = persona_id.lower()
-                    if search_name in name_mapping:
-                        persona_id = name_mapping[search_name]
-                        target_persona = next((p for p in orchestrator.scenario.get('personas', []) if p['id'] == persona_id), None)
-                    else:
-                        # Try fuzzy matching
-                        for name, pid in name_mapping.items():
-                            if (search_name in name or name in search_name or
-                                search_name.replace("'", "").replace("_", "") in name.replace("'", "").replace("_", "")):
-                                persona_id = pid
-                                target_persona = next((p for p in orchestrator.scenario.get('personas', []) if p['id'] == persona_id), None)
-                                break
-                    
-                    if target_persona:
-                        # Create a more focused system prompt for persona interaction
-                        system_prompt = f"""You are {target_persona['identity']['name']}, a {target_persona['identity']['role']} in this business simulation.
+                # Create a mapping of name variations to persona IDs
+                name_mapping = {}
+                for persona in orchestrator.scenario.get('personas', []):
+                    name = persona['identity']['name'].lower()
+                    # Add various name variations
+                    name_mapping[name] = persona['id']
+                    name_mapping[name.replace("'", "").replace(" ", "_")] = persona['id']
+                    name_mapping[name.replace("'", "").replace(" ", "")] = persona['id']
+                    # Add first name only
+                    first_name = name.split()[0]
+                    name_mapping[first_name] = persona['id']
+                    name_mapping[first_name.replace("'", "")] = persona['id']
+                
+                print(f"[DEBUG] Name mapping: {name_mapping}")
+                
+                # Try to find the persona by name
+                search_name = persona_id.lower()
+                if search_name in name_mapping:
+                    persona_id = name_mapping[search_name]
+                    target_persona = next((p for p in orchestrator.scenario.get('personas', []) if p['id'] == persona_id), None)
+                else:
+                    # Try fuzzy matching
+                    for name, pid in name_mapping.items():
+                        if (search_name in name or name in search_name or
+                            search_name.replace("'", "").replace("_", "") in name.replace("'", "").replace("_", "")):
+                            persona_id = pid
+                            target_persona = next((p for p in orchestrator.scenario.get('personas', []) if p['id'] == persona_id), None)
+                            break
+                
+                if target_persona:
+                    # Create a more focused system prompt for persona interaction
+                    system_prompt = f"""You are {target_persona['identity']['name']}, a {target_persona['identity']['role']} in this business simulation.
 
 PERSONA BACKGROUND: {target_persona['identity']['bio']}
 
@@ -1171,19 +1241,19 @@ You are in a meeting about {orchestrator.scenario.get('title', '...')} to addres
 This is about {orchestrator.scenario.get('title', '...')} and its challenges, NOT about any other company or system.
 
 User's message: {request.message}"""
-                        persona_name = target_persona['identity']['name']
-                    else:
-                        # Fallback to orchestrator
-                        system_prompt = f"""You are the ChatOrchestrator managing a business simulation about {orchestrator.scenario.get('title', '...')}.
+                    persona_name = target_persona['identity']['name']
+                else:
+                    # Fallback to orchestrator
+                    system_prompt = f"""You are the ChatOrchestrator managing a business simulation about {orchestrator.scenario.get('title', '...')}.
 
 Available personas: {', '.join([p['id'] for p in orchestrator.scenario.get('personas', [])])}
 
 Gently redirect them to use a valid persona mention or provide general guidance."""
-                        persona_name = "ChatOrchestrator"
-                        persona_id = None
-                else:
-                    # General orchestrator response
-                    system_prompt = f"""You are the ChatOrchestrator for a business simulation about {orchestrator.scenario.get('title', '...')}.
+                    persona_name = "ChatOrchestrator"
+                    persona_id = None
+            else:
+                # General orchestrator response
+                system_prompt = f"""You are the ChatOrchestrator for a business simulation about {orchestrator.scenario.get('title', '...')}.
 
 CURRENT SCENE: {orchestrator.scenario.get('scenes', [{}])[orchestrator.state.current_scene_index].get('title', '...')}
 OBJECTIVE: {orchestrator.scenario.get('scenes', [{}])[orchestrator.state.current_scene_index].get('objectives', ['...'])[0]}
@@ -1198,26 +1268,26 @@ This is about {orchestrator.scenario.get('title', '...')} and its challenges, NO
 Respond helpfully and guide them toward productive interactions with the team members. If they ask about previous conversations, remind them that you can only see the current message and suggest they ask the specific person again.
 
 User's message: {request.message}"""
-                    persona_name = "ChatOrchestrator"
-                    persona_id = None
-                
-                # Make OpenAI API call
-                import openai
-                import os
-                
-                client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-                
-                response = client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": request.message}
-                    ],
-                    max_tokens=600,
-                    temperature=0.7
-                )
-                
-                ai_response = response.choices[0].message.content
+                persona_name = "ChatOrchestrator"
+                persona_id = None
+            
+            # Make OpenAI API call
+            import openai
+            import os
+            
+            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": request.message}
+                ],
+                max_tokens=600,
+                temperature=0.7
+            )
+            
+            ai_response = response.choices[0].message.content
         
         # Check for goal completion and scene progression using AI function calling
         scene_completed = False
@@ -1295,26 +1365,33 @@ User's message: {request.message}"""
                     }
                 
                 # Handle the validation result
+                print(f"[DEBUG] ABOUT TO RUN GOAL VALIDATION: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
                 if validation_result.get("next_scene_id") or validation_result.get("simulation_complete"):
-                    # Scene progression was triggered by the AI function call
-                    scene_completed = True
-                    next_scene_id = validation_result.get("next_scene_id")
-                    
-                    if validation_result.get("simulation_complete"):
-                        ai_response += "\n\n🎉 **Congratulations! You have completed the entire simulation.**"
-                    elif validation_result.get("next_scene_title"):
-                        ai_response += f"\n\n🎉 **Scene Completed!** Moving to next scene:\n\n**{validation_result['next_scene_title']}**\n\n**Objective:** Continue working with the team to address the challenges of {orchestrator.scenario.get('title', '...')}."
-                    
-                    # Update orchestrator state to match database
-                    if next_scene_id:
-                        # Find the scene index for the new scene
-                        for i, scene in enumerate(orchestrator.scenes):
-                            if scene.get('id') == next_scene_id:
-                                orchestrator.state.current_scene_index = i
-                                break
-                        orchestrator.state.turn_count = 0
-                        orchestrator.state.scene_completed = False
-                        orchestrator.state.current_scene_id = next_scene_id
+                    # Only allow progression if turn limit is reached
+                    if orchestrator.state.turn_count < timeout_turns:
+                        print(f"[DEBUG] LLM wants to progress, but turn limit not reached: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
+                        # Optionally, inform the user they need more turns
+                        # Do NOT progress the scene, just continue
+                    else:
+                        # Scene progression was triggered by the AI function call
+                        scene_completed = True
+                        next_scene_id = validation_result.get("next_scene_id")
+                        if validation_result.get("simulation_complete"):
+                            ai_response += "\n\n🎉 **Congratulations! You have completed the entire simulation.**"
+                        elif validation_result.get("next_scene_title"):
+                            ai_response += f"\n\n🎉 **Scene Completed!** Moving to next scene:\n\n**{validation_result['next_scene_title']}**\n\n**Objective:** Continue working with the team to address the challenges of {orchestrator.scenario.get('title', '...')}."
+                        # Update orchestrator state to match database
+                        if next_scene_id:
+                            # Find the scene index for the new scene
+                            for i, scene in enumerate(orchestrator.scenes):
+                                if scene.get('id') == next_scene_id:
+                                    orchestrator.state.current_scene_index = i
+                                    break
+                            orchestrator.state.turn_count = 0
+                            print(f"[DEBUG] TURN COUNT RESET TO 0 ON GOAL VALIDATION PROGRESSION")
+                            orchestrator.state.scene_completed = False
+                            orchestrator.state.current_scene_id = next_scene_id
+                            print(f"[DEBUG] NEW SCENE START (after goal validation progression): index={orchestrator.state.current_scene_index}, turn_count={orchestrator.state.turn_count}")
                 
                 elif validation_result["next_action"] == "hint" and validation_result["hint_message"]:
                     # Add hint to response
@@ -1371,7 +1448,8 @@ User's message: {request.message}"""
             scene_completed=scene_completed,
             next_scene_id=next_scene_id,
             persona_name=persona_name,
-            persona_id=persona_id
+            persona_id=persona_id,
+            turn_count=orchestrator.state.turn_count
         )
         
     except Exception as e:

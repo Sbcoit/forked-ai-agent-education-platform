@@ -274,7 +274,7 @@ const SceneProgress = ({
 }
 
 // Current Scene Info
-const CurrentSceneInfo = ({ scene }: { scene: Scene }) => {
+const CurrentSceneInfo = ({ scene, turnCount }: { scene: Scene, turnCount: number }) => {
   return (
     <Card className="mb-4">
       <CardHeader className="pb-2">
@@ -310,10 +310,12 @@ const CurrentSceneInfo = ({ scene }: { scene: Scene }) => {
           </div>
         )}
         
-        {/* Always display timeout_turns */}
+        {/* Always display timeout_turns and current turn count */}
         <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mb-3">
           <p className="text-sm font-medium text-yellow-800">Timeout Turns:</p>
-          <p className="text-sm text-yellow-700">{typeof scene.timeout_turns === 'number' ? scene.timeout_turns : 'Not set'}</p>
+          <p className="text-sm text-yellow-700">
+            {typeof scene.timeout_turns === 'number' ? `${Math.min(turnCount, scene.timeout_turns)} / ${scene.timeout_turns}` : 'Not set'}
+          </p>
         </div>
         
         {scene.personas && scene.personas.length > 0 && (
@@ -362,6 +364,12 @@ export default function LinearSimulationChat() {
   const [selectedScenarioId, setSelectedScenarioId] = useState<number | null>(null)
   const [completedScenes, setCompletedScenes] = useState<number[]>([])
   
+  // 1. Add state for current turn count
+  const [turnCount, setTurnCount] = useState(0);
+
+  // Add a state to block input when scene is completed and next scene is loading
+  const [inputBlocked, setInputBlocked] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom
@@ -413,21 +421,28 @@ export default function LinearSimulationChat() {
 
   // Send message to orchestrator
   const sendMessage = async () => {
-    if (!simulationData || !input.trim() || isLoading) return
+    if (inputBlocked) return;
+    if (!simulationData || !input.trim() || isLoading) return;
 
+    const trimmedInput = input.trim().toLowerCase();
     const userMessage: Message = {
       id: Date.now(),
       sender: "You",
       text: input.trim(),
       timestamp: new Date(),
       type: 'user'
-    }
+    };
 
-    setMessages(prev => [...prev, userMessage])
-    setInput("")
-    setIsLoading(true)
-    setIsTyping(true)
-    setTypingPersona("ChatOrchestrator")
+    setMessages(prev => [...prev, userMessage]);
+    setInput("");
+    setIsLoading(true);
+    setIsTyping(true);
+    setTypingPersona("ChatOrchestrator");
+
+    // Only increment turn count for non-command messages
+    if (trimmedInput !== 'begin' && trimmedInput !== 'help') {
+      setTurnCount(prev => prev + 1);
+    }
 
     try {
       const response = await fetch(buildApiUrl("/api/simulation/linear-chat"), {
@@ -439,13 +454,13 @@ export default function LinearSimulationChat() {
           scene_id: simulationData.current_scene.id,
           message: userMessage.text
         })
-      })
+      });
 
       if (!response.ok) {
-        throw new Error(`Chat failed: ${response.status}`)
+        throw new Error(`Chat failed: ${response.status}`);
       }
 
-      const chatData = await response.json()
+      const chatData = await response.json();
       
       // Simulate typing delay for better UX
       setTimeout(() => {
@@ -466,49 +481,51 @@ export default function LinearSimulationChat() {
         setMessages(prev => [...prev, aiMessage])
 
         // Handle scene progression if indicated
-        if (chatData.scene_completed) {
-          setCompletedScenes(prev => [...prev, simulationData.current_scene.id])
-          
-          if (chatData.next_scene_id) {
-            // Fetch next scene data and update simulationData
-            fetch(buildApiUrl(`/api/simulation/scenes/${chatData.next_scene_id}`))
-              .then(response => {
-                if (response.ok) {
-                  return response.json()
-                }
-                throw new Error('Failed to fetch next scene')
-              })
-              .then(nextSceneData => {
-                // Update simulation data with new scene
-                setSimulationData(prev => prev ? {
-                  ...prev,
-                  current_scene: nextSceneData
-                } : null)
-                
-                // Add scene transition message
-                const transitionMessage: Message = {
-                  id: Date.now() + 2,
-                  sender: "System",
-                  text: `🎉 **Scene Completed!** Moving to Scene ${nextSceneData.scene_order}:\n\n**${nextSceneData.title}**\n${nextSceneData.description}\n\n**Objective:** ${nextSceneData.user_goal || 'Complete the scene'}`,
-                  timestamp: new Date(),
-                  type: 'system'
-                }
-                setMessages(prev => [...prev, transitionMessage])
-              })
-              .catch(error => {
-                console.error("Failed to fetch next scene:", error)
-                
-                // Fallback completion message
-                const completionMessage: Message = {
-                  id: Date.now() + 2,
-                  sender: "System",
-                  text: "🎉 Scene completed! Moving to the next scene...",
-                  timestamp: new Date(),
-                  type: 'system'
-                }
-                setMessages(prev => [...prev, completionMessage])
-              })
-          }
+        if (typeof chatData.turn_count === 'number') {
+          setTurnCount(chatData.turn_count);
+        }
+        // In sendMessage, after receiving chatData, immediately block input and fetch the next scene if scene_completed is true and next_scene_id is present
+        if (chatData.scene_completed && chatData.next_scene_id) {
+          setInputBlocked(true);
+          // Fetch next scene data and update simulationData
+          fetch(buildApiUrl(`/api/simulation/scenes/${chatData.next_scene_id}`))
+            .then(response => {
+              if (response.ok) {
+                return response.json();
+              }
+              throw new Error('Failed to fetch next scene');
+            })
+            .then(nextSceneData => {
+              setSimulationData(prev => prev ? {
+                ...prev,
+                current_scene: nextSceneData
+              } : null);
+              setTurnCount(0);
+              setInputBlocked(false); // Unblock input after scene loads
+              // Add scene transition message
+              const transitionMessage: Message = {
+                id: Date.now() + 2,
+                sender: "System",
+                text: `🎉 **Scene Completed!** Moving to Scene ${nextSceneData.scene_order}:\n\n**${nextSceneData.title}**\n${nextSceneData.description}\n\n**Objective:** ${nextSceneData.user_goal || 'Complete the scene'}`,
+                timestamp: new Date(),
+                type: 'system'
+              };
+              setMessages(prev => [...prev, transitionMessage]);
+            })
+            .catch(error => {
+              console.error("Failed to fetch next scene:", error);
+              setInputBlocked(false);
+              // Fallback completion message
+              const completionMessage: Message = {
+                id: Date.now() + 2,
+                sender: "System",
+                text: "🎉 Scene completed! Moving to the next scene...",
+                timestamp: new Date(),
+                type: 'system'
+              };
+              setMessages(prev => [...prev, completionMessage]);
+            });
+          return; // Prevent further UI updates or typing delay
         }
         
       }, 1500) // 1.5 second typing delay
@@ -567,7 +584,7 @@ export default function LinearSimulationChat() {
             completedScenes={completedScenes}
           />
           
-          <CurrentSceneInfo scene={simulationData.current_scene} />
+          <CurrentSceneInfo scene={simulationData.current_scene} turnCount={turnCount} />
           
           <Card>
             <CardContent className="p-4">
@@ -662,12 +679,12 @@ export default function LinearSimulationChat() {
                     onChange={(e) => setInput(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="Type your message or command..."
-                    disabled={isLoading || isTyping}
+                    disabled={inputBlocked || isLoading || isTyping}
                     className="flex-1"
                   />
                   <Button
                     onClick={sendMessage}
-                    disabled={isLoading || isTyping || !input.trim()}
+                    disabled={inputBlocked || isLoading || isTyping || !input.trim()}
                   >
                     {isLoading ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -683,7 +700,7 @@ export default function LinearSimulationChat() {
                     size="sm"
                     variant="outline"
                     onClick={() => setInput("begin")}
-                    disabled={isLoading || isTyping}
+                    disabled={inputBlocked || isLoading || isTyping}
                   >
                     Begin
                   </Button>
@@ -691,7 +708,7 @@ export default function LinearSimulationChat() {
                     size="sm"
                     variant="outline"
                     onClick={() => setInput("help")}
-                    disabled={isLoading || isTyping}
+                    disabled={inputBlocked || isLoading || isTyping}
                   >
                     Help
                   </Button>
@@ -704,7 +721,7 @@ export default function LinearSimulationChat() {
                         const mentionId = firstPersona.name.toLowerCase().replace(/\s+/g, '_')
                         setInput(`@${mentionId} `)
                       }}
-                      disabled={isLoading || isTyping}
+                      disabled={inputBlocked || isLoading || isTyping}
                     >
                       @{simulationData.current_scene.personas[0].name.split(' ')[0]}
                     </Button>

@@ -395,7 +395,7 @@ export default function ScenarioBuilder() {
      user_goal: "",
      sequence_order: scenes.length + 1,
      image_url: "",
-     timeout_turns: 15
+     timeout_turns: 15 // Use timeout_turns, not max_turns
    };
    setScenes(scenes => [...scenes, newScene]);
    setEditingSceneIdx(scenes.length); // Open the new scene for editing
@@ -696,6 +696,7 @@ export default function ScenarioBuilder() {
 
  // Utility to normalize scenes
  function normalizeScenes(scenes: any[]) {
+   // Only use timeout_turns for turn limit, not max_turns
    return scenes.map(scene => ({
      ...scene,
      timeout_turns:

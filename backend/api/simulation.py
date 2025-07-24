@@ -853,6 +853,8 @@ async def progress_to_next_scene(
             estimated_duration=next_scene.estimated_duration,
             image_url=next_scene.image_url,
             image_prompt=next_scene.image_prompt,
+            timeout_turns=next_scene.timeout_turns,  # Ensure this is included
+            success_metric=next_scene.success_metric,  # Ensure this is included
             created_at=next_scene.created_at,
             updated_at=next_scene.updated_at,
             personas=personas_data
@@ -966,6 +968,8 @@ async def get_scene_by_id(
         estimated_duration=scene.estimated_duration,
         image_url=scene.image_url,
         image_prompt=scene.image_prompt,
+        timeout_turns=scene.timeout_turns,  # Ensure this is included
+        success_metric=scene.success_metric,  # Ensure this is included
         created_at=scene.created_at,
         updated_at=scene.updated_at,
         personas=personas_data

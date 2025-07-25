@@ -371,6 +371,12 @@ export default function LinearSimulationChat() {
   // Grading/Feedback state (must be at top)
   const [gradingData, setGradingData] = useState<any>(null);
   const [showGrading, setShowGrading] = useState(false);
+  // Block input after grading is shown
+  useEffect(() => {
+    if (gradingData && showGrading) {
+      setInputBlocked(true);
+    }
+  }, [gradingData, showGrading]);
   // Helper to add a scene to allScenes if not already present
   const addSceneIfMissing = (scene: Scene) => {
     setAllScenes(prev => {
@@ -672,7 +678,7 @@ export default function LinearSimulationChat() {
   // Grading Modal
   {showGrading && gradingData && (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-2xl w-full overflow-y-auto max-h-[90vh]">
+      <div className="bg-white rounded-lg shadow-lg p-8 max-w-4xl w-full overflow-y-auto max-h-[90vh]">
         <h2 className="text-2xl font-bold mb-4 text-center">Simulation Grading & Feedback</h2>
         <div className="mb-6">
           <div className="text-lg font-semibold">Overall Score: <span className="text-blue-600">{gradingData.overall_score}</span></div>
@@ -684,11 +690,29 @@ export default function LinearSimulationChat() {
             <div className="text-sm text-gray-500 mb-2">{scene.objective}</div>
             <div className="mb-2">
               <span className="font-medium">Your Responses:</span>
-              <ul className="list-disc ml-6">
-                {scene.user_responses.map((msg: any) => (
-                  <li key={msg.id} className="text-gray-800">{msg.content}</li>
-                ))}
-              </ul>
+              <div
+                style={{
+                  maxHeight: '120px',
+                  overflowY: 'auto',
+                  background: '#f9fafb',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '0.375rem',
+                  padding: '0.5rem',
+                  marginTop: '0.5rem',
+                  fontSize: '0.95rem',
+                  whiteSpace: 'pre-wrap',
+                  width: '100%',
+                  fontFamily: 'inherit',
+                  resize: 'none',
+                  color: '#222'
+                }}
+                tabIndex={-1}
+                aria-readonly="true"
+              >
+                {scene.user_responses && scene.user_responses.length > 0
+                  ? scene.user_responses.map((msg: any) => `• ${msg.content}`).join('\n\n')
+                  : <span className="text-gray-400">No responses.</span>}
+              </div>
             </div>
             <div className="text-sm text-green-700 mb-1">Score: {scene.score}</div>
             <div className="text-gray-700">{scene.feedback}</div>
@@ -792,6 +816,16 @@ export default function LinearSimulationChat() {
                         )
                       })}
                     </div>
+                    {/* Add grading modal button for the final simulation completion message */}
+                    {message.type === 'system' &&
+                      message.text.includes('Simulation complete! You have finished all scenes.') &&
+                      gradingData && (
+                        <div className="mt-2 flex justify-center">
+                          <Button size="sm" variant="outline" onClick={() => setShowGrading(true)}>
+                            View Grading & Feedback
+                          </Button>
+                        </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -868,30 +902,50 @@ export default function LinearSimulationChat() {
       {/* Grading/Feedback Modal - moved inside the return block */}
       {showGrading && gradingData && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-lg p-8 max-w-2xl w-full">
-            <h2 className="text-xl font-bold mb-4">Simulation Feedback & Grading</h2>
-            {gradingData.scene_meta && (
-              <div className="mb-4">
-                <h3 className="font-semibold">Scene: {gradingData.scene_meta.title}</h3>
-                <p className="text-sm text-gray-600">{gradingData.scene_meta.description}</p>
-                <p className="text-sm mt-2"><strong>Success Metric:</strong> {gradingData.scene_meta.success_metric || 'N/A'}</p>
-                <p className="text-sm mt-2"><strong>Learning Outcomes:</strong> {gradingData.scene_meta.learning_outcomes || 'N/A'}</p>
-                <p className="text-sm mt-2"><strong>Teaching Notes:</strong> {gradingData.scene_meta.teaching_notes || 'N/A'}</p>
-              </div>
-            )}
-            <div className="mb-4">
-              <h4 className="font-semibold mb-2">Your Responses:</h4>
-              <ul className="space-y-2">
-                {gradingData.user_messages.map((msg: any) => (
-                  <li key={msg.id} className="bg-gray-100 rounded p-2 text-sm">
-                    <span className="text-gray-500 mr-2">[{new Date(msg.timestamp).toLocaleString()}]</span>
-                    {msg.content}
-                  </li>
-                ))}
-              </ul>
+          <div className="bg-white rounded-lg shadow-lg p-8 max-w-4xl w-full overflow-y-auto max-h-[90vh]">
+            <h2 className="text-2xl font-bold mb-4 text-center">Simulation Grading & Feedback</h2>
+            <div className="mb-6">
+              <div className="text-lg font-semibold">Overall Score: <span className="text-blue-600">{gradingData.overall_score}</span></div>
+              <div className="text-gray-700 mt-2">{gradingData.overall_feedback}</div>
             </div>
-            {/* Placeholder for grading logic, rubric, etc. */}
-            <div className="mt-4">
+            {gradingData.scenes && gradingData.scenes.map((scene: any, idx: number) => (
+              <div key={scene.id} className="mb-6 border-b pb-4">
+                <div className="font-semibold text-blue-700">{scene.title}</div>
+                <div className="text-sm text-gray-500 mb-2">{scene.objective}</div>
+                <div className="mb-2">
+                  <span className="font-medium">Your Responses:</span>
+                  <div
+                    style={{
+                      maxHeight: '120px',
+                      overflowY: 'auto',
+                      background: '#f9fafb',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '0.375rem',
+                      padding: '0.5rem',
+                      marginTop: '0.5rem',
+                      fontSize: '0.95rem',
+                      whiteSpace: 'pre-wrap',
+                      width: '100%',
+                      fontFamily: 'inherit',
+                      resize: 'none',
+                      color: '#222'
+                    }}
+                    tabIndex={-1}
+                    aria-readonly="true"
+                  >
+                    {scene.user_responses && scene.user_responses.length > 0
+                      ? scene.user_responses.map((msg: any) => `• ${msg.content}`).join('\n\n')
+                      : <span className="text-gray-400">No responses.</span>}
+                  </div>
+                </div>
+                <div className="text-sm text-green-700 mb-1">Score: {scene.score}</div>
+                <div className="text-gray-700">{scene.feedback}</div>
+                {scene.teaching_notes && (
+                  <div className="mt-2 text-xs text-gray-500 italic">Teaching Notes: {scene.teaching_notes}</div>
+                )}
+              </div>
+            ))}
+            <div className="flex justify-center mt-6">
               <button className="btn btn-primary" onClick={() => setShowGrading(false)}>Close</button>
             </div>
           </div>

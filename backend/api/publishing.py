@@ -122,6 +122,14 @@ async def save_scenario_draft(
         print(f"[DEBUG] Saving {len(scenes)} scenes...")
         for i, scene in enumerate(scenes):
             if isinstance(scene, dict) and scene.get("title"):
+                # Robustly extract success_metric
+                success_metric = (
+                    scene.get("successMetric") or
+                    scene.get("success_metric") or
+                    scene.get("success_criteria")
+                )
+                if not success_metric and scene.get("objectives"):
+                    success_metric = scene["objectives"][0]
                 scene_record = ScenarioScene(
                     scenario_id=scenario.id,
                     title=scene.get("title", ""),
@@ -132,13 +140,13 @@ async def save_scenario_draft(
                     image_url=scene.get("image_url", ""),
                     image_prompt=f"Business scene: {scene.get('title', '')}",
                     timeout_turns=int(scene.get("timeout_turns") or 15),
-                    success_metric=scene.get("success_metric"),
+                    success_metric=success_metric,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
                 db.add(scene_record)
                 db.flush()
-                print(f"[DEBUG] Created scene: {scene['title']} with ID: {scene_record.id}")
+                print(f"[DEBUG] Saved scene: {scene_record.title}, success_metric: {scene_record.success_metric}")
                 # Link all personas to each scene (since we don't have personas_involved in the AI result)
                 for persona_name, persona_id in persona_mapping.items():
                     db.execute(

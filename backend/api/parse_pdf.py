@@ -831,41 +831,51 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 key_figures = final_result.get("key_figures", [])
                 scenes = final_result.get("scenes", [])
 
-                # 1. Try to match student_role to persona name
-                for idx, fig in enumerate(key_figures):
-                    fig_name = fig.get("name", "")
-                    if normalize_name(fig_name) == student_role_norm:
-                        main_character_name = fig_name
-                        main_character_index = idx
-                        break
-
-                # 2. If not found, try to match student_role to persona role
-                if main_character_name is None:
-                    for idx, fig in enumerate(key_figures):
-                        fig_role = fig.get("role", "")
-                        if normalize_name(fig_role) == student_role_norm:
-                            main_character_name = fig.get("name", "")
-                            main_character_index = idx
-                            break
-
-                # 3. If still not found, pick the persona who appears in the most scenes
-                if main_character_name is None and key_figures and scenes:
-                    persona_counts = {fig.get("name", ""): 0 for fig in key_figures}
+                # Helper: count appearances in scenes
+                def persona_scene_count(name):
+                    n = normalize_name(name)
+                    count = 0
                     for scene in scenes:
                         for p in scene.get("personas_involved", []):
-                            n = normalize_name(p)
-                            for fig in key_figures:
-                                if normalize_name(fig.get("name", "")) == n:
-                                    persona_counts[fig.get("name", "")] += 1
-                    # Pick the persona with the highest count
-                    if persona_counts:
-                        most_common = max(persona_counts.items(), key=lambda x: x[1])
-                        if most_common[1] > 0:
-                            main_character_name = most_common[0]
-                            for idx, fig in enumerate(key_figures):
-                                if fig.get("name", "") == main_character_name:
-                                    main_character_index = idx
-                                    break
+                            if normalize_name(p) == n:
+                                count += 1
+                    return count
+
+                # 1. Try to match student_role to persona name (direct or substring)
+                name_matches = []
+                for idx, fig in enumerate(key_figures):
+                    fig_name = fig.get("name", "")
+                    fig_name_norm = normalize_name(fig_name)
+                    if student_role_norm == fig_name_norm or student_role_norm in fig_name_norm or fig_name_norm in student_role_norm:
+                        name_matches.append((idx, fig_name))
+                if name_matches:
+                    # Prefer the one who appears in the most scenes
+                    best = max(name_matches, key=lambda x: persona_scene_count(x[1]))
+                    main_character_index, main_character_name = best
+                else:
+                    # 2. Try to match student_role to persona role (substring/fuzzy)
+                    role_matches = []
+                    for idx, fig in enumerate(key_figures):
+                        fig_role = fig.get("role", "")
+                        fig_role_norm = normalize_name(fig_role)
+                        if student_role_norm == fig_role_norm or student_role_norm in fig_role_norm or fig_role_norm in student_role_norm:
+                            role_matches.append((idx, fig.get("name", "")))
+                    if role_matches:
+                        best = max(role_matches, key=lambda x: persona_scene_count(x[1]))
+                        main_character_index, main_character_name = best
+                    else:
+                        # 3. If still not found, pick the persona who appears in the most scenes
+                        if key_figures and scenes:
+                            persona_counts = {fig.get("name", ""): persona_scene_count(fig.get("name", "")) for fig in key_figures}
+                            # Only pick if someone appears in > half the scenes (likely main)
+                            if persona_counts:
+                                most_common = max(persona_counts.items(), key=lambda x: x[1])
+                                if most_common[1] > len(scenes) // 2:
+                                    main_character_name = most_common[0]
+                                    for idx, fig in enumerate(key_figures):
+                                        if fig.get("name", "") == main_character_name:
+                                            main_character_index = idx
+                                            break
 
                 # 4. Mark only that persona as is_main_character and filter from all personas_involved
                 for idx, fig in enumerate(key_figures):
@@ -991,6 +1001,15 @@ async def save_scenario_to_db(
         scenes = ai_result.get("scenes", [])
         for i, scene in enumerate(scenes):
             if isinstance(scene, dict) and scene.get("title"):
+                print(f"[DEBUG] Scene dict before saving: {scene}")
+                # Use successMetric or success_metric from scene dict, fallback to objectives[0]
+                success_metric = (
+                    scene.get("successMetric") or
+                    scene.get("success_metric") or
+                    scene.get("success_criteria")
+                )
+                if not success_metric and scene.get("objectives"):
+                    success_metric = scene["objectives"][0]
                 scene_record = ScenarioScene(
                     scenario_id=scenario.id,
                     title=scene.get("title", ""),
@@ -1000,12 +1019,13 @@ async def save_scenario_to_db(
                     estimated_duration=scene.get("estimated_duration", 30),
                     image_url=scene.get("image_url", ""),
                     image_prompt=f"Business scene: {scene.get('title', '')}",
+                    success_metric=success_metric,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
                 db.add(scene_record)
                 db.flush()
-                print(f"[DEBUG] Created scene: {scene['title']} with ID: {scene_record.id}")
+                print(f"[DEBUG] Saved scene: {scene_record.title}, success_metric: {scene_record.success_metric}")
                 # Link personas to scene (if personas_involved exists)
                 personas_involved = scene.get("personas_involved", [])
                 unique_persona_names = set(personas_involved)

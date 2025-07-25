@@ -1133,6 +1133,22 @@ You are about to enter a multi-scene simulation where you'll interact with vario
             print(f"[DEBUG] Scene index: {orchestrator.state.current_scene_index}, timeout_turns: {timeout_turns}, scene: {current_scene}")
             should_increment = request.message.lower().strip() not in ["help", "begin"]
             if should_increment:
+                # Log user message to ConversationLog
+                scene_id_to_use = request.scene_id if request.scene_id is not None else user_progress.current_scene_id
+                from database.models import ConversationLog
+                user_log = ConversationLog(
+                    user_progress_id=user_progress.id,
+                    scene_id=scene_id_to_use,
+                    message_type="user",
+                    sender_name="User",
+                    message_content=request.message,
+                    message_order=0,  # You may want to set this to the correct order if needed
+                    attempt_number=0,  # Set to 0 or actual attempt if tracked
+                    timestamp=datetime.utcnow()
+                )
+                db.add(user_log)
+                db.flush()
+                print(f"[DEBUG] Logged user message: {request.message} (user_progress_id={user_progress.id}, scene_id={scene_id_to_use})")
                 orchestrator.state.turn_count = orchestrator.state.turn_count + 1 if hasattr(orchestrator.state, 'turn_count') else 1
                 print(f"[DEBUG] AFTER INCREMENT: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
             print(f"[DEBUG] ABOUT TO CHECK TURN LIMIT: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
@@ -1628,7 +1644,9 @@ async def get_simulation_grading(
     user_progress_id: int = Query(...),
     db: Session = Depends(get_db)
 ):
-    """Return grading and feedback for a completed simulation."""
+    print(f"[DEBUG] /api/simulation/grade called for user_progress_id={user_progress_id}")
+    import openai
+    from collections import defaultdict
     # Fetch user progress
     user_progress = db.query(UserProgress).filter(UserProgress.id == user_progress_id).first()
     if not user_progress:
@@ -1646,7 +1664,6 @@ async def get_simulation_grading(
         ConversationLog.message_type == "user"
     ).order_by(ConversationLog.scene_id, ConversationLog.message_order).all()
     # Group user messages by scene
-    from collections import defaultdict
     user_msgs_by_scene = defaultdict(list)
     for msg in user_messages:
         user_msgs_by_scene[msg.scene_id].append({
@@ -1654,29 +1671,134 @@ async def get_simulation_grading(
             "content": msg.message_content,
             "timestamp": msg.timestamp
         })
-    # Compose per-scene grading
+    # Compose per-scene grading using OpenAI
     scene_feedback = []
     total_score = 0
     max_score = 0
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    client = openai.OpenAI(api_key=openai_api_key) if openai_api_key else None
     for scene in scenes:
         sp = scene_progress_map.get(scene.id)
-        score = getattr(sp, "goal_achievement_score", 0) or 0
+        user_responses = user_msgs_by_scene.get(scene.id, [])
+        print(f"[DEBUG] Grading scene_id={scene.id}, title='{scene.title}'")
+        print(f"[DEBUG]   success_metric: {getattr(scene, 'success_metric', None)}")
+        print(f"[DEBUG]   user_responses: {user_responses}")
+        print(f"[DEBUG]   full scene object: {scene}")
+        # Compose prompt for LLM grading
+        if client and user_responses and scene.success_metric:
+            prompt = f"""
+You are a grading agent for a business simulation. The following are the user's responses for a scene:
+
+SCENE SUCCESS METRIC: {scene.success_metric}
+USER RESPONSES:
+"""
+            for i, msg in enumerate(user_responses, 1):
+                prompt += f"{i}. {msg['content']}\n"
+            prompt += """
+
+Evaluate how well the user's responses align with the success metric. Give a score from 0 to 100 and provide detailed feedback. Respond in JSON:
+{
+  "score": <number>,
+  "feedback": "<detailed feedback>"
+}
+Output ONLY valid JSON, no extra text.
+"""
+            print(f"[PROMPT] LLM grading prompt for scene '{scene.title}':\n{prompt}")
+            try:
+                print(f"[DEBUG] LLM grading prompt for scene '{scene.title}': {prompt}")
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=400,
+                    temperature=0.2
+                )
+                import json as pyjson
+                import re
+                raw_content = response.choices[0].message.content
+                print(f"[DEBUG] LLM raw response for scene '{scene.title}': {raw_content}")
+                match = re.search(r'({[\s\S]*})', raw_content)
+                if match:
+                    json_str = match.group(1)
+                    result = pyjson.loads(json_str)
+                else:
+                    result = pyjson.loads(raw_content)
+                score = int(result.get("score", 0))
+                feedback = result.get("feedback", "No feedback provided.")
+            except Exception as e:
+                print(f"[ERROR] LLM grading failed for scene '{scene.title}': {e}")
+                score = getattr(sp, "goal_achievement_score", 0) or 0
+                feedback = f"AI grading failed: {e}. Goal achieved!" if getattr(sp, "goal_achieved", False) else f"AI grading failed: {e}. Goal not achieved."
+        else:
+            score = getattr(sp, "goal_achievement_score", 0) or 0
+            feedback = "Goal achieved!" if getattr(sp, "goal_achieved", False) else "Goal not achieved."
         max_score += 100
         total_score += score
-        feedback = getattr(sp, "feedback", None) or ("Goal achieved!" if getattr(sp, "goal_achieved", False) else "Goal not achieved.")
         teaching_notes = getattr(scene, "teaching_notes", None)
         scene_feedback.append({
             "id": scene.id,
             "title": scene.title,
             "objective": scene.user_goal,
-            "user_responses": user_msgs_by_scene.get(scene.id, []),
+            "user_responses": user_responses,
             "score": int(score),
             "feedback": feedback,
             "teaching_notes": teaching_notes
         })
-    # Calculate overall score
-    overall_score = int(total_score / len(scenes)) if scenes else 0
-    overall_feedback = "Great job! You met most of the learning objectives." if overall_score >= 70 else "You completed the simulation. Review the feedback for improvement."
+    # Compose overall grading using OpenAI
+    scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+    learning_outcomes = scenario.learning_objectives if scenario else []
+    if isinstance(learning_outcomes, str):
+        learning_outcomes = [learning_outcomes]
+    all_user_responses = [msg["content"] for msgs in user_msgs_by_scene.values() for msg in msgs]
+    print(f"[DEBUG] all_user_responses: {all_user_responses}")
+    print(f"[DEBUG] learning_outcomes: {learning_outcomes}")
+    if client and all_user_responses and learning_outcomes:
+        prompt = f"""
+You are a grading agent for a business simulation. The following are the user's responses across all scenes:
+
+LEARNING OUTCOMES:
+"""
+        for i, lo in enumerate(learning_outcomes, 1):
+            prompt += f"{i}. {lo}\n"
+        prompt += "USER RESPONSES:\n"
+        for i, resp in enumerate(all_user_responses, 1):
+            prompt += f"{i}. {resp}\n"
+        prompt += """
+
+Evaluate how well the user's responses align with the learning outcomes. Give an overall score from 0 to 100 and provide detailed feedback. Respond in JSON:
+{
+  "overall_score": <number>,
+  "overall_feedback": "<detailed feedback>"
+}
+Output ONLY valid JSON, no extra text.
+"""
+        print(f"[PROMPT] LLM overall grading prompt:\n{prompt}")
+        try:
+            print(f"[DEBUG] LLM overall grading prompt: {prompt}")
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=400,
+                temperature=0.2
+            )
+            import json as pyjson
+            import re
+            raw_content = response.choices[0].message.content
+            print(f"[DEBUG] LLM raw response for overall grading: {raw_content}")
+            match = re.search(r'({[\s\S]*})', raw_content)
+            if match:
+                json_str = match.group(1)
+                result = pyjson.loads(json_str)
+            else:
+                result = pyjson.loads(raw_content)
+            overall_score = int(result.get("overall_score", 0))
+            overall_feedback = result.get("overall_feedback", "No feedback provided.")
+        except Exception as e:
+            print(f"[ERROR] LLM overall grading failed: {e}")
+            overall_score = int(total_score / len(scenes)) if scenes else 0
+            overall_feedback = f"AI grading failed: {e}. Great job! You met most of the learning objectives." if overall_score >= 70 else f"AI grading failed: {e}. You completed the simulation. Review the feedback for improvement."
+    else:
+        overall_score = int(total_score / len(scenes)) if scenes else 0
+        overall_feedback = "Great job! You met most of the learning objectives." if overall_score >= 70 else "You completed the simulation. Review the feedback for improvement."
     return {
         "overall_score": overall_score,
         "overall_feedback": overall_feedback,

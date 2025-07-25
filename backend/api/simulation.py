@@ -267,8 +267,8 @@ async def start_simulation(
     db: Session = Depends(get_db)
 ):
     """Start a new simulation or resume existing one"""
-    # --- PATCH: Clear previous progress and logs for this user and scenario ---
-    # Delete existing progress and related scene progress
+    # --- PATCH: Always create a new UserProgress and clean up all old progress/logs ---
+    # Delete all previous progress and related logs for this user and scenario
     existing_progresses = db.query(UserProgress).filter(
         UserProgress.user_id == request.user_id,
         UserProgress.scenario_id == request.scenario_id
@@ -283,110 +283,75 @@ async def start_simulation(
     scenario = db.query(Scenario).filter(Scenario.id == request.scenario_id).first()
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
-    
     # Get first scene in order
     first_scene = db.query(ScenarioScene).filter(
         ScenarioScene.scenario_id == request.scenario_id
     ).order_by(ScenarioScene.scene_order).first()
-    
     if not first_scene:
         raise HTTPException(status_code=400, detail="Scenario has no scenes")
-    
-    # Check for existing progress
-    existing_progress = db.query(UserProgress).filter(
-        and_(
-            UserProgress.user_id == request.user_id,
-            UserProgress.scenario_id == request.scenario_id,
-            UserProgress.simulation_status.in_(["not_started", "in_progress"])
-        )
-    ).first()
-    
-    if existing_progress:
-        # Resume existing simulation
-        user_progress = existing_progress
-        user_progress.session_count += 1
-        user_progress.last_activity = datetime.utcnow()
-        
-        # Get current scene
-        if user_progress.current_scene_id:
-            current_scene = db.query(ScenarioScene).filter(
-                ScenarioScene.id == user_progress.current_scene_id
-            ).first()
-        else:
-            current_scene = first_scene
-            user_progress.current_scene_id = first_scene.id
-            user_progress.simulation_status = "in_progress"
-    else:
-        # Get all scenes and personas for orchestrator setup
-        all_scenes = db.query(ScenarioScene).filter(
-            ScenarioScene.scenario_id == scenario.id
-        ).order_by(ScenarioScene.scene_order).all()
-        
-        all_personas = db.query(ScenarioPersona).filter(
-            ScenarioPersona.scenario_id == scenario.id
-        ).all()
-        
-        # Prepare scenario data for orchestrator
-        scenario_data = {
-            "id": scenario.id,
-            "title": scenario.title,
-            "description": scenario.description,
-            "challenge": scenario.challenge,
-            "scenes": [
-                {
-                    "id": scene.id,
-                    "title": scene.title,
-                    "description": scene.description,
-                    "objectives": [scene.user_goal] if scene.user_goal else ["Complete the scene interaction"],
-                    "image_url": scene.image_url,
-                    "agent_ids": [p.name.lower().replace(" ", "_") for p in all_personas],  # All personas available
-                    "max_turns": scene.timeout_turns if scene.timeout_turns is not None else 15,
-                    "success_criteria": f"User achieves: {scene.user_goal or 'scene completion'}"
+    # Always create a new UserProgress
+    all_scenes = db.query(ScenarioScene).filter(
+        ScenarioScene.scenario_id == scenario.id
+    ).order_by(ScenarioScene.scene_order).all()
+    all_personas = db.query(ScenarioPersona).filter(
+        ScenarioPersona.scenario_id == scenario.id
+    ).all()
+    scenario_data = {
+        "id": scenario.id,
+        "title": scenario.title,
+        "description": scenario.description,
+        "challenge": scenario.challenge,
+        "scenes": [
+            {
+                "id": scene.id,
+                "title": scene.title,
+                "description": scene.description,
+                "objectives": [scene.user_goal] if scene.user_goal else ["Complete the scene interaction"],
+                "image_url": scene.image_url,
+                "agent_ids": [p.name.lower().replace(" ", "_") for p in all_personas],
+                "max_turns": scene.timeout_turns if scene.timeout_turns is not None else 15,
+                "success_criteria": f"User achieves: {scene.user_goal or 'scene completion'}"
+            }
+            for scene in all_scenes
+        ],
+        "personas": [
+            {
+                "id": persona.name.lower().replace(" ", "_"),
+                "identity": {
+                    "name": persona.name,
+                    "role": persona.role,
+                    "bio": persona.background or "Professional team member"
+                },
+                "personality": {
+                    "goals": persona.primary_goals or ["Support team objectives"],
+                    "traits": persona.personality_traits or "Professional and collaborative"
                 }
-                for scene in all_scenes
-            ],
-            "personas": [
-                {
-                    "id": persona.name.lower().replace(" ", "_"),
-                    "identity": {
-                        "name": persona.name,
-                        "role": persona.role,
-                        "bio": persona.background or "Professional team member"
-                    },
-                    "personality": {
-                        "goals": persona.primary_goals or ["Support team objectives"],
-                                                 "traits": persona.personality_traits or "Professional and collaborative"
-                    }
-                }
-                for persona in all_personas
-            ]
-        }
-        
-        # Create new progress record with orchestrator state
-        user_progress = UserProgress(
-            user_id=request.user_id,
-            scenario_id=request.scenario_id,
-            current_scene_id=first_scene.id,
-            simulation_status="waiting_for_begin",  # Changed from "in_progress"
-            session_count=1,
-            scenes_completed=[],
-            orchestrator_data=scenario_data,  # Store orchestrator data
-            started_at=datetime.utcnow(),
-            last_activity=datetime.utcnow()
-        )
-        db.add(user_progress)
-        db.flush()  # Get ID
-        
-        # Create scene progress for first scene
-        scene_progress = SceneProgress(
-            user_progress_id=user_progress.id,
-            scene_id=first_scene.id,
-            status="in_progress",
-            started_at=datetime.utcnow()
-        )
-        db.add(scene_progress)
-        current_scene = first_scene
-    
+            }
+            for persona in all_personas
+        ]
+    }
+    user_progress = UserProgress(
+        user_id=request.user_id,
+        scenario_id=request.scenario_id,
+        current_scene_id=first_scene.id,
+        simulation_status="waiting_for_begin",
+        session_count=1,
+        scenes_completed=[],
+        orchestrator_data=scenario_data,
+        started_at=datetime.utcnow(),
+        last_activity=datetime.utcnow()
+    )
+    db.add(user_progress)
+    db.flush()  # Get ID
+    # Create scene progress for first scene
+    scene_progress = SceneProgress(
+        user_progress_id=user_progress.id,
+        scene_id=first_scene.id,
+        status="in_progress",
+        started_at=datetime.utcnow()
+    )
+    db.add(scene_progress)
+    current_scene = first_scene
     db.commit()
     
     # Prepare response data

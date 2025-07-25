@@ -725,9 +725,10 @@ CASE STUDY CONTENT (context files first, then main PDF):
                     
                     # Generate images for each scene in parallel
                     image_tasks = []
+                    scenario_id = ai_result.get('scenario_id') or 0
                     for scene in scenes:
                         if isinstance(scene, dict) and "description" in scene and "title" in scene:
-                            task = generate_scene_image(scene["description"], scene["title"])
+                            task = generate_scene_image(scene["description"], scene["title"], scenario_id)
                             image_tasks.append(task)
                         else:
                             # Create a simple async function that returns empty string

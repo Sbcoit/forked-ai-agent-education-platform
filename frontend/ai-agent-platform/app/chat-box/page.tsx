@@ -359,20 +359,18 @@ export default function LinearSimulationChat() {
   const [isLoading, setIsLoading] = useState(false)
   const [isTyping, setIsTyping] = useState(false)
   const [typingPersona, setTypingPersona] = useState("")
-  
   // UI state
   const [selectedScenarioId, setSelectedScenarioId] = useState<number | null>(null)
   const [completedScenes, setCompletedScenes] = useState<number[]>([])
-  
   // 1. Add state for current turn count
   const [turnCount, setTurnCount] = useState(0);
-
   // Add a state to block input when scene is completed and next scene is loading
   const [inputBlocked, setInputBlocked] = useState(false);
-
   // Add a state for all scenes
   const [allScenes, setAllScenes] = useState<Scene[]>([]);
-
+  // Grading/Feedback state (must be at top)
+  const [gradingData, setGradingData] = useState<any>(null);
+  const [showGrading, setShowGrading] = useState(false);
   // Helper to add a scene to allScenes if not already present
   const addSceneIfMissing = (scene: Scene) => {
     setAllScenes(prev => {
@@ -384,9 +382,7 @@ export default function LinearSimulationChat() {
       return prev;
     });
   };
-
   const messagesEndRef = useRef<HTMLDivElement>(null)
-
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -516,7 +512,11 @@ export default function LinearSimulationChat() {
         if (typeof chatData.turn_count === 'number') {
           setTurnCount(chatData.turn_count);
         }
-        // In sendMessage, after receiving chatData, immediately block input and fetch the next scene if scene_completed is true and next_scene_id is present
+        // Robust last scene detection
+        const isLastScene =
+          allScenes.length > 0 &&
+          simulationData.current_scene &&
+          simulationData.current_scene.id === allScenes[allScenes.length - 1].id;
         if (chatData.scene_completed) {
           setCompletedScenes(prev => {
             // Always add the current scene if not already present
@@ -569,16 +569,35 @@ export default function LinearSimulationChat() {
                 setMessages(prev => [...prev, completionMessage]);
               });
             return;
-          } else {
-            // Last scene completed, unblock input and show completion message
+          } else if (isLastScene && !chatData.next_scene_id) {
+            // Only trigger completion if this is the last scene
             setInputBlocked(false);
-            setMessages(prev => [...prev, {
-              id: Date.now() + 3,
-              sender: "System",
-              text: "🎉 Simulation complete! You have finished all scenes.",
-              timestamp: new Date(),
-              type: 'system'
-            }]);
+            setMessages(prev => [
+              ...prev,
+              {
+                id: Date.now() + 3,
+                sender: "System",
+                text: "🎉 Simulation complete! You have finished all scenes. View your grading and feedback.",
+                timestamp: new Date(),
+                type: 'system'
+              }
+            ]);
+            fetchGradingData();
+            return;
+          }
+          // If not last scene and no next_scene_id, fallback
+          if (!chatData.next_scene_id) {
+            setInputBlocked(false);
+            setMessages(prev => [
+              ...prev,
+              {
+                id: Date.now() + 4,
+                sender: "System",
+                text: "🎉 Scene completed! Moving to the next scene...",
+                timestamp: new Date(),
+                type: 'system'
+              }
+            ]);
           }
           return;
         }
@@ -631,6 +650,59 @@ export default function LinearSimulationChat() {
   const totalScenes = allScenes.length > 0
     ? allScenes.length
     : Math.max(simulationData?.current_scene?.scene_order || 1, 1);
+
+  // --- FEEDBACK/GRADING INTERFACE LOGIC (finalized) ---
+  // Function to fetch grading data after simulation
+  const fetchGradingData = async () => {
+    if (!simulationData) return;
+    const res = await fetch(buildApiUrl(`/api/simulation/grade?user_progress_id=${simulationData.user_progress_id}`));
+    if (res.ok) {
+      const data = await res.json();
+      setGradingData(data);
+      setShowGrading(true);
+    }
+  };
+
+  // In sendMessage, after the last scene is completed, trigger grading
+  // (Insert this logic in your sendMessage or scene progression handler)
+  // if (chatData.scene_completed && !chatData.next_scene_id) {
+  //   fetchGradingData();
+  // }
+
+  // Grading Modal
+  {showGrading && gradingData && (
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-lg p-8 max-w-2xl w-full overflow-y-auto max-h-[90vh]">
+        <h2 className="text-2xl font-bold mb-4 text-center">Simulation Grading & Feedback</h2>
+        <div className="mb-6">
+          <div className="text-lg font-semibold">Overall Score: <span className="text-blue-600">{gradingData.overall_score}</span></div>
+          <div className="text-gray-700 mt-2">{gradingData.overall_feedback}</div>
+        </div>
+        {gradingData.scenes && gradingData.scenes.map((scene: any, idx: number) => (
+          <div key={scene.id} className="mb-6 border-b pb-4">
+            <div className="font-semibold text-blue-700">{scene.title}</div>
+            <div className="text-sm text-gray-500 mb-2">{scene.objective}</div>
+            <div className="mb-2">
+              <span className="font-medium">Your Responses:</span>
+              <ul className="list-disc ml-6">
+                {scene.user_responses.map((msg: any) => (
+                  <li key={msg.id} className="text-gray-800">{msg.content}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="text-sm text-green-700 mb-1">Score: {scene.score}</div>
+            <div className="text-gray-700">{scene.feedback}</div>
+            {scene.teaching_notes && (
+              <div className="mt-2 text-xs text-gray-500 italic">Teaching Notes: {scene.teaching_notes}</div>
+            )}
+          </div>
+        ))}
+        <div className="flex justify-center mt-6">
+          <button className="btn btn-primary" onClick={() => setShowGrading(false)}>Close</button>
+        </div>
+      </div>
+    </div>
+  )}
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -793,6 +865,38 @@ export default function LinearSimulationChat() {
           </Card>
         </div>
       </div>
+      {/* Grading/Feedback Modal - moved inside the return block */}
+      {showGrading && gradingData && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg p-8 max-w-2xl w-full">
+            <h2 className="text-xl font-bold mb-4">Simulation Feedback & Grading</h2>
+            {gradingData.scene_meta && (
+              <div className="mb-4">
+                <h3 className="font-semibold">Scene: {gradingData.scene_meta.title}</h3>
+                <p className="text-sm text-gray-600">{gradingData.scene_meta.description}</p>
+                <p className="text-sm mt-2"><strong>Success Metric:</strong> {gradingData.scene_meta.success_metric || 'N/A'}</p>
+                <p className="text-sm mt-2"><strong>Learning Outcomes:</strong> {gradingData.scene_meta.learning_outcomes || 'N/A'}</p>
+                <p className="text-sm mt-2"><strong>Teaching Notes:</strong> {gradingData.scene_meta.teaching_notes || 'N/A'}</p>
+              </div>
+            )}
+            <div className="mb-4">
+              <h4 className="font-semibold mb-2">Your Responses:</h4>
+              <ul className="space-y-2">
+                {gradingData.user_messages.map((msg: any) => (
+                  <li key={msg.id} className="bg-gray-100 rounded p-2 text-sm">
+                    <span className="text-gray-500 mr-2">[{new Date(msg.timestamp).toLocaleString()}]</span>
+                    {msg.content}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            {/* Placeholder for grading logic, rubric, etc. */}
+            <div className="mt-4">
+              <button className="btn btn-primary" onClick={() => setShowGrading(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 } 

@@ -3,7 +3,7 @@ Sequential Timeline Simulation API
 Handles guided simulation with AI personas, goal validation, and progress tracking
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 from typing import List, Optional, Dict, Any
@@ -48,6 +48,23 @@ def validate_goal_with_function_calling(
     """
     import json
     
+    # --- PATCH: Pre-check for generic/irrelevant responses ---
+    irrelevant_responses = {"test", "hello", "ok", "hi", "thanks", "hey", "goodbye", "bye"}
+    # Extract the last user message from the conversation history
+    last_user_message = ""
+    for line in reversed(conversation_history.strip().split("\n")):
+        if line.lower().startswith("user:"):
+            last_user_message = line[5:].strip()
+            break
+    if last_user_message.lower() in irrelevant_responses or len(last_user_message) < 3:
+        return {
+            "goal_achieved": False,
+            "confidence_score": 0.0,
+            "reasoning": "Your last message did not address the scene's goal.",
+            "next_action": "continue",
+            "hint_message": "Please provide a response that directly addresses the scene's goal and aligns with the success metric."
+        }
+    # --- END PATCH ---
     # Define the function for scene progression
     function_definitions = [
         {
@@ -87,11 +104,11 @@ def validate_goal_with_function_calling(
         }
     ]
     
-    # Create the evaluation prompt
+    # --- PATCH: Improved strict prompt ---
     evaluation_prompt = f"""You are a goal validation agent for a business simulation. Analyze the conversation and determine if the user has achieved the scene goal.
 
 SCENE GOAL: {scene_goal}
-
+SCENE SUCCESS METRIC: {scene_goal}
 SCENE DESCRIPTION: {scene_description}
 
 RECENT CONVERSATION:
@@ -99,10 +116,18 @@ RECENT CONVERSATION:
 
 CURRENT ATTEMPTS: {current_attempts}/{max_attempts}
 
+CRITICAL: Only mark the goal as achieved if the user's last message directly addresses and aligns with the scene's success metric. If the user's last message is generic, off-topic, or irrelevant (e.g., 'test', 'hello', 'ok'), DO NOT mark the goal as achieved.
+
+NEGATIVE EXAMPLES:
+- If the user's last message is 'test', 'hello', 'ok', or similar, goal_achieved must be false.
+- If the user's last message does not mention or address the key aspects of the success metric, goal_achieved must be false.
+
+When the user's last message does NOT achieve the goal, explain why it was insufficient or off-topic, but do NOT simply repeat or quote the user's message. Only reference the user's message if it adds clarity to your reasoning.
+
 Analyze the conversation and determine:
 1. Has the user achieved the scene goal? Consider if they've gathered the necessary information, understood the situation, or completed the required tasks.
 2. Confidence score (0.0-1.0) based on how clearly the goal was achieved
-3. Brief reasoning for your decision
+3. Brief reasoning for your decision (do NOT simply repeat the user's last message if the goal was not achieved)
 4. Next action: 
    - "continue" if they need more interaction
    - "progress" if goal is achieved and ready to move on
@@ -111,27 +136,8 @@ Analyze the conversation and determine:
 5. Optional hint message if action is "hint"
 6. Should progress: Set to true if the goal is achieved and you want to actually move to the next scene
 
-Look for indicators like:
-- User saying they understand the situation
-- User gathering key information from team members
-- User expressing readiness to move forward
-- User saying "I have everything I need" or "let's move on"
-- User demonstrating comprehension of the current challenges
-- User asking multiple team members about their perspectives
-- User showing they understand the distribution challenges
-- User summarizing what they've learned
-- User saying "I think I understand" or "I got it"
-- User asking to move to the next scene
-
-CRITICAL: If the user has:
-1. Interacted with multiple team members (at least 2 different personas)
-2. AND either says they understand the challenges OR asks to move to the next scene
-3. THEN consider the goal achieved and set should_progress to true
-
-The user should NOT need to interact with every single team member to achieve the goal. Focus on whether they've gained sufficient understanding of the key challenges and obstacles.
-
 Call the progress_to_next_scene function with your analysis."""
-
+    # --- END PATCH ---
     try:
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
@@ -261,7 +267,19 @@ async def start_simulation(
     db: Session = Depends(get_db)
 ):
     """Start a new simulation or resume existing one"""
-    
+    # --- PATCH: Clear previous progress and logs for this user and scenario ---
+    from database.models import ConversationLog, UserProgress, SceneProgress
+    # Delete existing progress and related scene progress
+    existing_progresses = db.query(UserProgress).filter(
+        UserProgress.user_id == request.user_id,
+        UserProgress.scenario_id == request.scenario_id
+    ).all()
+    for progress in existing_progresses:
+        db.query(SceneProgress).filter(SceneProgress.user_progress_id == progress.id).delete()
+        db.query(ConversationLog).filter(ConversationLog.user_progress_id == progress.id).delete()
+        db.delete(progress)
+    db.commit()
+    # --- END PATCH ---
     # Verify scenario exists
     scenario = db.query(Scenario).filter(Scenario.id == request.scenario_id).first()
     if not scenario:
@@ -983,6 +1001,13 @@ async def linear_simulation_chat(
     db: Session = Depends(get_db)
 ):
     """Handle orchestrated chat interactions in linear simulation"""
+    def _safe_scene_id():
+        scene_id = getattr(orchestrator.state, 'current_scene_id', None)
+        if not isinstance(scene_id, int):
+            scene_id = getattr(user_progress, 'current_scene_id', None)
+            if not isinstance(scene_id, int):
+                scene_id = None
+        return scene_id
     try:
         # Get user progress - handle both old and new request formats
         if request.user_progress_id:
@@ -1113,6 +1138,54 @@ You are about to enter a multi-scene simulation where you'll interact with vario
             print(f"[DEBUG] ABOUT TO CHECK TURN LIMIT: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
             if orchestrator.state.turn_count >= timeout_turns:
                 print(f"[DEBUG] TIMEOUT TRIGGERED: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
+                # --- PATCH: Validate last attempt before progressing ---
+                # Get current scene goal
+                current_scene_obj = orchestrator.scenes[orchestrator.state.current_scene_index] if orchestrator.scenes else None
+                validation_result = None
+                goal_validated = False
+                if current_scene_obj and current_scene_obj.get('objectives'):
+                    scene_goal = current_scene_obj['objectives'][0]
+                    scene_description = current_scene_obj.get('description', '')
+                    scene_id_to_use = request.scene_id if request.scene_id is not None else user_progress.current_scene_id
+                    recent_messages = db.query(ConversationLog).filter(
+                        and_(
+                            ConversationLog.user_progress_id == user_progress.id,
+                            ConversationLog.scene_id == scene_id_to_use
+                        )
+                    ).order_by(desc(ConversationLog.message_order)).limit(10).all()
+                    conversation_history = []
+                    for msg in reversed(recent_messages):
+                        speaker = msg.sender_name or "System"
+                        conversation_history.append(f"{speaker}: {msg.message_content}")
+                    conversation_history.append(f"User: {request.message}")
+                    conversation_text = "\n".join(conversation_history)
+                    print(f"[DEBUG] (Timeout) Conversation history: {conversation_text[:500]}...")
+                    scene_progress = db.query(SceneProgress).filter(
+                        and_(
+                            SceneProgress.user_progress_id == user_progress.id,
+                            SceneProgress.scene_id == scene_id_to_use
+                        )
+                    ).first()
+                    current_attempts = scene_progress.attempts if scene_progress else 0
+                    max_attempts = current_scene_obj.get('max_attempts', 5)
+                    try:
+                        validation_result = validate_goal_with_function_calling(
+                            conversation_history=conversation_text,
+                            scene_goal=scene_goal,
+                            scene_description=scene_description,
+                            current_attempts=current_attempts,
+                            max_attempts=max_attempts,
+                            db=db,
+                            user_progress_id=user_progress.id,
+                            current_scene_id=scene_id_to_use
+                        )
+                        print(f"[DEBUG] (Timeout) Goal validation result: {validation_result}")
+                        goal_validated = True
+                    except Exception as e:
+                        print(f"[ERROR] (Timeout) Goal validation failed: {str(e)}")
+                        validation_result = None
+                        goal_validated = False
+                # --- END PATCH ---
                 # Timeout reached: generate dynamic suggestion
                 recent_messages = db.query(ConversationLog).filter(
                     and_(
@@ -1135,13 +1208,42 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                         temperature=0.5
                     )
                     suggestion = suggestion_response.choices[0].message.content.strip()
+                    # Remove unwanted fallback phrases if present
+                    unwanted_phrases = [
+                        "Without the specific content of the conversation, it's challenging to provide a precise action.",
+                        "Without the specific details of the conversation, a general actionable step the user could take is to",
+                        "Without the specific details of the conversation, it's challenging to provide a precise action."
+                    ]
+                    for unwanted in unwanted_phrases:
+                        if suggestion.startswith(unwanted):
+                            suggestion = suggestion.replace(unwanted, "").lstrip(':,. \n')
                 except Exception as e:
-                    suggestion = "Try to ask more targeted questions or summarize your understanding earlier next time."
-                ai_response = (
-                    "You've reached the maximum number of turns for this scene.\n\n"
-                    f"Suggestion: {suggestion}\n\n"
-                    "Moving to the next scene..."
-                )
+                    suggestion = "Try to ask a direct question about a key decision or strategy, or request specific insights from the AI personas to move the scene forward."
+                # --- PATCH: Compose response based on goal validation ---
+                next_scene_id = None  # Always define before use
+                if goal_validated and validation_result:
+                    if validation_result.get("goal_achieved"):
+                        ai_response = (
+                            f"🎉 Goal Achieved! {validation_result.get('reasoning', '')}\n\n"
+                            "Moving to the next scene..."
+                        )
+                    elif validation_result.get("next_action") == "hint" and validation_result.get("hint_message"):
+                        ai_response = (
+                            f"💡 Hint: {validation_result['hint_message']}\n\n"
+                            "You've reached the maximum number of turns for this scene. Moving to the next scene..."
+                        )
+                    else:
+                        ai_response = (
+                            f"❌ {validation_result.get('reasoning', 'You did not achieve the goal.')}\n\n"
+                            f"Suggestion: {suggestion}\n\n"
+                            "Moving to the next scene..."
+                        )
+                else:
+                    ai_response = (
+                        "You've reached the maximum number of turns for this scene.\n\n"
+                        f"Suggestion: {suggestion}\n\n"
+                        "Moving to the next scene..."
+                    )
                 persona_name = "System"
                 persona_id = None
                 if orchestrator.state.current_scene_index + 1 < len(orchestrator.scenario.get('scenes', [])):
@@ -1152,8 +1254,11 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                     orchestrator.state.current_scene_id = orchestrator.scenario.get('scenes', [])[orchestrator.state.current_scene_index].get('id')
                     print(f"[DEBUG] PROGRESSED TO NEW SCENE: index={orchestrator.state.current_scene_index}, id={orchestrator.state.current_scene_id}, turn_count={orchestrator.state.turn_count}")
                     print(f"[DEBUG] NEW SCENE START (after timeout progression): index={orchestrator.state.current_scene_index}, turn_count={orchestrator.state.turn_count}")
+                    next_scene_id = orchestrator.state.current_scene_id
                 else:
                     ai_response += "\n\nYou have completed all scenes in this simulation."
+                    # Do NOT increment current_scene_index; explicitly set next_scene_id to None
+                    next_scene_id = None
                 state_dict = {
                     'current_scene_id': orchestrator.state.current_scene_id,
                     'current_scene_index': orchestrator.state.current_scene_index,
@@ -1168,9 +1273,9 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                 db.commit()
                 return SimulationChatResponse(
                     message=ai_response,
-                    scene_id=orchestrator.state.current_scene_id,
+                    scene_id=_safe_scene_id(),
                     scene_completed=True,
-                    next_scene_id=orchestrator.scenario.get('scenes', [])[orchestrator.state.current_scene_index].get('id') if orchestrator.state.current_scene_index < len(orchestrator.scenario.get('scenes', [])) else None,
+                    next_scene_id=next_scene_id,
                     persona_name=persona_name,
                     persona_id=persona_id,
                     turn_count=orchestrator.state.turn_count
@@ -1442,9 +1547,13 @@ User's message: {request.message}"""
         db.commit()
         print(f"[DEBUG] Final commit - simulation_started: {state_dict['simulation_started']}")
         
+        # When returning SimulationChatResponse, always ensure scene_id is an int
+        scene_id = orchestrator.state.current_scene_id
+        if not isinstance(scene_id, int):
+            scene_id = user_progress.current_scene_id if hasattr(user_progress, 'current_scene_id') and isinstance(user_progress.current_scene_id, int) else None
         return SimulationChatResponse(
             message=ai_response,
-            scene_id=request.scene_id or user_progress.current_scene_id,
+            scene_id=_safe_scene_id(),
             scene_completed=scene_completed,
             next_scene_id=next_scene_id,
             persona_name=persona_name,
@@ -1458,3 +1567,118 @@ User's message: {request.message}"""
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}") 
+
+@router.get("/user-responses")
+async def get_user_responses(
+    user_progress_id: int = Query(...),
+    scene_id: int = Query(None),
+    db: Session = Depends(get_db)
+):
+    """Fetch all user responses (and scene metadata) for a simulation, optionally filtered by scene."""
+    from database.models import ConversationLog, ScenarioScene
+    # Query user messages
+    filters = [ConversationLog.user_progress_id == user_progress_id]
+    if scene_id:
+        filters.append(ConversationLog.scene_id == scene_id)
+    user_messages = db.query(ConversationLog).filter(
+        *filters,
+        ConversationLog.message_type == "user"
+    ).order_by(ConversationLog.message_order).all()
+    # Optionally, fetch all messages (for context)
+    all_messages = db.query(ConversationLog).filter(*filters).order_by(ConversationLog.message_order).all()
+    # Fetch scene metadata if scene_id is provided
+    scene_meta = None
+    if scene_id:
+        scene = db.query(ScenarioScene).filter(ScenarioScene.id == scene_id).first()
+        if scene:
+            scene_meta = {
+                "id": scene.id,
+                "title": scene.title,
+                "description": scene.description,
+                "success_metric": getattr(scene, "success_metric", None),
+                "learning_outcomes": getattr(scene, "learning_objectives", None),
+                "teaching_notes": getattr(scene, "teaching_notes", None),
+            }
+    return {
+        "user_messages": [
+            {
+                "id": m.id,
+                "content": m.message_content,
+                "timestamp": m.timestamp,
+                "scene_id": m.scene_id,
+                "message_order": m.message_order
+            } for m in user_messages
+        ],
+        "all_messages": [
+            {
+                "id": m.id,
+                "type": m.message_type,
+                "sender": m.sender_name,
+                "content": m.message_content,
+                "timestamp": m.timestamp,
+                "scene_id": m.scene_id,
+                "message_order": m.message_order
+            } for m in all_messages
+        ],
+        "scene_meta": scene_meta
+    } 
+
+@router.get("/grade")
+async def get_simulation_grading(
+    user_progress_id: int = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Return grading and feedback for a completed simulation."""
+    # Fetch user progress
+    user_progress = db.query(UserProgress).filter(UserProgress.id == user_progress_id).first()
+    if not user_progress:
+        return {"error": "User progress not found."}
+    scenario_id = user_progress.scenario_id
+    # Fetch all scenes for the scenario
+    scenes = db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario_id).order_by(ScenarioScene.scene_order).all()
+    # Fetch all scene progresses
+    scene_progresses = db.query(SceneProgress).filter(SceneProgress.user_progress_id == user_progress_id).all()
+    scene_progress_map = {sp.scene_id: sp for sp in scene_progresses}
+    # Fetch all user messages
+    from database.models import ConversationLog
+    user_messages = db.query(ConversationLog).filter(
+        ConversationLog.user_progress_id == user_progress_id,
+        ConversationLog.message_type == "user"
+    ).order_by(ConversationLog.scene_id, ConversationLog.message_order).all()
+    # Group user messages by scene
+    from collections import defaultdict
+    user_msgs_by_scene = defaultdict(list)
+    for msg in user_messages:
+        user_msgs_by_scene[msg.scene_id].append({
+            "id": msg.id,
+            "content": msg.message_content,
+            "timestamp": msg.timestamp
+        })
+    # Compose per-scene grading
+    scene_feedback = []
+    total_score = 0
+    max_score = 0
+    for scene in scenes:
+        sp = scene_progress_map.get(scene.id)
+        score = getattr(sp, "goal_achievement_score", 0) or 0
+        max_score += 100
+        total_score += score
+        feedback = getattr(sp, "feedback", None) or ("Goal achieved!" if getattr(sp, "goal_achieved", False) else "Goal not achieved.")
+        teaching_notes = getattr(scene, "teaching_notes", None)
+        scene_feedback.append({
+            "id": scene.id,
+            "title": scene.title,
+            "objective": scene.user_goal,
+            "user_responses": user_msgs_by_scene.get(scene.id, []),
+            "score": int(score),
+            "feedback": feedback,
+            "teaching_notes": teaching_notes
+        })
+    # Calculate overall score
+    overall_score = int(total_score / len(scenes)) if scenes else 0
+    overall_feedback = "Great job! You met most of the learning objectives." if overall_score >= 70 else "You completed the simulation. Review the feedback for improvement."
+    return {
+        "overall_score": overall_score,
+        "overall_feedback": overall_feedback,
+        "scenes": scene_feedback
+    } 

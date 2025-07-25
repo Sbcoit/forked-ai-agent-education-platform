@@ -126,10 +126,33 @@ export default function SceneCard({
     if (onDelete) onDelete();
   };
 
+  // Helper to normalize names for comparison
+  function normalizeName(name: string) {
+    return name ? name.replace(/[^a-zA-Z]/g, "").toLowerCase().trim() : "";
+  }
+  const normStudentRole = normalizeName(studentRole || "");
+
+  // Filter out main character from personas_involved for display and edit
+  const filteredPersonasInvolved = editFields.personas_involved.filter(
+    name => normalizeName(name) !== normStudentRole
+  );
+
+  // For chips: show all personas_involved except the main character
+  const chipsPersonasInvolved = filteredPersonasInvolved;
+
+  // Debugging logs
+  console.log("editFields.personas_involved:", editFields.personas_involved);
+  console.log("allPersonas:", allPersonas.map(p => p.name));
+  console.log("Normalized editFields.personas_involved:", editFields.personas_involved.map(normalizeName));
+  console.log("Normalized allPersonas:", allPersonas.map(p => normalizeName(p.name)));
+
   // Display mode (TimelineCard style)
   if (!editMode) {
     const validPersonaNames = new Set(allPersonas.map(p => p.name));
-    const filteredPersonasInvolved = scene.personas_involved.filter(name => validPersonaNames.has(name));
+    // Also filter out main character in display mode
+    const filteredPersonasInvolvedDisplay = scene.personas_involved.filter(
+      name => validPersonaNames.has(name) && normalizeName(name) !== normStudentRole
+    );
     return (
       <Card
         className={`flex flex-row items-stretch w-full max-w-4xl min-h-[140px] p-3 mb-3 border border-gray-200 shadow-md cursor-pointer transition-all duration-200`}
@@ -163,9 +186,9 @@ export default function SceneCard({
               <span className="font-semibold">Success Metric:</span> {scene.successMetric}
             </div>
           )}
-          {filteredPersonasInvolved.length > 0 && (
+          {filteredPersonasInvolvedDisplay.length > 0 && (
             <div className="text-xs text-purple-800 mt-1">
-              <span className="font-semibold">Personas Involved:</span> {filteredPersonasInvolved.join(', ')}
+              <span className="font-semibold">Personas Involved:</span> {filteredPersonasInvolvedDisplay.join(', ')}
             </div>
           )}
         </div>
@@ -180,14 +203,9 @@ export default function SceneCard({
     );
   }
 
-  // Helper to normalize names for comparison
-  function normalizeName(name: string) {
-    return name ? name.replace(/[^a-zA-Z]/g, "").toLowerCase().trim() : "";
-  }
-  const normStudentRole = normalizeName(studentRole || "");
-
-  // For chips: show all personas_involved (including the main character)
-  const chipsPersonasInvolved = editFields.personas_involved;
+  // In edit mode, use chipsPersonasInvolved for the chips and filter the dropdown as before
+  // For chips: show all personas_involved except the main character
+  // const chipsPersonasInvolved = filteredPersonasInvolved; // This line is removed
 
   // Debugging logs
   console.log("editFields.personas_involved:", editFields.personas_involved);

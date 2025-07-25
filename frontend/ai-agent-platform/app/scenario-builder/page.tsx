@@ -699,6 +699,7 @@ export default function ScenarioBuilder() {
    // Only use timeout_turns for turn limit, not max_turns
    return scenes.map(scene => ({
      ...scene,
+     image_url: scene.image_url, // Always preserve image_url
      timeout_turns:
        scene.timeout_turns !== undefined && scene.timeout_turns !== null
          ? scene.timeout_turns

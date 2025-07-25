@@ -268,7 +268,6 @@ async def start_simulation(
 ):
     """Start a new simulation or resume existing one"""
     # --- PATCH: Clear previous progress and logs for this user and scenario ---
-    from database.models import ConversationLog, UserProgress, SceneProgress
     # Delete existing progress and related scene progress
     existing_progresses = db.query(UserProgress).filter(
         UserProgress.user_id == request.user_id,
@@ -1135,7 +1134,6 @@ You are about to enter a multi-scene simulation where you'll interact with vario
             if should_increment:
                 # Log user message to ConversationLog
                 scene_id_to_use = request.scene_id if request.scene_id is not None else user_progress.current_scene_id
-                from database.models import ConversationLog
                 user_log = ConversationLog(
                     user_progress_id=user_progress.id,
                     scene_id=scene_id_to_use,
@@ -1591,7 +1589,6 @@ async def get_user_responses(
     db: Session = Depends(get_db)
 ):
     """Fetch all user responses (and scene metadata) for a simulation, optionally filtered by scene."""
-    from database.models import ConversationLog, ScenarioScene
     # Query user messages
     filters = [ConversationLog.user_progress_id == user_progress_id]
     if scene_id:
@@ -1658,7 +1655,6 @@ async def get_simulation_grading(
     scene_progresses = db.query(SceneProgress).filter(SceneProgress.user_progress_id == user_progress_id).all()
     scene_progress_map = {sp.scene_id: sp for sp in scene_progresses}
     # Fetch all user messages
-    from database.models import ConversationLog
     user_messages = db.query(ConversationLog).filter(
         ConversationLog.user_progress_id == user_progress_id,
         ConversationLog.message_type == "user"
@@ -1686,17 +1682,23 @@ async def get_simulation_grading(
         print(f"[DEBUG]   full scene object: {scene}")
         # Compose prompt for LLM grading
         if client and user_responses and scene.success_metric:
+            scene_goal = getattr(scene, "user_goal", None) or getattr(scene, "objective", None) or ""
             prompt = f"""
 You are a grading agent for a business simulation. The following are the user's responses for a scene:
 
 SCENE SUCCESS METRIC: {scene.success_metric}
+SCENE GOAL: {scene_goal}
 USER RESPONSES:
 """
             for i, msg in enumerate(user_responses, 1):
                 prompt += f"{i}. {msg['content']}\n"
             prompt += """
 
-Evaluate how well the user's responses align with the success metric. Give a score from 0 to 100 and provide detailed feedback. Respond in JSON:
+Grade ONLY based on the success metric above, and secondarily on the scene goal if relevant. Do NOT consider or reference any learning outcomes.
+
+Be moderately lenient: award partial credit for reasonable attempts, and do not require perfect answers for a high score. If the user's responses are on-topic and make a good-faith attempt, they should receive at least 60 points. Only give a very low score if the responses are completely off-topic or irrelevant.
+
+Evaluate how well the user's responses align with the success metric and goal. Give a score from 0 to 100 and provide detailed feedback. Respond in JSON:
 {
   "score": <number>,
   "feedback": "<detailed feedback>"
@@ -1749,8 +1751,13 @@ Output ONLY valid JSON, no extra text.
     if isinstance(learning_outcomes, str):
         learning_outcomes = [learning_outcomes]
     all_user_responses = [msg["content"] for msgs in user_msgs_by_scene.values() for msg in msgs]
-    print(f"[DEBUG] all_user_responses: {all_user_responses}")
-    print(f"[DEBUG] learning_outcomes: {learning_outcomes}")
+    # Calculate average scene score
+    scene_scores = [scene["score"] for scene in scene_feedback]
+    if scene_scores:
+        overall_score = int(round(sum(scene_scores) / len(scene_scores)))
+    else:
+        overall_score = 0
+    overall_feedback = ""
     if client and all_user_responses and learning_outcomes:
         prompt = f"""
 You are a grading agent for a business simulation. The following are the user's responses across all scenes:
@@ -1790,14 +1797,12 @@ Output ONLY valid JSON, no extra text.
                 result = pyjson.loads(json_str)
             else:
                 result = pyjson.loads(raw_content)
-            overall_score = int(result.get("overall_score", 0))
+            # Use only the feedback from the LLM, not its score
             overall_feedback = result.get("overall_feedback", "No feedback provided.")
         except Exception as e:
             print(f"[ERROR] LLM overall grading failed: {e}")
-            overall_score = int(total_score / len(scenes)) if scenes else 0
             overall_feedback = f"AI grading failed: {e}. Great job! You met most of the learning objectives." if overall_score >= 70 else f"AI grading failed: {e}. You completed the simulation. Review the feedback for improvement."
     else:
-        overall_score = int(total_score / len(scenes)) if scenes else 0
         overall_feedback = "Great job! You met most of the learning objectives." if overall_score >= 70 else "You completed the simulation. Review the feedback for improvement."
     return {
         "overall_score": overall_score,

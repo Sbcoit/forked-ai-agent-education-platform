@@ -429,6 +429,8 @@ Each scene MUST have:
 - personas_involved: Array of 2-4 actual persona names from the list above
 - user_goal: Specific objective the student must achieve
 - sequence_order: 1, 2, 3, or 4
+- goal: Write a short, general summary of what the user should aim to accomplish in this scene. The goal should be directly inspired by and derived from the success metric, but do NOT include the specific success criteria or give away the answer. It should be clear and motivating, less specific than the success metric, and should not reveal the exact actions or information needed to achieve success.
+- success_metric: A clear, measurable way to determine if the student (main character) has accomplished the specific goal of the scene, written in a way that is directly tied to the actions and decisions required in the narrative. Focus on what the student must do or achieve in the context of this scene, not just a generic outcome.
 
 Output format - ONLY this JSON array:
 [
@@ -437,6 +439,8 @@ Output format - ONLY this JSON array:
     "description": "Detailed setting description with visual elements...",
     "personas_involved": ["Actual Name 1", "Actual Name 2"],
     "user_goal": "Specific actionable goal",
+    "goal": "General, non-revealing summary of what to accomplish",
+    "success_metric": "Specific, measurable criteria for success",
     "sequence_order": 1
   }},
   ...4 scenes total

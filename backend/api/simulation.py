@@ -105,10 +105,11 @@ def validate_goal_with_function_calling(
     ]
     
     # --- PATCH: Improved strict prompt ---
-    evaluation_prompt = f"""You are a goal validation agent for a business simulation. Analyze the conversation and determine if the user has achieved the scene goal.
+    evaluation_prompt = f"""
+You are a goal validation agent for a business simulation. Analyze the conversation and determine if the user has achieved the scene goal.
 
-SCENE GOAL: {scene_goal}
 SCENE SUCCESS METRIC: {scene_goal}
+SCENE GOAL: {scene_goal}
 SCENE DESCRIPTION: {scene_description}
 
 RECENT CONVERSATION:
@@ -116,16 +117,14 @@ RECENT CONVERSATION:
 
 CURRENT ATTEMPTS: {current_attempts}/{max_attempts}
 
-CRITICAL: Only mark the goal as achieved if the user's last message directly addresses and aligns with the scene's success metric. If the user's last message is generic, off-topic, or irrelevant (e.g., 'test', 'hello', 'ok'), DO NOT mark the goal as achieved.
+Grade ONLY based on the success metric above, and secondarily on the scene goal if relevant. Do NOT consider or reference any learning outcomes.
 
-NEGATIVE EXAMPLES:
-- If the user's last message is 'test', 'hello', 'ok', or similar, goal_achieved must be false.
-- If the user's last message does not mention or address the key aspects of the success metric, goal_achieved must be false.
+Be moderately lenient: If the user's last message is on-topic and makes a good-faith attempt to address the success metric or goal, mark the goal as achieved. Do not require perfect answers or exact wording. Only mark the goal as not achieved if the response is completely off-topic, irrelevant, or generic (e.g., 'test', 'hello', 'ok').
 
 When the user's last message does NOT achieve the goal, explain why it was insufficient or off-topic, but do NOT simply repeat or quote the user's message. Only reference the user's message if it adds clarity to your reasoning.
 
 Analyze the conversation and determine:
-1. Has the user achieved the scene goal? Consider if they've gathered the necessary information, understood the situation, or completed the required tasks.
+1. Has the user achieved the scene goal? (goal_achieved: true/false)
 2. Confidence score (0.0-1.0) based on how clearly the goal was achieved
 3. Brief reasoning for your decision (do NOT simply repeat the user's last message if the goal was not achieved)
 4. Next action: 
@@ -136,7 +135,8 @@ Analyze the conversation and determine:
 5. Optional hint message if action is "hint"
 6. Should progress: Set to true if the goal is achieved and you want to actually move to the next scene
 
-Call the progress_to_next_scene function with your analysis."""
+Call the progress_to_next_scene function with your analysis.
+"""
     # --- END PATCH ---
     try:
         api_key = os.getenv("OPENAI_API_KEY")

@@ -482,7 +482,7 @@ class UserProgressResponse(BaseModel):
     class Config:
         from_attributes = True
 
-class SceneProgressResponse(BaseModel):
+class SceneProgressDetailResponse(BaseModel):
     id: int
     scene_id: int
     status: str
@@ -519,7 +519,7 @@ class ConversationLogResponse(BaseModel):
 
 class SimulationAnalyticsResponse(BaseModel):
     user_progress: UserProgressResponse
-    scene_progress: List[SceneProgressResponse]
+    scene_progress: List[SceneProgressDetailResponse]
     conversation_summary: Dict[str, Any]
     performance_metrics: Dict[str, Any]
     

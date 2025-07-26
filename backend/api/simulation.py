@@ -183,6 +183,7 @@ Call the progress_to_next_scene function with your analysis.
                         ).order_by(ScenarioScene.scene_order).first()
                         
                         if next_scene:
+                            print(f"[DEBUG] /progress: Found next_scene with id={next_scene.id}, title={next_scene.title}")
                             # Update user progress to next scene
                             user_progress.current_scene_id = next_scene.id
                             user_progress.last_activity = datetime.utcnow()
@@ -217,7 +218,7 @@ Call the progress_to_next_scene function with your analysis.
                             
                             # Commit the changes
                             db.commit()
-                            print(f"[DEBUG] Successfully progressed to scene {next_scene.id}")
+                            print(f"[DEBUG] /progress: Returning next_scene (id={next_scene.id}), simulation_complete=False")
                             
                             # Add progression info to result
                             arguments["next_scene_id"] = next_scene.id
@@ -794,6 +795,7 @@ async def progress_to_next_scene(
     ).order_by(ScenarioScene.scene_order).first()
     
     if next_scene:
+        print(f"[DEBUG] /progress: Found next_scene with id={next_scene.id}, title={next_scene.title}")
         # Move to next scene
         user_progress.current_scene_id = next_scene.id
         user_progress.last_activity = datetime.utcnow()
@@ -820,7 +822,10 @@ async def progress_to_next_scene(
                 role=persona.role,
                 background=persona.background,
                 correlation=persona.correlation,
-                primary_goals=persona.primary_goals or [],
+                primary_goals=(
+                    [persona.primary_goals] if isinstance(persona.primary_goals, str) and persona.primary_goals else
+                    persona.primary_goals if isinstance(persona.primary_goals, list) else []
+                ),
                 personality_traits=persona.personality_traits or {},
                 created_at=persona.created_at,
                 updated_at=persona.updated_at
@@ -846,12 +851,29 @@ async def progress_to_next_scene(
         
         db.commit()
         
+        # Return all required fields for SceneProgressResponse
         return SceneProgressResponse(
+            id=scene_progress.id,
+            scene_id=scene_progress.scene_id,
+            status=scene_progress.status,
+            attempts=scene_progress.attempts,
+            hints_used=scene_progress.hints_used,
+            goal_achieved=scene_progress.goal_achieved,
+            forced_progression=scene_progress.forced_progression,
+            time_spent=scene_progress.time_spent,
+            messages_sent=scene_progress.messages_sent,
+            ai_responses=scene_progress.ai_responses,
+            goal_achievement_score=scene_progress.goal_achievement_score,
+            interaction_quality=scene_progress.interaction_quality,
+            scene_feedback=scene_progress.scene_feedback,
+            started_at=scene_progress.started_at,
+            completed_at=scene_progress.completed_at,
             success=True,
             next_scene=next_scene_data,
             simulation_complete=False
         )
     else:
+        print(f"[DEBUG] /progress: No next_scene found, simulation_complete=True")
         # Simulation complete
         user_progress.simulation_status = "completed"
         user_progress.completed_at = datetime.utcnow()
@@ -870,6 +892,21 @@ async def progress_to_next_scene(
         db.commit()
         
         return SceneProgressResponse(
+            id=scene_progress.id,
+            scene_id=scene_progress.scene_id,
+            status=scene_progress.status,
+            attempts=scene_progress.attempts,
+            hints_used=scene_progress.hints_used,
+            goal_achieved=scene_progress.goal_achieved,
+            forced_progression=scene_progress.forced_progression,
+            time_spent=scene_progress.time_spent,
+            messages_sent=scene_progress.messages_sent,
+            ai_responses=scene_progress.ai_responses,
+            goal_achievement_score=scene_progress.goal_achievement_score,
+            interaction_quality=scene_progress.interaction_quality,
+            scene_feedback=scene_progress.scene_feedback,
+            started_at=scene_progress.started_at,
+            completed_at=scene_progress.completed_at,
             success=True,
             simulation_complete=True,
             completion_summary="Congratulations! You have completed the simulation."

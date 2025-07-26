@@ -426,6 +426,7 @@ class SimulationChatResponse(BaseModel):
     scene_id: Optional[int] = None
     scene_completed: Optional[bool] = None
     next_scene_id: Optional[int] = None
+    next_scene: Optional[Dict[str, Any]] = None  # Full next scene object for frontend
     persona_id: Optional[str] = None  # Persona ID for @mentions
     
     class Config:

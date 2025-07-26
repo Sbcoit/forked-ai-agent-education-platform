@@ -617,6 +617,7 @@ export default function LinearSimulationChat() {
               }
             ]);
             setGradingInProgress(true);
+            setSimulationComplete(true); // Set simulation complete when grading starts
             fetchGradingData().then(() => setGradingInProgress(false));
             return;
           }
@@ -902,6 +903,7 @@ export default function LinearSimulationChat() {
           
           // Show grading modal
           setGradingInProgress(true);
+          setSimulationComplete(true); // Set simulation complete when grading starts
           fetchGradingData().then(() => setGradingInProgress(false));
         }
       } else {
@@ -993,7 +995,7 @@ export default function LinearSimulationChat() {
                 ...(gradingInProgress ? [{
                   id: 'grading-in-progress',
                   sender: 'System',
-                  text: '🎉 Simulation complete! Grading in progress... ',
+                  text: 'Grading in progress... ',
                   type: 'system',
                   showSubmitForGrading: false,
                   showViewGrading: false,
@@ -1096,7 +1098,7 @@ export default function LinearSimulationChat() {
                     onChange={(e) => setInput(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="Type your message or command..."
-                    disabled={inputBlocked || isLoading || isTyping || simulationComplete}
+                    disabled={inputBlocked || isLoading || isTyping || simulationComplete || gradingInProgress}
                     className="flex-1"
                   />
                   <Button

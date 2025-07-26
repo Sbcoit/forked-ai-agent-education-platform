@@ -480,9 +480,9 @@ export default function LinearSimulationChat() {
     // Only increment turn count for non-command messages
     if (trimmedInput !== 'begin' && trimmedInput !== 'help') {
       setTurnCount(prev => prev + 1);
-      // Always allow submit for grading after a user message
-      setCanSubmitForGrading(true);
       setHasSubmittedForGrading(false);
+      // Hide submit button when user sends a new message
+      setCanSubmitForGrading(false);
     }
 
     try {
@@ -520,6 +520,11 @@ export default function LinearSimulationChat() {
           next_scene_id: chatData.next_scene_id
         }
         setMessages(prev => [...prev, aiMessage])
+        
+        // Allow submit for grading after AI response is received
+        if (trimmedInput !== 'begin' && trimmedInput !== 'help') {
+          setCanSubmitForGrading(true);
+        }
 
         // Handle scene progression if indicated
         if (typeof chatData.turn_count === 'number') {
@@ -896,7 +901,7 @@ export default function LinearSimulationChat() {
                       })}
                       {message.showSubmitForGrading && (
                         <div className="flex flex-col items-center">
-                          <div className="mb-2 text-sm text-gray-700">Ready to submit your response for grading?</div>
+                          <div className="mb-2 text-sm text-gray-700">Ready to submit your response for this scene?</div>
                           <Button
                             variant="default"
                             onClick={handleSubmitForGrading}

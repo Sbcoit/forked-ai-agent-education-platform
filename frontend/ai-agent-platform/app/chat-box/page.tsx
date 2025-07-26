@@ -76,6 +76,7 @@ interface Message {
   next_scene_id?: number  // Add next scene ID for progression
   showSubmitForGrading?: boolean // Add this for the new system message
   showViewGrading?: boolean // Add this for completion messages
+  gradingInProgress?: boolean // Add this for loading bar
 }
 
 // Scenario Selection Component
@@ -390,6 +391,8 @@ export default function LinearSimulationChat() {
   // Add state to track if grading has been shown
   const [gradingHasBeenShown, setGradingHasBeenShown] = useState(false);
   const [simulationComplete, setSimulationComplete] = useState(false);
+  // Add gradingInProgress state
+  const [gradingInProgress, setGradingInProgress] = useState(false);
   // Helper to add a scene to allScenes if not already present
   const addSceneIfMissing = (scene: Scene) => {
     setAllScenes(prev => {
@@ -613,7 +616,8 @@ export default function LinearSimulationChat() {
                 type: 'system'
               }
             ]);
-            fetchGradingData();
+            setGradingInProgress(true);
+            fetchGradingData().then(() => setGradingInProgress(false));
             return;
           }
           // If not last scene and no next_scene_id, fallback
@@ -897,7 +901,8 @@ export default function LinearSimulationChat() {
           ]);
           
           // Show grading modal
-          await fetchGradingData();
+          setGradingInProgress(true);
+          fetchGradingData().then(() => setGradingInProgress(false));
         }
       } else {
         console.log("[DEBUG] Scene not completed, continuing normally");
@@ -916,7 +921,9 @@ export default function LinearSimulationChat() {
 
   // Helper to determine if we should show the submit button system message
   const isLastScene = simulationData && simulationData.current_scene.scene_order >= totalScenes;
-  const shouldShowSubmitSystemMessage = canSubmitForGrading && !hasSubmittedForGrading && !inputBlocked && !simulationComplete;
+  const timeoutTurns = simulationData?.current_scene?.timeout_turns ?? 15;
+  const hasTurnsRemaining = turnCount < timeoutTurns;
+  const shouldShowSubmitSystemMessage = canSubmitForGrading && !hasSubmittedForGrading && !inputBlocked && !simulationComplete && hasTurnsRemaining;
   
   // Debug logging for personas
   console.log("[DEBUG] Current scene personas:", simulationData?.current_scene?.personas);
@@ -982,14 +989,24 @@ export default function LinearSimulationChat() {
             {/* Messages Area */}
             <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
               {/* Render messages, including the new system message if needed */}
-              {[...messages, ...(shouldShowSubmitSystemMessage ? [{
-                id: 'submit-for-grading',
-                sender: 'System',
-                text: '',
-                type: 'system',
-                showSubmitForGrading: true,
-                showViewGrading: false
-              }] : [])].map((message, idx) => (
+              {[...messages,
+                ...(gradingInProgress ? [{
+                  id: 'grading-in-progress',
+                  sender: 'System',
+                  text: '🎉 Simulation complete! Grading in progress... ',
+                  type: 'system',
+                  showSubmitForGrading: false,
+                  showViewGrading: false,
+                  gradingInProgress: true
+                }] : []),
+                ...(shouldShowSubmitSystemMessage ? [{
+                  id: 'submit-for-grading',
+                  sender: 'System',
+                  text: '',
+                  type: 'system',
+                  showSubmitForGrading: true,
+                  showViewGrading: false
+                }] : [])].map((message, idx) => (
                 <div
                   key={message.id}
                   className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -1052,6 +1069,11 @@ export default function LinearSimulationChat() {
                           </Button>
                         </div>
                       )}
+                      {message.gradingInProgress && (
+                        <div className="w-full mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div className="h-2 bg-blue-400 animate-pulse w-3/4 transition-all duration-1000" style={{ width: '75%' }}></div>
+                        </div>
+                      )}
 
                     </div>
                   </div>
@@ -1074,7 +1096,7 @@ export default function LinearSimulationChat() {
                     onChange={(e) => setInput(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="Type your message or command..."
-                    disabled={inputBlocked || isLoading || isTyping}
+                    disabled={inputBlocked || isLoading || isTyping || simulationComplete}
                     className="flex-1"
                   />
                   <Button

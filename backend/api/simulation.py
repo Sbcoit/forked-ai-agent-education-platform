@@ -297,6 +297,18 @@ async def start_simulation(
     all_personas = db.query(ScenarioPersona).filter(
         ScenarioPersona.scenario_id == scenario.id
     ).all()
+    # Get personas involved in each scene from the junction table
+    from database.models import scene_personas
+    scene_personas_map = {}
+    for scene in all_scenes:
+        # Query the junction table to get involved personas for this scene
+        involved_personas = db.query(ScenarioPersona).join(
+            scene_personas, ScenarioPersona.id == scene_personas.c.persona_id
+        ).filter(
+            scene_personas.c.scene_id == scene.id
+        ).all()
+        scene_personas_map[scene.id] = [p.name for p in involved_personas]
+    
     scenario_data = {
         "id": scenario.id,
         "title": scenario.title,
@@ -310,6 +322,7 @@ async def start_simulation(
                 "objectives": [scene.user_goal] if scene.user_goal else ["Complete the scene interaction"],
                 "image_url": scene.image_url,
                 "agent_ids": [p.name.lower().replace(" ", "_") for p in all_personas],
+                "personas_involved": scene_personas_map.get(scene.id, []),  # Add personas_involved
                 "max_turns": scene.timeout_turns if scene.timeout_turns is not None else 15,
                 "success_criteria": f"User achieves: {scene.user_goal or 'scene completion'}"
             }
@@ -372,10 +385,14 @@ async def start_simulation(
         student_role=scenario.student_role
     )
     
-    # Get all personas for the scenario (not just scene-specific ones)
+    # Get only personas involved in the current scene
     main_character_name = (scenario.student_role or '').strip().lower()
-    scene_personas = db.query(ScenarioPersona).filter(
-        ScenarioPersona.scenario_id == scenario.id
+    
+    # Query the junction table to get involved personas for the current scene
+    involved_personas = db.query(ScenarioPersona).join(
+        scene_personas, ScenarioPersona.id == scene_personas.c.persona_id
+    ).filter(
+        scene_personas.c.scene_id == current_scene.id
     ).all()
 
     personas_data = [
@@ -393,7 +410,7 @@ async def start_simulation(
             personality_traits=persona.personality_traits or {},
             created_at=persona.created_at,
             updated_at=persona.updated_at
-        ) for persona in scene_personas
+        ) for persona in involved_personas
         if persona.name.strip().lower() != main_character_name
     ]
     
@@ -409,6 +426,7 @@ async def start_simulation(
         image_prompt=current_scene.image_prompt,
         timeout_turns=current_scene.timeout_turns,  # Ensure this is included
         success_metric=current_scene.success_metric,  # Ensure this is included
+        personas_involved=scene_personas_map.get(current_scene.id, []),  # Add personas_involved
         created_at=current_scene.created_at,
         updated_at=current_scene.updated_at,
         personas=personas_data
@@ -814,6 +832,15 @@ async def progress_to_next_scene(
             ScenarioPersona.scenario_id == user_progress.scenario_id
         ).all()
         
+        # Get personas involved in this specific scene
+        from database.models import scene_personas as scene_personas_table
+        involved_personas = db.query(ScenarioPersona).join(
+            scene_personas_table, ScenarioPersona.id == scene_personas_table.c.persona_id
+        ).filter(
+            scene_personas_table.c.scene_id == next_scene.id
+        ).all()
+        involved_persona_names = [p.name for p in involved_personas]
+        
         personas_data = [
             ScenarioPersonaResponse(
                 id=persona.id,
@@ -844,6 +871,7 @@ async def progress_to_next_scene(
             image_prompt=next_scene.image_prompt,
             timeout_turns=next_scene.timeout_turns,  # Ensure this is included
             success_metric=next_scene.success_metric,  # Ensure this is included
+            personas_involved=involved_persona_names,  # Add personas_involved
             created_at=next_scene.created_at,
             updated_at=next_scene.updated_at,
             personas=personas_data
@@ -1126,7 +1154,7 @@ async def linear_simulation_chat(
                 db.commit()
                 print(f"[DEBUG] Saved state after begin - simulation_started: {state_dict['simulation_started']}")
                 
-                # Generate cinematic prologue
+                # Generate cinematic prologue (scenario introduction only)
                 scenario = user_progress.orchestrator_data
                 prologue = f"""# {scenario['title']}
 
@@ -1146,8 +1174,6 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                 
                 prologue += f"""
 **Instructions:** Use @mentions to speak with specific agents (e.g., @{scenario['personas'][0]['id']}). Type 'help' for assistance.
-
-{orchestrator.generate_scene_introduction()}
 
 *The simulation begins now...*
 """
@@ -1257,7 +1283,8 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                     'scene_order': next_scene_index + 1,  # scene_order is 1-based
                     'user_goal': next_scene.get('objectives', ['Continue the simulation'])[0] if next_scene.get('objectives') else 'Continue the simulation',
                     'timeout_turns': next_scene.get('timeout_turns') or next_scene.get('max_turns', 15),
-                    'personas': personas  # Include converted personas for the scenario
+                    'personas': personas,  # Include converted personas for the scenario
+                    'personas_involved': next_scene.get('personas_involved', [])  # Add personas_involved
                 }
                 print(f"[DEBUG] SUBMIT_FOR_GRADING - next_scene_obj personas: {next_scene_obj.get('personas')}")
             else:
@@ -1554,7 +1581,15 @@ User's message: {request.message}"""
             import openai
             import os
             
-            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+            
+            try:
+                client = openai.OpenAI(api_key=api_key)
+            except Exception as e:
+                print(f"[ERROR] Failed to initialize OpenAI client: {e}")
+                raise HTTPException(status_code=500, detail=f"OpenAI client initialization failed: {str(e)}")
             
             response = client.chat.completions.create(
                 model="gpt-4",
@@ -1836,7 +1871,13 @@ async def get_simulation_grading(
     total_score = 0
     max_score = 0
     openai_api_key = os.getenv("OPENAI_API_KEY")
-    client = openai.OpenAI(api_key=openai_api_key) if openai_api_key else None
+    client = None
+    if openai_api_key:
+        try:
+            client = openai.OpenAI(api_key=openai_api_key)
+        except Exception as e:
+            print(f"[ERROR] Failed to initialize OpenAI client: {e}")
+            client = None
     for scene in scenes:
         sp = scene_progress_map.get(scene.id)
         user_responses = user_msgs_by_scene.get(scene.id, [])

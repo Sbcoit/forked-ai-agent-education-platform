@@ -147,16 +147,20 @@ async def save_scenario_draft(
                 db.add(scene_record)
                 db.flush()
                 print(f"[DEBUG] Saved scene: {scene_record.title}, success_metric: {scene_record.success_metric}")
-                # Link all personas to each scene (since we don't have personas_involved in the AI result)
-                for persona_name, persona_id in persona_mapping.items():
-                    db.execute(
-                        scene_personas.insert().values(
-                            scene_id=scene_record.id,
-                            persona_id=persona_id,
-                            involvement_level="participant"
+                # Link only involved personas to each scene
+                personas_involved = scene.get("personas_involved", [])
+                unique_persona_names = set(personas_involved)
+                for persona_name in unique_persona_names:
+                    if persona_name in persona_mapping:
+                        persona_id = persona_mapping[persona_name]
+                        db.execute(
+                            scene_personas.insert().values(
+                                scene_id=scene_record.id,
+                                persona_id=persona_id,
+                                involvement_level="participant"
+                            )
                         )
-                    )
-                    print(f"[DEBUG] Linked persona {persona_name} to scene {scene['title']}")
+                        print(f"[DEBUG] Linked persona {persona_name} to scene {scene['title']}")
         db.commit()
         print(f"[DEBUG] Successfully saved draft scenario {scenario.id}")
         return {

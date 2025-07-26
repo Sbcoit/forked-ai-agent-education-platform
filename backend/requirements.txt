@@ -16,13 +16,13 @@ python-multipart==0.0.20
 
 # CrewAI and AI dependencies
 
-openai==1.93.0
+openai>=1.97.1
 anthropic==0.55.0
 
 # Utility dependencies
 python-dotenv==1.1.1
 pydantic==2.11.7
-httpx==0.28.1
+httpx>=0.28.1
 aiohttp==3.10.11
 aiofiles==24.1.0
 

@@ -54,6 +54,7 @@ interface Scene {
   estimated_duration?: number
   image_url?: string
   personas: Persona[]
+  personas_involved?: string[] // Add this to track which personas are actually involved
   timeout_turns?: number // Add this line
 }
 
@@ -326,6 +327,7 @@ const CurrentSceneInfo = ({ scene, turnCount }: { scene: Scene, turnCount: numbe
           </p>
         </div>
         
+        {/* Only use scene.personas for available personas */}
         {scene.personas && scene.personas.length > 0 && (
           <div>
             <p className="text-xs font-medium text-gray-700 mb-2">Available Personas:</p>
@@ -404,6 +406,27 @@ export default function LinearSimulationChat() {
       return prev;
     });
   };
+  
+  // Helper to generate scene introduction text
+  const generateSceneIntroduction = (scene: Scene) => {
+    // Filter personas to only show involved ones
+    const involvedPersonas = scene.personas_involved && scene.personas_involved.length > 0
+      ? scene.personas.filter(persona => 
+          scene.personas_involved!.includes(persona.name)
+        )
+      : scene.personas; // Fallback to all personas if personas_involved is not available
+    
+    return `**Scene ${scene.scene_order} — ${scene.title}**
+
+*${scene.description}*
+
+**Objective:** ${scene.user_goal || 'Complete the interaction'}
+
+**Active Participants:**
+${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s+/g, '_')}: ${persona.name} (${persona.role})`).join('\n')}
+
+*You have ${scene.timeout_turns || 15} turns to achieve the objective.*`;
+  };
   const messagesEndRef = useRef<HTMLDivElement>(null)
   // Auto-scroll to bottom
   useEffect(() => {
@@ -452,7 +475,7 @@ export default function LinearSimulationChat() {
         setAllScenes([data.current_scene]);
         console.log("[DEBUG] allScenes fallback to current_scene (fetch error):", [data.current_scene]);
       }
-
+      
       // Add welcome message
       setMessages([{
         id: Date.now(),
@@ -474,10 +497,31 @@ export default function LinearSimulationChat() {
 
   // Send message to orchestrator
   const sendMessage = async () => {
+    console.log("[DEBUG] sendMessage called. Input:", input);
     if (inputBlocked) return;
     if (!simulationData || !input.trim() || isLoading) return;
 
-    const trimmedInput = input.trim().toLowerCase();
+    // Restrict @mentions to only personas in the current scene
+    const trimmedInput = input.trim();
+    const mentionMatch = trimmedInput.match(/@(\w+)/);
+    if (mentionMatch) {
+      const mentionId = mentionMatch[1].toLowerCase();
+      // Use only the personas from the current scene for validation
+      const validPersonaMentions = simulationData.current_scene.personas.map(
+        p => p.name.toLowerCase().replace(/\s+/g, '_')
+      );
+      console.log("[DEBUG] @mention validation:");
+      console.log("  - Mentioned ID:", mentionId);
+      console.log("  - Valid persona mentions:", validPersonaMentions);
+      console.log("  - Current scene personas:", simulationData.current_scene.personas.map(p => p.name));
+      if (!validPersonaMentions.includes(mentionId)) {
+        console.log("[DEBUG] Invalid mention detected - blocking message");
+        alert('You can only @mention personas involved in this scene.');
+        return;
+      }
+      console.log("[DEBUG] Valid mention - allowing message");
+    }
+
     const userMessage: Message = {
       id: Date.now(),
       sender: "You",
@@ -537,6 +581,24 @@ export default function LinearSimulationChat() {
         }
         setMessages(prev => [...prev, aiMessage])
         
+        // If this is the first "begin" response, add scene introduction as separate message
+        if (trimmedInput === 'begin') {
+          // Use the scene from allScenes (by ID) for correct persona filtering
+          const currentScene = allScenes.find(
+            s => s.id === simulationData.current_scene.id
+          ) || simulationData.current_scene;
+          console.log('[DEBUG] Using scene for introduction:', currentScene);
+          const sceneIntro = generateSceneIntroduction(currentScene);
+          const sceneMessage: Message = {
+            id: Date.now() + 2,
+            sender: "System",
+            text: sceneIntro,
+            timestamp: new Date(),
+            type: 'system'
+          }
+          setMessages(prev => [...prev, sceneMessage])
+        }
+        
         // Allow submit for grading after ANY AI response is received
         console.log("[DEBUG] Setting canSubmitForGrading to true after AI response");
         setCanSubmitForGrading(true);
@@ -571,19 +633,21 @@ export default function LinearSimulationChat() {
                 throw new Error('Failed to fetch next scene');
               })
               .then(nextSceneData => {
+                // Use the filtered scene from allScenes if available
+                const filteredNextScene = allScenes.find(s => s.id === nextSceneData.id) || nextSceneData;
                 setSimulationData(prev => prev ? {
                   ...prev,
-                  current_scene: nextSceneData
+                  current_scene: filteredNextScene
                 } : null);
                 setTurnCount(0);
                 setInputBlocked(false);
                 setCanSubmitForGrading(true); // Enable submit button after scene transition
-                addSceneIfMissing(nextSceneData);
+                addSceneIfMissing(filteredNextScene);
                 // Add scene transition message
                 const transitionMessage: Message = {
                   id: Date.now() + 2,
                   sender: "System",
-                  text: `🎉 **Scene Completed!** Moving to Scene ${nextSceneData.scene_order}:\n\n**${nextSceneData.title}**\n${nextSceneData.description}\n\n**Objective:** ${nextSceneData.user_goal || 'Complete the scene'}`,
+                  text: generateSceneIntroduction(filteredNextScene),
                   timestamp: new Date(),
                   type: 'system'
                 };
@@ -835,20 +899,22 @@ export default function LinearSimulationChat() {
           });
           
           // Move to next scene
+          // Use the filtered scene from allScenes if available
+          const filteredNextScene = allScenes.find(s => s.id === data.next_scene.id) || data.next_scene;
           setSimulationData(prev => prev ? {
             ...prev,
-            current_scene: data.next_scene
+            current_scene: filteredNextScene
           } : null);
           setTurnCount(0);
           setCanSubmitForGrading(true); // Enable submit button immediately for new scene
           setHasSubmittedForGrading(false);
-          addSceneIfMissing(data.next_scene);
+          addSceneIfMissing(filteredNextScene);
           setMessages(prev => [
             ...prev,
             {
               id: Date.now() + 2,
               sender: "System",
-              text: `🎉 Scene completed! Moving to Scene ${data.next_scene.scene_order}:\n\n**${data.next_scene.title}**\n${data.next_scene.description}\n\n**Objective:** ${data.next_scene.user_goal || 'Complete the scene'}`,
+              text: generateSceneIntroduction(filteredNextScene),
               timestamp: new Date(),
               type: 'system'
             }
@@ -1058,7 +1124,7 @@ export default function LinearSimulationChat() {
                           >
                             Submit for Grading
                           </Button>
-                        </div>
+                    </div>
                       )}
                       {message.showViewGrading && (
                         <div className="flex flex-col items-center">

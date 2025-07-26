@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from database.connection import get_db, engine
-from database.models import Base, User, Scenario, ScenarioPersona, ScenarioScene
+from database.models import Base, User, Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, ScenarioReview
 from database.schemas import (
     ScenarioCreate, UserRegister, UserLogin, UserLoginResponse, 
     UserResponse, UserUpdate, PasswordChange
@@ -317,5 +317,107 @@ async def get_scenario_details(scenario_id: int, db: Session = Depends(get_db)):
         "created_at": scenario.created_at
     }
 
+@app.get("/api/scenarios/{scenario_id}/full")
+async def get_scenario_full(scenario_id: int, db: Session = Depends(get_db)):
+    """Get full scenario with personas and scenes including scene-persona relationships"""
+    try:
+        scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+        if not scenario:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+        
+        # Get personas for this scenario
+        personas = db.query(ScenarioPersona).filter(
+            ScenarioPersona.scenario_id == scenario_id
+        ).all()
+        
+        # Get scenes for this scenario
+        scenes = db.query(ScenarioScene).filter(
+            ScenarioScene.scenario_id == scenario_id
+        ).order_by(ScenarioScene.scene_order).all()
+        
+        # For each scene, get the involved personas
+        from database.models import scene_personas
+        scenes_with_personas = []
+        for scene in scenes:
+            # Get personas involved in this scene
+            involved_personas = db.query(ScenarioPersona).join(
+                scene_personas, ScenarioPersona.id == scene_personas.c.persona_id
+            ).filter(
+                scene_personas.c.scene_id == scene.id
+            ).all()
+            
+            scene_data = {
+                "id": scene.id,
+                "scenario_id": scene.scenario_id,
+                "title": scene.title,
+                "description": scene.description,
+                "user_goal": scene.user_goal,
+                "scene_order": scene.scene_order,
+                "estimated_duration": scene.estimated_duration,
+                "image_url": scene.image_url,
+                "image_prompt": scene.image_prompt,
+                "timeout_turns": scene.timeout_turns,
+                "success_metric": scene.success_metric,
+                "personas_involved": [p.name for p in involved_personas],
+                "created_at": scene.created_at,
+                "updated_at": scene.updated_at,
+                "personas": [
+                    {
+                        "id": persona.id,
+                        "name": persona.name,
+                        "role": persona.role,
+                        "background": persona.background,
+                        "correlation": persona.correlation,
+                        "primary_goals": persona.primary_goals or [],
+                        "personality_traits": persona.personality_traits or {}
+                    }
+                    for persona in involved_personas
+                ]
+            }
+            scenes_with_personas.append(scene_data)
+        
+        return {
+            "id": scenario.id,
+            "title": scenario.title,
+            "description": scenario.description,
+            "challenge": scenario.challenge,
+            "industry": scenario.industry,
+            "learning_objectives": scenario.learning_objectives or [],
+            "student_role": scenario.student_role,
+            "category": scenario.category,
+            "difficulty_level": scenario.difficulty_level,
+            "estimated_duration": scenario.estimated_duration,
+            "tags": scenario.tags,
+            "pdf_title": scenario.pdf_title,
+            "pdf_source": scenario.pdf_source,
+            "processing_version": scenario.processing_version,
+            "rating_avg": scenario.rating_avg,
+            "source_type": scenario.source_type,
+            "is_public": scenario.is_public,
+            "is_template": scenario.is_template,
+            "allow_remixes": scenario.allow_remixes,
+            "usage_count": scenario.usage_count,
+            "clone_count": scenario.clone_count,
+            "created_by": scenario.created_by,
+            "created_at": scenario.created_at,
+            "updated_at": scenario.updated_at,
+            "personas": [
+                {
+                    "id": persona.id,
+                    "name": persona.name,
+                    "role": persona.role,
+                    "background": persona.background,
+                    "correlation": persona.correlation,
+                    "primary_goals": persona.primary_goals or [],
+                    "personality_traits": persona.personality_traits or {}
+                }
+                for persona in personas
+            ],
+            "scenes": scenes_with_personas
+        }
+    except Exception as e:
+        print(f"[ERROR] get_scenario_full failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 

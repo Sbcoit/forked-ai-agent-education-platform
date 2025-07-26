@@ -1064,7 +1064,14 @@ export default function LinearSimulationChat() {
                         <div className="flex flex-col items-center">
                           <Button
                             variant="default"
-                            onClick={fetchGradingData}
+                            onClick={() => {
+                              if (gradingData) {
+                                setShowGrading(true);
+                              } else {
+                                setGradingInProgress(true);
+                                fetchGradingData().then(() => setGradingInProgress(false));
+                              }
+                            }}
                             className="mt-2"
                           >
                             View Grading & Feedback

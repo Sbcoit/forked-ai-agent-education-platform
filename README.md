@@ -5,7 +5,7 @@ An innovative educational platform that transforms business case studies into im
 ![AI Agent Education Platform](https://img.shields.io/badge/AI-Education-blue?style=for-the-badge)
 ![Next.js](https://img.shields.io/badge/Next.js-TypeScript-000000?style=for-the-badge&logo=nextdotjs)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Python-009688?style=for-the-badge&logo=fastapi)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-336791?style=for-the-badge&logo=postgresql)
+![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?style=for-the-badge&logo=sqlite)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-412991?style=for-the-badge&logo=openai)
 
 ## 🌟 Features
@@ -45,7 +45,7 @@ An innovative educational platform that transforms business case studies into im
 ```mermaid
 graph TB
     A[Next.js Frontend] --> B[FastAPI Backend]
-    B --> C[PostgreSQL Database]
+    B --> C[SQLite Database]
     B --> D[OpenAI GPT-4]
     B --> E[LlamaParse API]
     B --> F[ChatOrchestrator]
@@ -77,17 +77,48 @@ graph TB
 ### Prerequisites
 - **Node.js** (v18 or higher)
 - **Python** (3.11 or higher)
-- **PostgreSQL** (v14 or higher)
+- **Git**
 - **OpenAI API Key** (for ChatOrchestrator and content generation)
 - **LlamaParse API Key** (for PDF processing)
 
-### 1. Clone the Repository
+> **Note**: SQLite is used for development, so no external database setup is required. PostgreSQL is optional for production deployments.
+
+### 5-Minute Setup
+
+```bash
+# 1. Clone and setup
+git clone <repository-url>
+cd ai-agent-education-platform
+
+# 2. Install dependencies
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+
+# 3. Configure environment
+cp env_template.txt .env
+# Edit .env with your API keys
+
+# 4. Start the application
+cd backend
+uvicorn main:app --reload
+```
+
+**Access Points:**
+- 🌐 **Frontend**: http://localhost:3000 (run `cd frontend/ai-agent-platform && npm run dev`)
+- 🔧 **Backend API**: http://localhost:8000
+- 📚 **API Docs**: http://localhost:8000/docs
+- 🗄️ **Database Admin**: http://localhost:5001 (run `cd backend/db_admin && python simple_viewer.py`)
+
+### Detailed Setup
+
+#### 1. Clone the Repository
 ```bash
 git clone https://github.com/HendrikKrack/ai-agent-education-platform.git
 cd ai-agent-education-platform
 ```
 
-### 2. Backend Setup
+#### 2. Backend Setup
 ```bash
 # Navigate to backend directory
 cd backend
@@ -101,19 +132,18 @@ venv\Scripts\activate
 # On macOS/Linux:
 source venv/bin/activate
 
-# Install dependencies
+# Install dependencies (from root directory)
 pip install -r requirements.txt
-pip install PyPDF2  # Additional dependency for PDF processing
 
-# Set up environment variables
-copy env_template.txt .env
+# Set up environment variables (from root directory)
+cp env_template.txt .env
 # Edit .env with your API keys:
 # OPENAI_API_KEY=your_openai_api_key
 # LLAMAPARSE_API_KEY=your_llamaparse_api_key
-# DATABASE_URL=postgresql://username:password@localhost:5432/ai_education
+# DATABASE_URL=sqlite:///./backend/ai_agent_platform.db
 
-# Create database tables
-python recreate_db.py
+# Initialize database (tables created automatically on first run)
+python -c "from database.models import Base; from database.connection import engine; Base.metadata.create_all(bind=engine)"
 
 # Start the backend server
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload
@@ -121,7 +151,7 @@ uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 
 The backend will be available at **http://localhost:8000**
 
-### 3. Frontend Setup
+#### 3. Frontend Setup
 ```bash
 # Navigate to frontend directory (in a new terminal)
 cd frontend/ai-agent-platform
@@ -139,8 +169,8 @@ The frontend will be available at **http://localhost:3000**
 
 ### Backend (.env)
 ```env
-# Database Configuration
-DATABASE_URL=postgresql://username:password@localhost:5432/ai_education
+# Database Configuration (SQLite for development)
+DATABASE_URL=sqlite:///./backend/ai_agent_platform.db
 
 # AI Service API Keys
 OPENAI_API_KEY=your_openai_api_key_here
@@ -156,10 +186,11 @@ DALLE_API_KEY=your_dalle_api_key_here
 ```
 
 ### Database Setup
-1. Create a PostgreSQL database named `ai_education`
-2. Update the `DATABASE_URL` in your `.env` file
-3. Run `python recreate_db.py` to create tables
+1. The SQLite database will be created automatically in the backend directory
+2. Tables are created on first application startup
+3. For manual setup, run the database initialization command in the backend setup section
 4. The system will automatically create default scenarios
+5. The .env file is located at the project root and is read by all components
 
 ## 📚 API Documentation
 
@@ -262,39 +293,57 @@ ChatOrchestrator: Available commands: @mention, progress, hint...
 - **Custom ChatOrchestrator** for linear simulation management
 
 ### Database
-- **PostgreSQL** with JSONB support for flexible data storage
-- **Alembic** for database migrations
-- **Connection pooling** for optimal performance
+- **SQLite** for development (easy setup, no external dependencies)
+- **PostgreSQL** support for production deployments
+- **SQLAlchemy ORM** for database abstraction
+- **Automatic migrations** for schema updates
 
 ## 📁 Project Structure
 
 ```
 ai-agent-education-platform/
-├── backend/
+├── backend/                          # FastAPI + SQLAlchemy backend
 │   ├── main.py                       # FastAPI application entry point
-│   ├── database/
-│   │   ├── models.py                 # SQLAlchemy models (scenarios, personas, scenes)
-│   │   ├── schemas.py                # Pydantic schemas for API validation
-│   │   └── migrations/               # Database migration files
-│   ├── api/
+│   ├── api/                          # API endpoints
 │   │   ├── parse_pdf.py             # PDF processing endpoints
 │   │   ├── simulation.py            # Linear simulation endpoints
 │   │   ├── chat_orchestrator.py     # ChatOrchestrator logic
+│   │   ├── chat_box.py              # Chat interface endpoints
 │   │   └── publishing.py            # Marketplace publishing
-│   ├── services/
+│   ├── database/                     # Database layer
+│   │   ├── models.py                 # SQLAlchemy models (scenarios, personas, scenes)
+│   │   ├── schemas.py                # Pydantic schemas for API validation
+│   │   ├── connection.py             # Database connection setup
+│   │   ├── models_backup.py          # Backup of previous models
+│   │   └── migrations/               # Database migration files
+│   ├── services/                     # Business logic layer
 │   │   └── simulation_engine.py     # Core simulation business logic
-│   └── docs/                        # Comprehensive API documentation
-├── frontend/ai-agent-platform/
-│   ├── app/
-│   │   ├── chat-box/                # Linear simulation interface
+│   ├── utilities/                    # Helper utilities
+│   │   └── auth.py                   # Authentication utilities
+│   ├── utils/                        # Additional utilities
+│   │   └── image_storage.py          # Image handling utilities
+│   ├── db_admin/                     # Database administration tools
+│   ├── docs/                         # Comprehensive API documentation
+│   └── ai_agent_platform.db         # SQLite database file
+├── frontend/ai-agent-platform/       # Next.js + TypeScript frontend
+│   ├── app/                          # Next.js app router pages
+│   │   ├── chat-box/                # Interactive chat interface
 │   │   ├── scenario-builder/        # PDF upload and scenario creation
 │   │   ├── marketplace/             # Community scenario discovery
-│   │   └── dashboard/               # User progress and analytics
-│   ├── components/
+│   │   ├── dashboard/               # User progress and analytics
+│   │   ├── agent-builder/           # AI agent creation interface
+│   │   └── login/                   # Authentication pages
+│   ├── components/                   # React components
 │   │   ├── ui/                      # shadcn/ui components
 │   │   ├── PersonaCard.tsx          # AI persona display components
 │   │   └── SceneCard.tsx            # Scene progression UI
-│   └── lib/                         # Utility functions and API clients
+│   ├── lib/                         # Utility functions and API clients
+│   ├── hooks/                       # Custom React hooks
+│   └── styles/                      # Global styles
+├── .env                              # Environment variables (create from template)
+├── .gitignore                        # Git ignore rules (consolidated)
+├── env_template.txt                  # Environment variables template
+├── requirements.txt                  # All Python dependencies
 ├── CHAT_ORCHESTRATOR_INTEGRATION.md # Integration documentation
 ├── QUICK_START.md                   # Quick setup guide
 └── README.md                        # This file

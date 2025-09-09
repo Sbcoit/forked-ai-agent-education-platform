@@ -1337,151 +1337,7 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                 orchestrator.state.turn_count = orchestrator.state.turn_count + 1 if hasattr(orchestrator.state, 'turn_count') else 1
                 print(f"[DEBUG] AFTER INCREMENT: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
             print(f"[DEBUG] ABOUT TO CHECK TURN LIMIT: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
-            if orchestrator.state.turn_count >= timeout_turns:
-                print(f"[DEBUG] TIMEOUT TRIGGERED: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}, scene_id={correct_scene_id}")
-                # --- PATCH: Validate last attempt before progressing ---
-                # Get current scene goal
-                current_scene_obj = orchestrator.scenes[orchestrator.state.current_scene_index] if orchestrator.scenes else None
-                validation_result = None
-                goal_validated = False
-                if current_scene_obj and current_scene_obj.get('objectives'):
-                    scene_goal = current_scene_obj['objectives'][0]
-                    scene_description = current_scene_obj.get('description', '')
-                    scene_id_to_use = request.scene_id if request.scene_id is not None else user_progress.current_scene_id
-                    recent_messages = db.query(ConversationLog).filter(
-                        and_(
-                            ConversationLog.user_progress_id == user_progress.id,
-                            ConversationLog.scene_id == scene_id_to_use
-                        )
-                    ).order_by(desc(ConversationLog.message_order)).limit(10).all()
-                    conversation_history = []
-                    for msg in reversed(recent_messages):
-                        speaker = msg.sender_name or "System"
-                        conversation_history.append(f"{speaker}: {msg.message_content}")
-                    conversation_history.append(f"User: {request.message}")
-                    conversation_text = "\n".join(conversation_history)
-                    print(f"[DEBUG] (Timeout) Conversation history: {conversation_text[:500]}...")
-                    scene_progress = db.query(SceneProgress).filter(
-                        and_(
-                            SceneProgress.user_progress_id == user_progress.id,
-                            SceneProgress.scene_id == scene_id_to_use
-                        )
-                    ).first()
-                    current_attempts = scene_progress.attempts if scene_progress else 0
-                    max_attempts = current_scene_obj.get('max_attempts', 5)
-                    try:
-                        validation_result = validate_goal_with_function_calling(
-                            conversation_history=conversation_text,
-                            scene_goal=scene_goal,
-                            scene_description=scene_description,
-                            current_attempts=current_attempts,
-                            max_attempts=max_attempts,
-                            db=db,
-                            user_progress_id=user_progress.id,
-                            current_scene_id=scene_id_to_use
-                        )
-                        print(f"[DEBUG] (Timeout) Goal validation result: {validation_result}")
-                        goal_validated = True
-                    except Exception as e:
-                        print(f"[ERROR] (Timeout) Goal validation failed: {str(e)}")
-                        validation_result = None
-                        goal_validated = False
-                # --- END PATCH ---
-                # Timeout reached: generate dynamic suggestion
-                recent_messages = db.query(ConversationLog).filter(
-                    and_(
-                        ConversationLog.user_progress_id == user_progress.id,
-                        ConversationLog.scene_id == orchestrator.state.current_scene_id
-                    )
-                ).order_by(desc(ConversationLog.message_order)).limit(10).all()
-                conversation_summary = []
-                for msg in reversed(recent_messages):
-                    speaker = msg.sender_name or "System"
-                    conversation_summary.append(f"{speaker}: {msg.message_content}")
-                conversation_text = "\n".join(conversation_summary)
-                suggestion_prompt = f"""The following is a conversation between a student and AI personas in a business simulation scene.\n\nCONVERSATION:\n{conversation_text}\n\nBased on this conversation, what is one concise, actionable thing the user could have done to progress the scene or achieve the goal? Respond in 1-2 sentences."""
-                try:
-                    import openai
-                    suggestion_response = openai.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "user", "content": suggestion_prompt}],
-                        max_tokens=80,
-                        temperature=0.5
-                    )
-                    suggestion = suggestion_response.choices[0].message.content.strip()
-                    # Remove unwanted fallback phrases if present
-                    unwanted_phrases = [
-                        "Without the specific content of the conversation, it's challenging to provide a precise action.",
-                        "Without the specific details of the conversation, a general actionable step the user could take is to",
-                        "Without the specific details of the conversation, it's challenging to provide a precise action."
-                    ]
-                    for unwanted in unwanted_phrases:
-                        if suggestion.startswith(unwanted):
-                            suggestion = suggestion.replace(unwanted, "").lstrip(':,. \n')
-                except Exception as e:
-                    suggestion = "Try to ask a direct question about a key decision or strategy, or request specific insights from the AI personas to move the scene forward."
-                # --- PATCH: Compose response based on goal validation ---
-                next_scene_id = None  # Always define before use
-                if goal_validated and validation_result:
-                    if validation_result.get("goal_achieved"):
-                        ai_response = (
-                            f"🎉 Goal Achieved! {validation_result.get('reasoning', '')}\n\n"
-                            "Moving to the next scene..."
-                        )
-                    elif validation_result.get("next_action") == "hint" and validation_result.get("hint_message"):
-                        ai_response = (
-                            f"💡 Hint: {validation_result['hint_message']}\n\n"
-                            "You've reached the maximum number of turns for this scene. Moving to the next scene..."
-                        )
-                    else:
-                        ai_response = (
-                            f"❌ {validation_result.get('reasoning', 'You did not achieve the goal.')}\n\n"
-                            f"Suggestion: {suggestion}\n\n"
-                            "Moving to the next scene..."
-                        )
-                else:
-                    ai_response = (
-                        "You've reached the maximum number of turns for this scene.\n\n"
-                        f"Suggestion: {suggestion}\n\n"
-                        "Moving to the next scene..."
-                    )
-                persona_name = "System"
-                persona_id = None
-                if orchestrator.state.current_scene_index + 1 < len(orchestrator.scenario.get('scenes', [])):
-                    orchestrator.state.current_scene_index += 1
-                    orchestrator.state.turn_count = 0
-                    print(f"[DEBUG] TURN COUNT RESET TO 0 ON TIMEOUT PROGRESSION")
-                    orchestrator.state.scene_completed = False
-                    orchestrator.state.current_scene_id = orchestrator.scenario.get('scenes', [])[orchestrator.state.current_scene_index].get('id')
-                    print(f"[DEBUG] PROGRESSED TO NEW SCENE: index={orchestrator.state.current_scene_index}, id={orchestrator.state.current_scene_id}, turn_count={orchestrator.state.turn_count}")
-                    print(f"[DEBUG] NEW SCENE START (after timeout progression): index={orchestrator.state.current_scene_index}, turn_count={orchestrator.state.turn_count}")
-                    next_scene_id = orchestrator.state.current_scene_id
-                else:
-                    ai_response += "\n\nYou have completed all scenes in this simulation."
-                    # Do NOT increment current_scene_index; explicitly set next_scene_id to None
-                    next_scene_id = None
-                state_dict = {
-                    'current_scene_id': orchestrator.state.current_scene_id,
-                    'current_scene_index': orchestrator.state.current_scene_index,
-                    'turn_count': orchestrator.state.turn_count,
-                    'simulation_started': orchestrator.state.simulation_started,
-                    'user_ready': orchestrator.state.user_ready,
-                    'state_variables': orchestrator.state.state_variables
-                }
-                user_progress.orchestrator_data['state'] = state_dict
-                from sqlalchemy.orm.attributes import flag_modified
-                flag_modified(user_progress, "orchestrator_data")
-                db.commit()
-                return SimulationChatResponse(
-                    message=ai_response,
-                    scene_id=_safe_scene_id(),
-                    scene_completed=True,
-                    next_scene_id=next_scene_id,
-                    persona_name=persona_name,
-                    persona_id=persona_id,
-                    turn_count=orchestrator.state.turn_count
-                )
-            # --- PATCH END: Timeout Turns Enforcement ---
+            # --- PATCH: Always generate persona response, even on last turn ---
             # All persona mention handling, OpenAI calls, and goal validation logic must be below this line, not inside any else or after any return
             # Check if user is addressing a specific persona with @mention
             import re
@@ -1690,10 +1546,8 @@ User's message: {request.message}"""
                         # Scene progression was triggered by the AI function call
                         scene_completed = True
                         next_scene_id = validation_result.get("next_scene_id")
-                        if validation_result.get("simulation_complete"):
-                            ai_response += "\n\n🎉 **Congratulations! You have completed the entire simulation.**"
-                        elif validation_result.get("next_scene_title"):
-                            ai_response += f"\n\n🎉 **Scene Completed!** Moving to next scene:\n\n**{validation_result['next_scene_title']}**\n\n**Objective:** Continue working with the team to address the challenges of {orchestrator.scenario.get('title', '...')}."
+                        # Don't append completion messages to ai_response - let the persona respond first
+                        # The completion message will be handled by the frontend after the persona response
                         # Update orchestrator state to match database
                         if next_scene_id:
                             # Find the scene index for the new scene

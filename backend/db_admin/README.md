@@ -4,14 +4,15 @@ A clean web interface to visualize and manage your SQLite database in real-time.
 
 ## 🚀 Quick Start
 
-1. **Install dependencies:**
+1. **Install dependencies (from root directory):**
    ```bash
-   cd forked-ai-agent-education-platform/backend/db_admin
-   pip install flask
+   # From the project root
+   pip install -r requirements.txt
    ```
 
 2. **Start the database viewer:**
    ```bash
+   cd db_admin
    python simple_viewer.py
    ```
 

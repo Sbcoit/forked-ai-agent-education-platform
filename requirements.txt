@@ -1,36 +1,51 @@
-# Simple CrewAI Education Platform Requirements
+# AI Agent Education Platform Requirements
 
 # Core Framework
 fastapi==0.115.14
 uvicorn[standard]==0.35.0
 
 # Database
-SQLAlchemy
-psycopg2-binary==2.9.10
+SQLAlchemy==2.0.36
 alembic==1.16.2
+# PostgreSQL support (optional for production)
+psycopg2-binary==2.9.10
 
-# Authentication dependencies
+# Authentication & Security
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.5.0
 python-multipart==0.0.20
 
-# CrewAI and AI dependencies
+# AI Services
 openai>=1.97.1
 anthropic==0.55.0
 
-# Utility dependencies
-python-dotenv==1.1.1
-pydantic==2.11.7
+# HTTP & Async
 httpx>=0.28.1
 aiohttp==3.10.11
 aiofiles==24.1.0
 
-# PDF processing (for scenario uploads)
+# PDF Processing
+PyPDF2==3.0.1
 pdfplumber==0.11.7
 pdfminer.six==20250506
 
-# Development dependencies (optional)
-pytest==8.4.1
+# Configuration & Environment
+python-dotenv==1.1.1
+pydantic==2.11.7
+pydantic-settings==2.6.1
 
-# For deployment
-PyYAML==6.0.2 
+# Data Processing
+PyYAML==6.0.2
+
+# Development & Testing (optional)
+pytest==8.4.1
+pytest-asyncio==0.24.0
+
+# Database Admin Interface (optional)
+flask==3.0.3
+flask-admin==1.6.1
+
+# Additional utilities
+pathlib2==2.3.7
+typing-extensions==4.12.2 
+

@@ -5,8 +5,8 @@ from pydantic_settings import BaseSettings
 import os
 from pathlib import Path
 
-# Get the parent directory where .env file is located
-parent_dir = Path(__file__).parent.parent
+# Get the project root directory where .env file is located
+project_root = Path(__file__).parent.parent.parent
 
 class Settings(BaseSettings):
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./ai_agent_platform.db")
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     
     class Config:
-        env_file = parent_dir / ".env"  # Look for .env in parent directory
+        env_file = project_root / ".env"  # Look for .env in project root
 
 settings = Settings()
 

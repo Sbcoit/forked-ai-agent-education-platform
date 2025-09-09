@@ -5,7 +5,8 @@ An innovative educational platform that transforms business case studies into im
 ![AI Agent Education Platform](https://img.shields.io/badge/AI-Education-blue?style=for-the-badge)
 ![Next.js](https://img.shields.io/badge/Next.js%2015-TypeScript-000000?style=for-the-badge&logo=nextdotjs)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Python-009688?style=for-the-badge&logo=fastapi)
-![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?style=for-the-badge&logo=sqlite)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-316192?style=for-the-badge&logo=postgresql)
+![Alembic](https://img.shields.io/badge/Alembic-Migrations-009688?style=for-the-badge)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-412991?style=for-the-badge&logo=openai)
 
 ## 🌟 Features
@@ -45,43 +46,61 @@ An innovative educational platform that transforms business case studies into im
 ```mermaid
 graph TB
     A[Next.js Frontend] --> B[FastAPI Backend]
-    B --> C[SQLite Database]
-    B --> D[OpenAI GPT-4]
-    B --> E[LlamaParse API]
-    B --> F[ChatOrchestrator]
+    B --> C[PostgreSQL Database]
+    B --> D[Alembic Migrations]
+    B --> E[OpenAI GPT-4]
+    B --> F[LlamaParse API]
+    B --> G[ChatOrchestrator]
     
     subgraph "Frontend (Next.js + TypeScript)"
-        G[PDF Upload Interface]
-        H[Simulation Builder]
-        I[Chat-Box Experience]
-        J[Marketplace]
+        H[PDF Upload Interface]
+        I[Simulation Builder]
+        J[Chat-Box Experience]
+        K[Marketplace]
     end
     
     subgraph "Backend (FastAPI + Python)"
-        K[PDF Processing API]
-        L[Linear Simulation API]
-        M[ChatOrchestrator Engine]
-        N[Publishing System]
+        L[PDF Processing API]
+        M[Linear Simulation API]
+        N[ChatOrchestrator Engine]
+        O[Publishing System]
     end
     
     subgraph "AI Processing Layer"
-        O[PDF Analysis]
-        P[Persona Generation]
-        Q[Scene Creation]
-        R[Image Generation]
+        P[PDF Analysis]
+        Q[Persona Generation]
+        R[Scene Creation]
+        S[Image Generation]
     end
 ```
+
+## 🗄️ Database & Migrations
+
+### **PostgreSQL with Alembic**
+- **Primary Database**: PostgreSQL for all environments (development and production)
+- **Migration Management**: Alembic for professional database version control
+- **Development**: PostgreSQL for consistent development experience
+- **Schema Management**: Automated migrations with rollback support
+- **SQLite Support**: Available only when explicitly configured for development
+
+### **Key Features**
+- ✅ **Professional Migrations**: Alembic replaces custom migration scripts
+- ✅ **PostgreSQL First**: Optimized for PostgreSQL with fallback to SQLite
+- ✅ **Team Collaboration**: Consistent database state across all environments
+- ✅ **Production Ready**: Optimized indexes and connection pooling
+- ✅ **Development Flexibility**: SQLite available when explicitly configured
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 - **Node.js** (v18 or higher)
 - **Python** (3.11 or higher)
+- **PostgreSQL** (for database)
 - **Git**
 - **OpenAI API Key** (for ChatOrchestrator and content generation)
 - **LlamaParse API Key** (for PDF processing)
 
-> **Note**: SQLite is used for development, so no external database setup is required. PostgreSQL is optional for production deployments.
+> **Note**: PostgreSQL is the primary database. SQLite is available only when explicitly configured for development.
 
 ### 5-Minute Setup
 
@@ -171,8 +190,8 @@ The frontend will be available at **http://localhost:3000**
 
 ### Backend (.env)
 ```env
-# Database Configuration (SQLite for development)
-DATABASE_URL=sqlite:///./backend/ai_agent_platform.db
+# Database Configuration (PostgreSQL - primary database)
+DATABASE_URL=postgresql://username:password@localhost:5432/ai_agent_platform
 
 # AI Service API Keys
 OPENAI_API_KEY=your_openai_api_key_here
@@ -188,9 +207,9 @@ DALLE_API_KEY=your_dalle_api_key_here
 ```
 
 ### Database Setup
-1. The SQLite database will be created automatically in the backend directory
-2. Tables are created on first application startup
-3. For manual setup, run the database initialization command in the backend setup section
+1. PostgreSQL database is the primary database for all environments
+2. Tables are created automatically using Alembic migrations
+3. For manual setup, run `alembic upgrade head` in the backend/database directory
 4. The system will automatically create default scenarios
 5. The .env file is located at the project root and is read by all components
 
@@ -295,10 +314,10 @@ ChatOrchestrator: Available commands: @mention, progress, hint...
 - **Custom ChatOrchestrator** for linear simulation management
 
 ### Database
-- **SQLite** for development (easy setup, no external dependencies)
-- **PostgreSQL** support for production deployments
+- **PostgreSQL** for all environments (development and production)
+- **Alembic** for professional database migrations
 - **SQLAlchemy ORM** for database abstraction
-- **Automatic migrations** for schema updates
+- **SQLite** available only when explicitly configured
 
 ## 📁 Project Structure
 
@@ -316,7 +335,7 @@ ai-agent-education-platform/
 │   │   ├── models.py                 # SQLAlchemy models (scenarios, personas, scenes)
 │   │   ├── schemas.py                # Pydantic schemas for API validation
 │   │   ├── connection.py             # Database connection setup
-│   │   ├── models_backup.py          # Backup of previous models
+│   │   ├── migrations/               # Alembic migration files
 │   │   └── migrations/               # Database migration files
 │   ├── services/                     # Business logic layer
 │   │   └── simulation_engine.py     # Core simulation business logic
@@ -326,7 +345,7 @@ ai-agent-education-platform/
 │   │   └── image_storage.py          # Image handling utilities
 │   ├── db_admin/                     # Database administration tools
 │   ├── docs/                         # Comprehensive API documentation
-│   └── ai_agent_platform.db         # SQLite database file
+│   └── static/                      # Static files
 ├── frontend/                         # Next.js + TypeScript frontend
 │   ├── app/                          # Next.js app router pages
 │   │   ├── chat-box/                # Interactive chat interface
@@ -353,7 +372,6 @@ ai-agent-education-platform/
 ├── .gitignore                        # Git ignore rules (consolidated)
 ├── env_template.txt                  # Environment variables template
 ├── requirements.txt                  # All Python dependencies
-├── CHAT_ORCHESTRATOR_INTEGRATION.md # Integration documentation
 ├── QUICK_START.md                   # Quick setup guide
 └── README.md                        # This file
 ```

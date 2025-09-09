@@ -1,10 +1,8 @@
-# AI Simulation Marketplace Platform - Database Models
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, JSON, Table, Float
-from sqlalchemy.ext.declarative import declarative_base
+# AI Agent Education Platform - Database Models
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, JSON, Table, Float, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-
-Base = declarative_base()
+from database.connection import Base
 
 # Junction table for scene-persona relationships
 scene_personas = Table(
@@ -48,6 +46,14 @@ class User(Base):
     scenarios = relationship("Scenario", back_populates="creator")
     scenario_reviews = relationship("ScenarioReview", back_populates="reviewer")
     user_progress = relationship("UserProgress", back_populates="user")
+    
+    # PostgreSQL indexes for better performance
+    __table_args__ = (
+        Index('idx_users_email', 'email'),
+        Index('idx_users_username', 'username'),
+        Index('idx_users_role', 'role'),
+        Index('idx_users_created_at', 'created_at'),
+    )
 
 class Scenario(Base):
     __tablename__ = "scenarios"
@@ -100,6 +106,16 @@ class Scenario(Base):
     files = relationship("ScenarioFile", back_populates="scenario", cascade="all, delete-orphan")
     reviews = relationship("ScenarioReview", back_populates="scenario", cascade="all, delete-orphan")
     user_progress = relationship("UserProgress", back_populates="scenario")
+    
+    # PostgreSQL indexes for better performance
+    __table_args__ = (
+        Index('idx_scenarios_title', 'title'),
+        Index('idx_scenarios_industry', 'industry'),
+        Index('idx_scenarios_is_public', 'is_public'),
+        Index('idx_scenarios_created_by', 'created_by'),
+        Index('idx_scenarios_created_at', 'created_at'),
+        Index('idx_scenarios_rating_avg', 'rating_avg'),
+    )
 
 class ScenarioPersona(Base):
     __tablename__ = "scenario_personas"

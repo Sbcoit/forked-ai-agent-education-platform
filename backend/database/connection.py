@@ -9,7 +9,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 
 class Settings(BaseSettings):
-    database_url: str = os.getenv("DATABASE_URL", "sqlite:///./ai_agent_platform.db")
+    database_url: str = "postgresql://localhost:5432/ai_agent_platform"
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     serper_api_key: str = os.getenv("SERPER_API_KEY", "")
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 settings = Settings()
 
 # Print loaded settings for debugging (remove in production)
-print(f"🔗 Database URL: {settings.database_url[:50]}...")
+print(f"🔗 Database URL: {settings.database_url.split('@')[0]}@...")
 print(f"🤖 OpenAI API Key: {'✅ Set' if settings.openai_api_key else '❌ Missing'}")
 print(f"🔑 Secret Key: {'✅ Set' if settings.secret_key else '❌ Missing'}")
 print(f"🌍 Environment: {settings.environment}")
@@ -40,17 +40,20 @@ if settings.database_url.startswith("postgresql"):
         pool_size=5,         # Number of connections to maintain
         max_overflow=10,     # Maximum connections beyond pool_size
         connect_args={
-            "sslmode": "require",  # Require SSL connection
             "connect_timeout": 30,  # Connection timeout
             "application_name": "AOM_2025_Backend"
         }
     )
-else:
-    # Use simpler engine for SQLite (no pooling or connect_args)
+elif settings.database_url.startswith("sqlite"):
+    # Use simpler engine for SQLite (development only)
+    print("⚠️  WARNING: Using SQLite for development. PostgreSQL recommended for production.")
     engine = create_engine(settings.database_url)
+else:
+    raise ValueError(f"Unsupported database URL format: {settings.database_url}")
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# Create declarative base for models
 Base = declarative_base()
 
 def get_db():

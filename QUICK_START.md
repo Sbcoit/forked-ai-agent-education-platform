@@ -3,6 +3,7 @@
 ## Prerequisites
 - **Python 3.11+** (recommended: 3.11 or higher)
 - **Node.js 18+** (recommended: 18 or higher)
+- **PostgreSQL** (primary database)
 - **Git**
 - **OpenAI API Key** (for AI features)
 - **LlamaParse API Key** (for PDF processing)
@@ -23,8 +24,12 @@ pip install -r requirements.txt
 cp env_template.txt .env
 # Edit .env with your API keys
 
-# 4. Start the application
-cd backend
+# 4. Initialize database (Alembic will handle this automatically)
+cd backend/database
+alembic upgrade head
+
+# 5. Start the application
+cd ..
 uvicorn main:app --reload
 ```
 
@@ -32,6 +37,51 @@ uvicorn main:app --reload
 - Frontend: http://localhost:3000 (start with `cd frontend && npm run dev`)
 - Backend API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
+- Database: PostgreSQL (primary database)
+
+## Database Setup
+
+### **PostgreSQL (Primary Database)**
+The application uses PostgreSQL as the primary database for all environments.
+
+**Local Development Setup:**
+```bash
+# Example for local PostgreSQL
+DATABASE_URL=postgresql://username:password@localhost:5432/ai_agent_platform
+```
+
+**Production Setup:**
+```bash
+# Example for production PostgreSQL
+DATABASE_URL=postgresql://username:password@hostname:5432/database_name?sslmode=require
+```
+
+### **SQLite (Optional Development)**
+SQLite is available only when explicitly configured:
+```bash
+# Only use if you specifically want SQLite for development
+DATABASE_URL=sqlite:///./ai_agent_platform.db
+```
+
+### **Database Migrations**
+The project uses Alembic for database migrations:
+
+```bash
+# Navigate to database directory
+cd backend/database
+
+# Check current migration status
+alembic current
+
+# Apply all pending migrations
+alembic upgrade head
+
+# Create new migration (when you modify models)
+alembic revision --autogenerate -m "Description of changes"
+
+# View migration history
+alembic history
+```
 
 ## Backend Setup
 
@@ -66,14 +116,16 @@ cp env_template.txt .env
 # Edit .env file with your API keys:
 # OPENAI_API_KEY=your_openai_api_key_here
 # LLAMAPARSE_API_KEY=your_llamaparse_api_key_here
-# DATABASE_URL=sqlite:///./backend/ai_agent_platform.db
+# DATABASE_URL=postgresql://username:password@localhost:5432/ai_agent_platform  # Primary (PostgreSQL)
+# DATABASE_URL=sqlite:///./ai_agent_platform.db  # Optional (SQLite)
 ```
 
 5. **Initialize database:**
 ```bash
-# The database will be created automatically on first run
-# Or manually create tables if needed
-python -c "from database.models import Base; from database.connection import engine; Base.metadata.create_all(bind=engine)"
+# Navigate to database directory and run migrations
+cd backend/database
+alembic upgrade head
+cd ..
 ```
 
 6. **Start backend:**
@@ -126,8 +178,9 @@ Visit http://127.0.0.1:8000/docs for interactive API documentation.
 ## Common Issues
 - **Virtual env not found**: Ensure you're in the backend directory when activating
 - **Port conflicts**: Backend uses 8000, frontend uses 3000
-- **Database issues**: Check that SQLite database file is created in backend directory
+- **Database issues**: Ensure PostgreSQL is running and DATABASE_URL is correctly configured
 - **API key errors**: Ensure .env file is properly configured with valid API keys
+- **Migration errors**: Run `alembic upgrade head` in backend/database directory
 
 ## Project Structure
 ```
@@ -157,10 +210,33 @@ ai-agent-education-platform/
 │   └── hooks/                 # Custom React hooks
 ├── .env                       # Environment variables (create from template)
 ├── .gitignore                 # Git ignore rules (consolidated)
+├── requirements.txt           # Python dependencies
 ├── env_template.txt           # Environment variables template
-├── requirements.txt           # All Python dependencies
-└── README.md                  # Project documentation
+├── README.md                  # Project documentation
+├── QUICK_START.md             # This setup guide
+├── CONTRIBUTING.md            # Contributor guidelines
+└── LICENSE                    # MIT License
 ```
+
+## Recent Improvements
+
+### **Database & Migration System**
+- ✅ **Alembic Integration**: Professional database migrations replacing custom scripts
+- ✅ **PostgreSQL Support**: Production-ready database with optimized indexes
+- ✅ **Cross-Database Compatibility**: Works with both SQLite (dev) and PostgreSQL (prod)
+- ✅ **Migration Management**: Version control for database schema changes
+
+### **Project Structure Cleanup**
+- ✅ **Clean Root Directory**: Removed outdated documentation and duplicate files
+- ✅ **Organized Backend**: Streamlined file structure with clear separation of concerns
+- ✅ **Updated Documentation**: Current and accurate setup guides
+- ✅ **Professional Appearance**: Clean, maintainable codebase
+
+### **OpenAI Integration**
+- ✅ **Comprehensive AI Features**: PDF processing, persona generation, scene creation
+- ✅ **Real-time Chat**: Interactive AI personas with personality traits
+- ✅ **Assessment System**: AI-powered grading and feedback
+- ✅ **Image Generation**: DALL-E integration for scene visualization
 
 ## Development Workflow
 
@@ -172,7 +248,7 @@ ai-agent-education-platform/
 
 ## Optional: Database Admin Interface
 
-The project includes a Flask-based database admin interface for viewing and managing the SQLite database:
+The project includes a Flask-based database admin interface for viewing and managing the database:
 
 ```bash
 # Start the database admin interface

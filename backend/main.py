@@ -1,4 +1,4 @@
-# AI Simulation Marketplace Platform - Main FastAPI Application
+# AI Agent Education Platform - Main FastAPI Application
 from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -26,8 +26,8 @@ from api.publishing import router as publishing_router
 
 # Create FastAPI app
 app = FastAPI(
-    title="AI Simulation Marketplace Platform",
-    description="Platform for creating and sharing AI-powered business simulations",
+    title="AI Agent Education Platform",
+    description="Transform business case studies into immersive AI-powered educational simulations",
     version="2.0.0"
 )
 

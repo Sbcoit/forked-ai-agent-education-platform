@@ -7,8 +7,10 @@ uvicorn[standard]==0.35.0
 # Database
 SQLAlchemy==2.0.36
 alembic==1.16.2
-# PostgreSQL support (optional for production)
+# PostgreSQL support (primary database)
 psycopg2-binary==2.9.10
+# SQLite support (development only - optional)
+# sqlite3 is included with Python standard library
 
 # Authentication & Security
 passlib[bcrypt]==1.7.4

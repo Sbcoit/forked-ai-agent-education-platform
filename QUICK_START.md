@@ -3,10 +3,71 @@
 ## Prerequisites
 - **Python 3.11+** (recommended: 3.11 or higher)
 - **Node.js 18+** (recommended: 18 or higher)
-- **PostgreSQL** (primary database)
 - **Git**
 - **OpenAI API Key** (for AI features)
 - **LlamaParse API Key** (for PDF processing)
+
+### Database Options
+
+**Option 1: SQLite (Easiest - No Installation Required)**
+- SQLite is included with Python
+- Just set `DATABASE_URL=sqlite:///./ai_agent_platform.db` in your `.env`
+- Perfect for development and testing
+
+**Option 2: PostgreSQL (Production-Ready)**
+- Requires separate PostgreSQL server installation
+- Better for production and team collaboration
+- Set `DATABASE_URL=postgresql://username:password@localhost:5432/ai_agent_platform`
+
+### PostgreSQL Installation by OS (Only if using Option 2)
+
+**Windows:**
+```bash
+# Option 1: Download installer
+# Visit: https://www.postgresql.org/download/windows/
+
+# Option 2: Using winget
+winget install PostgreSQL.PostgreSQL
+
+# Option 3: Using Chocolatey
+choco install postgresql
+```
+
+**macOS:**
+```bash
+# Option 1: Using Homebrew
+brew install postgresql
+brew services start postgresql
+
+# Option 2: Download installer
+# Visit: https://www.postgresql.org/download/macosx/
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+# Update package list
+sudo apt update
+
+# Install PostgreSQL
+sudo apt install postgresql postgresql-contrib
+
+# Start PostgreSQL service
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+```
+
+**Linux (CentOS/RHEL/Fedora):**
+```bash
+# CentOS/RHEL
+sudo yum install postgresql-server postgresql-contrib
+sudo postgresql-setup initdb
+sudo systemctl start postgresql
+
+# Fedora
+sudo dnf install postgresql-server postgresql-contrib
+sudo postgresql-setup initdb
+sudo systemctl start postgresql
+```
 
 ## Complete Setup (5 minutes)
 
@@ -116,8 +177,10 @@ cp env_template.txt .env
 # Edit .env file with your API keys:
 # OPENAI_API_KEY=your_openai_api_key_here
 # LLAMAPARSE_API_KEY=your_llamaparse_api_key_here
-# DATABASE_URL=postgresql://username:password@localhost:5432/ai_agent_platform  # Primary (PostgreSQL)
-# DATABASE_URL=sqlite:///./ai_agent_platform.db  # Optional (SQLite)
+
+# Database Configuration (choose one):
+# DATABASE_URL=sqlite:///./ai_agent_platform.db  # Easiest (SQLite - no installation needed)
+# DATABASE_URL=postgresql://username:password@localhost:5432/ai_agent_platform  # Production (PostgreSQL)
 ```
 
 5. **Initialize database:**
@@ -176,11 +239,29 @@ The frontend has been restructured and modernized with:
 Visit http://127.0.0.1:8000/docs for interactive API documentation.
 
 ## Common Issues
+
+### General Issues
 - **Virtual env not found**: Ensure you're in the backend directory when activating
 - **Port conflicts**: Backend uses 8000, frontend uses 3000
 - **Database issues**: Ensure PostgreSQL is running and DATABASE_URL is correctly configured
 - **API key errors**: Ensure .env file is properly configured with valid API keys
 - **Migration errors**: Run `alembic upgrade head` in backend/database directory
+
+### OS-Specific Issues
+
+**Windows:**
+- **psycopg2 installation**: If you get compilation errors, install Microsoft Visual C++ Build Tools
+- **PostgreSQL service**: Ensure PostgreSQL service is running in Services.msc
+- **Path issues**: Use forward slashes in DATABASE_URL even on Windows
+
+**macOS:**
+- **Homebrew PostgreSQL**: If using Homebrew, ensure PostgreSQL is started with `brew services start postgresql`
+- **Permission issues**: You may need to create a PostgreSQL user for your macOS username
+
+**Linux:**
+- **PostgreSQL service**: Ensure service is running with `sudo systemctl status postgresql`
+- **Firewall**: Check if port 5432 is open for PostgreSQL connections
+- **User permissions**: You may need to create a PostgreSQL user and database
 
 ## Project Structure
 ```

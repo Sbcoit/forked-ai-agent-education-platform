@@ -29,7 +29,7 @@ uvicorn main:app --reload
 ```
 
 **Access the application:**
-- Frontend: http://localhost:3000 (start with `cd frontend/ai-agent-platform && npm run dev`)
+- Frontend: http://localhost:3000 (start with `cd frontend && npm run dev`)
 - Backend API: http://localhost:8000
 - API Docs: http://localhost:8000/docs
 
@@ -86,7 +86,7 @@ Backend runs at: http://127.0.0.1:8000
 
 1. **Navigate to frontend (new terminal):**
 ```bash
-cd frontend/ai-agent-platform
+cd frontend
 ```
 
 2. **Install dependencies:**
@@ -99,6 +99,20 @@ npm install
 npm run dev
 ```
 Frontend runs at: http://localhost:3000
+
+**Note**: The frontend is now built with Next.js 15, TypeScript, and Tailwind CSS with shadcn/ui components.
+
+## Frontend Tech Stack
+
+The frontend has been restructured and modernized with:
+
+- **Next.js 15**: Latest version with App Router for optimal performance
+- **TypeScript**: Full type safety throughout the application
+- **Tailwind CSS**: Utility-first CSS framework for rapid UI development
+- **shadcn/ui**: Modern, accessible component library built on Radix UI
+- **React Hook Form + Zod**: Robust form handling with validation
+- **Next Themes**: Dark/light mode support with system preference detection
+- **Lucide React**: Beautiful, customizable icons
 
 ## Key Features
 - **Scenario Builder**: Upload PDF case studies and create AI-driven business simulations
@@ -130,14 +144,17 @@ ai-agent-education-platform/
 │   ├── utilities/             # Helper functions
 │   ├── db_admin/              # Database admin interface
 │   └── docs/                  # API documentation
-├── frontend/ai-agent-platform/ # Next.js + TypeScript frontend
+├── frontend/                  # Next.js + TypeScript frontend
 │   ├── app/                   # Next.js app router pages
 │   │   ├── scenario-builder/  # PDF upload and scenario creation
 │   │   ├── chat-box/          # Interactive chat interface
 │   │   ├── marketplace/       # Community scenarios
-│   │   └── dashboard/         # User analytics
-│   ├── components/            # React components
-│   └── lib/                   # Utilities and API clients
+│   │   ├── agent-builder/     # AI agent creation tools
+│   │   ├── dashboard/         # User analytics
+│   │   └── login/            # Authentication pages
+│   ├── components/            # React components (shadcn/ui)
+│   ├── lib/                   # Utilities and API clients
+│   └── hooks/                 # Custom React hooks
 ├── .env                       # Environment variables (create from template)
 ├── .gitignore                 # Git ignore rules (consolidated)
 ├── env_template.txt           # Environment variables template
@@ -149,7 +166,7 @@ ai-agent-education-platform/
 
 1. **Install Dependencies**: `pip install -r requirements.txt` (from root)
 2. **Start Backend**: `cd backend && uvicorn main:app --reload`
-3. **Start Frontend**: `cd frontend/ai-agent-platform && npm run dev`
+3. **Start Frontend**: `cd frontend && npm run dev`
 4. **Access Application**: http://localhost:3000
 5. **API Docs**: http://localhost:8000/docs
 

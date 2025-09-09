@@ -1,46 +1,136 @@
-# Getting Started with Create React App
+# AI Agent Education Platform - Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This is the frontend application for the AI Agent Education Platform, built with **Next.js 15**, **TypeScript**, and **Tailwind CSS**.
 
-## Available Scripts
+## 🚀 Tech Stack
 
-In the project directory, you can run:
+- **Framework**: Next.js 15 with App Router
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **UI Components**: shadcn/ui (Radix UI primitives)
+- **Icons**: Lucide React
+- **Forms**: React Hook Form with Zod validation
+- **Theme**: Next Themes (dark/light mode support)
 
-### `npm start`
+## 📁 Project Structure
 
-Runs the app in the development mode.\
+```
+frontend/
+├── app/                    # Next.js App Router
+│   ├── dashboard/         # User dashboard and analytics
+│   ├── chat-box/          # Interactive chat interface
+│   ├── agent-builder/     # AI agent creation tools
+│   ├── marketplace/       # Community scenarios marketplace
+│   ├── scenario-builder/  # PDF upload and scenario creation
+│   ├── login/            # Authentication pages
+│   ├── layout.tsx        # Root layout component
+│   ├── page.tsx          # Home page
+│   └── globals.css       # Global styles
+├── components/            # React components
+│   ├── ui/               # shadcn/ui component library
+│   ├── PersonaCard.tsx   # Persona display component
+│   ├── SceneCard.tsx     # Scenario display component
+│   └── theme-provider.tsx # Theme context provider
+├── lib/                  # Utilities and configurations
+│   ├── api.ts           # API client functions
+│   ├── auth-context.tsx # Authentication context
+│   └── utils.ts         # Utility functions
+├── hooks/               # Custom React hooks
+│   ├── use-mobile.tsx   # Mobile detection hook
+│   └── use-toast.ts     # Toast notification hook
+└── public/              # Static assets
+```
+
+## 🛠️ Available Scripts
+
+### `npm run dev`
+
+Runs the app in development mode.\
 Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
 
-The page will reload if you make edits.\
+The page will reload automatically when you make edits.\
 You will also see any lint errors in the console.
-
-### `npm test`
-
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
 
 ### `npm run build`
 
-Builds the app for production to the `build` folder.\
+Builds the app for production to the `.next` folder.\
 It correctly bundles React in production mode and optimizes the build for the best performance.
 
 The build is minified and the filenames include the hashes.\
 Your app is ready to be deployed!
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### `npm run start`
 
-### `npm run eject`
+Starts the production server after running `npm run build`.
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+### `npm run lint`
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Runs ESLint to check for code quality issues.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+## 🎨 Features
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+- **Modern UI**: Built with shadcn/ui components for a polished, accessible interface
+- **Responsive Design**: Mobile-first approach with Tailwind CSS
+- **Dark/Light Mode**: Theme switching with system preference detection
+- **Type Safety**: Full TypeScript support throughout the application
+- **Form Validation**: Robust form handling with React Hook Form and Zod
+- **API Integration**: Seamless communication with the FastAPI backend
 
-## Learn More
+## 🔧 Development Setup
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+2. **Start development server:**
+   ```bash
+   npm run dev
+   ```
+
+3. **Access the application:**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:8000 (ensure backend is running)
+
+## 📚 Key Pages
+
+- **Dashboard** (`/dashboard`): User analytics and progress tracking
+- **Chat Box** (`/chat-box`): Interactive AI conversations
+- **Agent Builder** (`/agent-builder`): Create and customize AI agents
+- **Marketplace** (`/marketplace`): Browse community scenarios
+- **Scenario Builder** (`/scenario-builder`): Upload PDFs and create scenarios
+- **Login** (`/login`): User authentication
+
+## 🎯 Component Library
+
+The project uses [shadcn/ui](https://ui.shadcn.com/) for consistent, accessible UI components:
+
+- **Layout**: Card, Sheet, Dialog, Drawer
+- **Forms**: Input, Button, Select, Checkbox, Radio Group
+- **Navigation**: Tabs, Breadcrumb, Navigation Menu
+- **Feedback**: Toast, Alert, Progress, Skeleton
+- **Data Display**: Table, Badge, Avatar, Chart
+
+## 🌐 API Integration
+
+The frontend communicates with the FastAPI backend through:
+
+- **API Client** (`lib/api.ts`): Centralized API functions
+- **Authentication** (`lib/auth-context.tsx`): User session management
+- **Error Handling**: Comprehensive error boundaries and user feedback
+
+## 🚀 Deployment
+
+The application is optimized for deployment on platforms like:
+
+- **Vercel** (recommended for Next.js)
+- **Netlify**
+- **AWS Amplify**
+- **Docker containers**
+
+## 📖 Learn More
+
+- [Next.js Documentation](https://nextjs.org/docs)
+- [Tailwind CSS](https://tailwindcss.com/docs)
+- [shadcn/ui Components](https://ui.shadcn.com/)
+- [TypeScript](https://www.typescriptlang.org/docs/)

@@ -3,7 +3,7 @@
 An innovative educational platform that transforms business case studies into immersive AI-powered simulations. Upload PDF case studies, let AI extract key figures and scenarios, then engage students in **linear simulation experiences** with dynamic **ChatOrchestrator** system and intelligent **AI persona interactions**.
 
 ![AI Agent Education Platform](https://img.shields.io/badge/AI-Education-blue?style=for-the-badge)
-![Next.js](https://img.shields.io/badge/Next.js-TypeScript-000000?style=for-the-badge&logo=nextdotjs)
+![Next.js](https://img.shields.io/badge/Next.js%2015-TypeScript-000000?style=for-the-badge&logo=nextdotjs)
 ![FastAPI](https://img.shields.io/badge/FastAPI-Python-009688?style=for-the-badge&logo=fastapi)
 ![SQLite](https://img.shields.io/badge/SQLite-Database-003B57?style=for-the-badge&logo=sqlite)
 ![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-412991?style=for-the-badge&logo=openai)
@@ -35,8 +35,8 @@ An innovative educational platform that transforms business case studies into im
 - **Quality Assurance**: Community ratings and reviews ensure high-quality content
 
 ### 🎨 **Modern UI/UX**
-- **Next.js 14 with TypeScript**: Server-side rendering for optimal performance
-- **Tailwind CSS + shadcn/ui**: Professional, accessible component library
+- **Next.js 15 with TypeScript**: Latest version with App Router for optimal performance
+- **Tailwind CSS + shadcn/ui**: Professional, accessible component library with dark/light mode
 - **Responsive Design**: Seamless experience across desktop, tablet, and mobile
 - **Real-Time Chat Interface**: Immersive conversation experience with AI personas
 
@@ -105,7 +105,7 @@ uvicorn main:app --reload
 ```
 
 **Access Points:**
-- 🌐 **Frontend**: http://localhost:3000 (run `cd frontend/ai-agent-platform && npm run dev`)
+- 🌐 **Frontend**: http://localhost:3000 (run `cd frontend && npm run dev`)
 - 🔧 **Backend API**: http://localhost:8000
 - 📚 **API Docs**: http://localhost:8000/docs
 - 🗄️ **Database Admin**: http://localhost:5001 (run `cd backend/db_admin && python simple_viewer.py`)
@@ -154,7 +154,7 @@ The backend will be available at **http://localhost:8000**
 #### 3. Frontend Setup
 ```bash
 # Navigate to frontend directory (in a new terminal)
-cd frontend/ai-agent-platform
+cd frontend
 
 # Install dependencies
 npm install
@@ -164,6 +164,8 @@ npm run dev
 ```
 
 The frontend will be available at **http://localhost:3000**
+
+**Note**: The frontend has been restructured to use Next.js 15 with App Router, TypeScript, and shadcn/ui components.
 
 ## 🔧 Environment Configuration
 
@@ -274,11 +276,11 @@ ChatOrchestrator: Available commands: @mention, progress, hint...
 ## 🛠️ Technology Stack
 
 ### Frontend
-- **Next.js 14** with TypeScript and App Router
-- **Tailwind CSS** for utility-first styling
+- **Next.js 15** with TypeScript and App Router
+- **Tailwind CSS** for utility-first styling with dark/light mode
 - **shadcn/ui** for modern, accessible components
-- **React Hook Form** for form management
-- **Zustand** for state management
+- **React Hook Form + Zod** for form management and validation
+- **Next Themes** for theme management
 
 ### Backend
 - **FastAPI** with async Python for high performance
@@ -325,21 +327,28 @@ ai-agent-education-platform/
 │   ├── db_admin/                     # Database administration tools
 │   ├── docs/                         # Comprehensive API documentation
 │   └── ai_agent_platform.db         # SQLite database file
-├── frontend/ai-agent-platform/       # Next.js + TypeScript frontend
+├── frontend/                         # Next.js + TypeScript frontend
 │   ├── app/                          # Next.js app router pages
 │   │   ├── chat-box/                # Interactive chat interface
 │   │   ├── scenario-builder/        # PDF upload and scenario creation
 │   │   ├── marketplace/             # Community scenario discovery
 │   │   ├── dashboard/               # User progress and analytics
 │   │   ├── agent-builder/           # AI agent creation interface
-│   │   └── login/                   # Authentication pages
+│   │   ├── login/                   # Authentication pages
+│   │   ├── layout.tsx               # Root layout component
+│   │   ├── page.tsx                 # Home page
+│   │   └── globals.css              # Global styles
 │   ├── components/                   # React components
 │   │   ├── ui/                      # shadcn/ui components
 │   │   ├── PersonaCard.tsx          # AI persona display components
-│   │   └── SceneCard.tsx            # Scene progression UI
+│   │   ├── SceneCard.tsx            # Scene progression UI
+│   │   └── theme-provider.tsx       # Theme context provider
 │   ├── lib/                         # Utility functions and API clients
+│   │   ├── api.ts                   # API client functions
+│   │   ├── auth-context.tsx         # Authentication context
+│   │   └── utils.ts                 # Utility functions
 │   ├── hooks/                       # Custom React hooks
-│   └── styles/                      # Global styles
+│   └── public/                      # Static assets
 ├── .env                              # Environment variables (create from template)
 ├── .gitignore                        # Git ignore rules (consolidated)
 ├── env_template.txt                  # Environment variables template

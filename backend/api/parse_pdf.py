@@ -380,7 +380,7 @@ Make it suitable for educational/corporate use.
         
         # Download and save image locally if we have a scenario ID
         if scenario_id > 0:
-            from utils.image_storage import download_and_save_image
+            from utilities.image_storage import download_and_save_image
             local_path = await download_and_save_image(image_url, scene_title, scenario_id)
             if local_path:
                 print(f"[DEBUG] Image saved locally: {local_path}")
@@ -1046,59 +1046,24 @@ async def save_scenario_to_db(
                         )
         
         # Ensure every scene has at least one involved persona (not the main character)
-        main_character_name_norm = normalize_name(main_character_name) if 'main_character_name' in locals() and main_character_name else None
-        for scene in final_result["scenes"]:
+        # This is additional validation after AI processing
+        student_role = ai_result.get("student_role", "").strip().lower()
+        key_figures = ai_result.get("key_figures", [])
+        key_figure_names = [fig.get("name", "") for fig in key_figures]
+        
+        for scene in ai_result.get("scenes", []):
             personas = scene.get("personas_involved", [])
-            # Remove main character if present
-            personas = [p for p in personas if normalize_name(p) != main_character_name_norm]
+            # Remove main character if present (additional safety check)
+            personas = [p for p in personas if p.strip().lower() != student_role]
+            
             # If still empty, add the first non-student persona
-            if not personas and key_figures:
-                first_non_student = next((fig.get("name", "") for fig in key_figures if normalize_name(fig.get("name", "")) != main_character_name_norm), None)
+            if not personas and key_figure_names:
+                first_non_student = next((name for name in key_figure_names if name.strip().lower() != student_role), None)
                 if first_non_student:
                     personas.append(first_non_student)
+                    print(f"[DEBUG] Added fallback persona '{first_non_student}' to scene '{scene.get('title', '')}'")
+            
             scene["personas_involved"] = personas
-        # Save scenes
-        scenes = ai_result.get("scenes", [])
-        for i, scene in enumerate(scenes):
-            if isinstance(scene, dict) and scene.get("title"):
-                print(f"[DEBUG] Scene dict before saving: {scene}")
-                # Use successMetric or success_metric from scene dict, fallback to objectives[0]
-                success_metric = (
-                    scene.get("successMetric") or
-                    scene.get("success_metric") or
-                    scene.get("success_criteria")
-                )
-                if not success_metric and scene.get("objectives"):
-                    success_metric = scene["objectives"][0]
-                scene_record = ScenarioScene(
-                    scenario_id=scenario.id,
-                    title=scene.get("title", ""),
-                    description=scene.get("description", ""),
-                    user_goal=scene.get("user_goal", ""),
-                    scene_order=i + 1,
-                    estimated_duration=scene.get("estimated_duration", 30),
-                    image_url=scene.get("image_url", ""),
-                    image_prompt=f"Business scene: {scene.get('title', '')}",
-                    success_metric=success_metric,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(scene_record)
-                db.flush()
-                print(f"[DEBUG] Saved scene: {scene_record.title}, success_metric: {scene_record.success_metric}")
-                # Link personas to scene (if personas_involved exists)
-                personas_involved = scene.get("personas_involved", [])
-                unique_persona_names = set(personas_involved)
-                for persona_name in unique_persona_names:
-                    if persona_name in persona_mapping:
-                        pid = persona_mapping[persona_name]
-                        db.execute(
-                            scene_personas.insert().values(
-                                scene_id=scene_record.id,
-                                persona_id=pid,
-                                involvement_level="participant"
-                            )
-                        )
         
         # Save file metadata
         scenario_file = ScenarioFile(

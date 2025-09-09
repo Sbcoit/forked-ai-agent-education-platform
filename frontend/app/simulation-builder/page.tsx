@@ -1197,16 +1197,6 @@ const handleAutofillWithTeachingNotes = async () => {
 
 
          </div>
-         {/* Show loading progress */}
-         {autofillLoading && (
-           <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-             <div className="flex items-center justify-between mb-2">
-               <span className="text-sm font-medium text-blue-800">{autofillStep}</span>
-               <span className="text-xs text-blue-600">{Math.round(autofillProgress)}%</span>
-             </div>
-             <Progress value={autofillProgress} className="w-full h-2" />
-           </div>
-         )}
         
        </div>
 
@@ -1312,6 +1302,18 @@ const handleAutofillWithTeachingNotes = async () => {
            </div>
          )}
        </div>
+
+         {/* Show loading progress */}
+         {autofillLoading && (
+           <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+             <div className="flex items-center justify-between mb-2">
+               <span className="text-sm font-medium text-blue-800">{autofillStep}</span>
+               <span className="text-xs text-blue-600">{Math.round(autofillProgress)}%</span>
+             </div>
+             <Progress value={autofillProgress} className="w-full h-2" />
+           </div>
+         )}
+         
          {/* Show error */}
          {autofillError && (
            <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
@@ -1331,6 +1333,8 @@ const handleAutofillWithTeachingNotes = async () => {
              </div>
            </div>
          )}
+
+
        {/* Accordions */}
        <div className="w-full max-w-4xl">
          <Accordion type="multiple" className="space-y-6" defaultValue={['info', 'personas', 'timeline']}>

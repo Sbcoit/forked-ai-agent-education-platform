@@ -139,10 +139,10 @@ const ScenarioSelector = ({
           <BookOpen className="w-12 h-12 mx-auto mb-4 text-gray-400" />
           <h3 className="text-lg font-semibold mb-2">No Scenarios Available</h3>
           <p className="text-gray-600 mb-4">
-            You need to create a scenario first using the Scenario Builder.
+            You need to create a simulation first using the Simulation Builder.
           </p>
-          <Button onClick={() => window.open("/scenario-builder", "_blank")}>
-            Create Scenario
+          <Button onClick={() => window.open("/simulation-builder", "_blank")}>
+            Create Simulation
           </Button>
         </CardContent>
       </Card>

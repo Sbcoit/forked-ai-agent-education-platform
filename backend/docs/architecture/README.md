@@ -330,7 +330,7 @@ sequenceDiagram
 frontend/ai-agent-platform/
 ├── app/
 │   ├── chat-box/           # Linear simulation interface
-│   ├── scenario-builder/   # PDF upload and scenario creation
+│   ├── simulation-builder/   # PDF upload and simulation creation
 │   ├── marketplace/        # Published scenarios discovery
 │   └── dashboard/          # User progress and analytics
 ├── components/

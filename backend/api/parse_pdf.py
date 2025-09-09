@@ -61,6 +61,36 @@ async def extract_text_from_context_files(context_files: List[UploadFile]) -> st
             context_texts.append(f"[Context File: {file.filename}]\n[Unsupported file type]\n")
     return "\n".join(context_texts)
 
+async def parse_file_flexible(file: UploadFile) -> str:
+    """Parse a file using the appropriate method based on file type."""
+    filename = file.filename.lower() if file.filename else ""
+    
+    # For PDF files, use LlamaParse
+    if filename.endswith('.pdf') or file.content_type == "application/pdf":
+        return await parse_with_llamaparse(file)
+    
+    # For text-based files, extract text directly
+    elif filename.endswith(('.txt', '.md')) or file.content_type in ["text/plain", "text/markdown"]:
+        return await extract_text_from_file(file)
+    
+    # For Word documents, try to extract text (basic implementation)
+    elif filename.endswith(('.doc', '.docx')) or file.content_type in ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
+        return await extract_text_from_file(file)
+    
+    else:
+        # Fallback: try LlamaParse for other file types
+        print(f"[DEBUG] Unknown file type {file.content_type}, trying LlamaParse as fallback...")
+        return await parse_with_llamaparse(file)
+
+async def extract_text_from_file(file: UploadFile) -> str:
+    """Extract text from text-based files (TXT, MD, etc.)"""
+    try:
+        contents = await file.read()
+        text = contents.decode('utf-8', errors='ignore')
+        return f"[File: {file.filename}]\n{text.strip()}\n"
+    except Exception as e:
+        return f"[File: {file.filename}]\n[Could not extract text: {e}]\n"
+
 async def parse_with_llamaparse(file: UploadFile) -> str:
     """Send a file to LlamaParse and return the parsed markdown content."""
     if not LLAMAPARSE_API_KEY:
@@ -162,8 +192,10 @@ async def parse_pdf(
     print("[DEBUG] /api/parse-pdf/ endpoint hit")
     if not LLAMAPARSE_API_KEY:
         raise HTTPException(status_code=500, detail="LlamaParse API key not configured.")
-    if file.content_type != "application/pdf":
-        raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+    # Support PDF, TXT, and other text-based files for the main file
+    supported_main_types = ["application/pdf", "text/plain", "text/markdown", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
+    if file.content_type not in supported_main_types and not (file.filename and file.filename.lower().endswith(('.pdf', '.txt', '.md', '.doc', '.docx'))):
+        raise HTTPException(status_code=400, detail="Only PDF, TXT, MD, DOC, and DOCX files are supported for the main file.")
     
     try:
         # Process all files in parallel
@@ -172,13 +204,13 @@ async def parse_pdf(
         # Create tasks for all files (main PDF + context files)
         tasks = []
         
-        # Add main PDF task
-        main_task = parse_with_llamaparse(file)
-        tasks.append(("main_pdf", main_task))
+        # Add main file task (now supports multiple file types)
+        main_task = parse_file_flexible(file)
+        tasks.append(("main_file", main_task))
         
         # Add context file tasks
         for ctx_file in context_files:
-            ctx_task = parse_with_llamaparse(ctx_file)
+            ctx_task = parse_file_flexible(ctx_file)
             tasks.append((ctx_file.filename, ctx_task))
         
         print(f"[DEBUG] Created {len(tasks)} parallel tasks")
@@ -193,13 +225,13 @@ async def parse_pdf(
         for i, (name, result) in enumerate(zip([name for name, _ in tasks], results)):
             if isinstance(result, Exception):
                 print(f"[ERROR] Failed to process {name}: {result}")
-                if name == "main_pdf":
-                    raise result  # Main PDF failure is critical
+                if name == "main_file":
+                    raise result  # Main file failure is critical
                 else:
                     context_markdowns.append(f"[Context File: {name}]\n[Could not extract context: {result}]\n")
             else:
                 print(f"[DEBUG] Successfully processed {name}, content length: {len(result)}")
-                if name == "main_pdf":
+                if name == "main_file":
                     main_markdown = result
                 else:
                     context_markdowns.append(f"[Context File: {name}]\n{result.strip()}\n")

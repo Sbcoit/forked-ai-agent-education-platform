@@ -13,6 +13,7 @@ import { Upload, Info, Users, Activity, Sparkles, X, Check } from "lucide-react"
 import Link from "next/link"
 import PersonaCard from "@/components/PersonaCard";
 import SceneCard from "@/components/SceneCard";
+import Sidebar from "@/components/Sidebar";
 import { buildApiUrl } from "@/lib/api";
 
 
@@ -105,6 +106,8 @@ function SceneModal({ isOpen, onClose, children }: { isOpen: boolean; onClose: (
 export default function ScenarioBuilder() {
  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
  const fileInputRef = useRef<HTMLInputElement>(null)
+ const [teachingNotesFile, setTeachingNotesFile] = useState<File | null>(null)
+ const teachingNotesInputRef = useRef<HTMLInputElement>(null)
  const [name, setName] = useState("")
  const [description, setDescription] = useState("")
  const [learningOutcomes, setLearningOutcomes] = useState("")
@@ -415,6 +418,33 @@ export default function ScenarioBuilder() {
    if (file) setUploadedFile(file)
  }
 
+ const handleTeachingNotesFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+   const file = e.target.files?.[0]
+   if (file) setTeachingNotesFile(file)
+ }
+
+ const handleTeachingNotesDragOver = (e: React.DragEvent) => {
+   e.preventDefault()
+ }
+
+ const handleTeachingNotesDragLeave = (e: React.DragEvent) => {
+   e.preventDefault()
+ }
+
+ const handleTeachingNotesDrop = (e: React.DragEvent) => {
+   e.preventDefault()
+   
+   const files = Array.from(e.dataTransfer.files)
+   const file = files[0] // Take the first file
+  
+   if (file) {
+     setTeachingNotesFile(file)
+     if (teachingNotesInputRef.current) {
+       teachingNotesInputRef.current.value = ""
+     }
+   }
+ }
+
 
  const handleDragOver = (e: React.DragEvent) => {
    e.preventDefault()
@@ -433,10 +463,10 @@ export default function ScenarioBuilder() {
    setIsDragOver(false)
   
    const files = Array.from(e.dataTransfer.files)
-   const pdfFile = files.find(file => file.type === "application/pdf")
+   const file = files[0] // Take the first file
   
-   if (pdfFile) {
-     setUploadedFile(pdfFile)
+   if (file) {
+     setUploadedFile(file)
      // Clear the file input value to ensure it updates
      if (fileInputRef.current) {
        fileInputRef.current.value = ""
@@ -686,12 +716,126 @@ export default function ScenarioBuilder() {
      console.error("Autofill error details:", err);
      console.error("Error stack:", err.stack);
      setAutofillError(err.message || "Unknown error occurred during autofill");
-   } finally {
-     setAutofillLoading(false);
-     setAutofillStep("");
-     setAutofillProgress(0);
-   }
- };
+  } finally {
+    setAutofillLoading(false);
+    setAutofillStep("");
+    setAutofillProgress(0);
+  }
+};
+
+const handleAutofillWithTeachingNotes = async () => {
+  if (!teachingNotesFile && !uploadedFile) return;
+  setAutofillLoading(true);
+  setAutofillError(null);
+  setAutofillResult(null);
+  setAutofillStep(teachingNotesFile ? "Processing Teaching Notes as primary context..." : "Processing Business Case Study...");
+  setAutofillProgress(25);
+ 
+  try {
+    const formData = new FormData();
+    
+    // Add Teaching Notes as the primary file if available, otherwise use Business Case Study
+    if (teachingNotesFile) {
+      formData.append("file", teachingNotesFile);
+      // Add Business Case Study as secondary context if available
+      if (uploadedFile) {
+        formData.append("context_files", uploadedFile);
+      }
+    } else if (uploadedFile) {
+      // If no Teaching Notes, use Business Case Study as primary
+      formData.append("file", uploadedFile);
+    }
+    
+    // Attach any additional context files
+    if (uploadedFiles.length > 0) {
+      uploadedFiles.forEach((file) => {
+        formData.append("context_files", file);
+      });
+    }
+    
+    console.log("[DEBUG] handleAutofillWithTeachingNotes: Primary file (Teaching Notes):", teachingNotesFile?.name || "None");
+    console.log("[DEBUG] handleAutofillWithTeachingNotes: Secondary context (Business Case Study):", uploadedFile?.name || "None");
+    console.log("[DEBUG] handleAutofillWithTeachingNotes: Additional context files:", uploadedFiles.map(f => f.name));
+    
+    setAutofillStep(teachingNotesFile ? "Sending Teaching Notes and context files to backend..." : "Sending Business Case Study to backend...");
+    setAutofillProgress(50);
+    
+    const response = await fetch(buildApiUrl("/api/parse-pdf/"), {
+      method: "POST",
+      body: formData,
+    });
+   
+    if (!response.ok) {
+      throw new Error(teachingNotesFile ? "Failed to process Teaching Notes and context files" : "Failed to process Business Case Study");
+    }
+   
+    setAutofillStep(teachingNotesFile ? "Processing with AI using Teaching Notes as primary context..." : "Processing with AI using Business Case Study...");
+    setAutofillProgress(75);
+    
+    const resultData = await response.json();
+    console.log(`Backend response (${teachingNotesFile ? 'Teaching Notes priority' : 'Business Case Study only'}):`, resultData);
+    console.log("Response status:", resultData.status);
+    console.log("AI result exists:", !!resultData.ai_result);
+    console.log("Response keys:", Object.keys(resultData));
+   
+    if (resultData.status === "completed" && resultData.ai_result) {
+      setAutofillStep("Complete!");
+      setAutofillProgress(100);
+      setAutofillResult(resultData);
+     
+      // Populate form fields with AI results (same logic as handleAutofill)
+      const aiData = resultData.ai_result;
+      console.log(`AI Result (${teachingNotesFile ? 'Teaching Notes priority' : 'Business Case Study only'}):`, aiData);
+      
+      if (aiData.name) setName(aiData.name);
+      if (aiData.description) setDescription(aiData.description);
+      if (aiData.learning_outcomes) setLearningOutcomes(aiData.learning_outcomes);
+      
+      // Process personas with Teaching Notes context
+      if (aiData.personas && Array.isArray(aiData.personas)) {
+        console.log(`=== PERSONAS DEBUG (${teachingNotesFile ? 'Teaching Notes Priority' : 'Business Case Study Only'}) ===`);
+        console.log("Total personas identified:", aiData.personas.length);
+        console.log("All personas:", aiData.personas);
+        console.log("Student role:", aiData.student_role);
+        
+        // Apply the same persona processing logic as the original function
+        const studentRole = aiData.student_role?.toLowerCase() || '';
+        const filteredPersonas = aiData.personas.filter((persona: any) => {
+          const personaName = persona.name?.toLowerCase() || '';
+          const personaRole = persona.role?.toLowerCase() || '';
+          
+          // Skip if this persona matches the student role exactly
+          if (personaName === studentRole || personaRole === studentRole) {
+            console.log(`[DEBUG] Excluding persona matching student role: "${persona.name}"`);
+            return false;
+          }
+          
+          return true;
+        });
+        
+        console.log("Filtered personas (Teaching Notes priority):", filteredPersonas);
+        setPersonas(filteredPersonas);
+      }
+      
+      // Process scenes with Teaching Notes context
+      if (aiData.scenes && Array.isArray(aiData.scenes)) {
+        console.log("Scenes identified (Teaching Notes priority):", aiData.scenes);
+        setScenes(aiData.scenes);
+      }
+      
+      markAsUnsaved();
+    } else {
+      throw new Error("AI processing failed or returned incomplete results");
+    }
+  } catch (err: any) {
+    console.error("Error in handleAutofillWithTeachingNotes:", err);
+    setAutofillError(err.message || "Unknown error occurred during Teaching Notes autofill");
+  } finally {
+    setAutofillLoading(false);
+    setAutofillStep("");
+    setAutofillProgress(0);
+  }
+};
 
 
  // Utility to normalize scenes
@@ -924,21 +1068,14 @@ export default function ScenarioBuilder() {
 
 
  return (
-   <div className="min-h-screen bg-background text-foreground flex flex-col items-center py-10 px-2">
-     {/* Left overlay sidebar */}
-     <div className="fixed top-0 left-0 h-full w-72 z-50 bg-black shadow-2xl flex flex-col items-start pl-8 pt-8">
-       <h1 className="mb-10 text-white text-xl font-bold mb-6">
-         Simulation Builder
-       </h1>
-       <Link href="/dashboard" className="mb-6">
-         <button className="bg-white text-black rounded px-4 py-2 font-medium shadow hover:bg-gray-200 transition">Back to Dashboard</button>
-             </Link>
-       {/* Add sidebar navigation or content here */}
-     </div>
-     {/* Add left padding to prevent content from being hidden under the sidebar */}
-     <div className="w-72 h-0" />
+   <div className="min-h-screen bg-background text-foreground">
+     {/* New Sidebar Component */}
+     <Sidebar currentPath="/simulation-builder" />
+     
+     {/* Main content area with left margin for sidebar */}
+     <div className="ml-20">
      {/* Top overlay bar */}
-     <div className="fixed top-0 left-0 w-full z-40 bg-background shadow-lg flex items-center justify-between h-14 px-8">
+     <div className="fixed top-0 left-20 right-0 z-40 bg-background shadow-lg flex items-center justify-between h-14 px-8">
        <span className="text-lg font-semibold">Simulation Builder</span>
        <div className="flex gap-4">
          <button 
@@ -994,8 +1131,9 @@ export default function ScenarioBuilder() {
      </div>
      {/* Add top padding to prevent content from being hidden under the bar */}
      <div className="h-14" />
-     {/* Main content shifted further right to avoid sidebar overlap */}
-     <div className="pl-[26rem] w-full">
+     {/* Main content area */}
+     <div className="w-full pl-16 pr-16 py-10 flex justify-center">
+       <div className="w-full max-w-4xl">
        {/* Header and Upload Row */}
        <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 items-start">
          {/* Left: Title and Subtitle */}
@@ -1008,7 +1146,7 @@ export default function ScenarioBuilder() {
            className={`border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 flex flex-col items-center justify-center min-h-[120px] cursor-pointer ${
              isDragOver
                ? 'border-blue-500 bg-blue-50 scale-105'
-               : uploadedFile && uploadedFile.type === "application/pdf"
+               : uploadedFile
                ? 'border-green-500 bg-green-50'
                : 'border-gray-300 bg-card hover:border-gray-400'
            }`}
@@ -1017,70 +1155,48 @@ export default function ScenarioBuilder() {
            onDrop={handleDrop}
            onClick={() => fileInputRef.current?.click()}
          >
-           {uploadedFile && uploadedFile.type === "application/pdf" ? (
+           {uploadedFile ? (
              <span className="flex flex-col items-center">
-               {/* Simple PDF icon using SVG */}
-               <svg className="h-10 w-10 mx-auto mb-2 text-red-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                 <path d="M6 2a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6H6z" />
-                 <path d="M14 2v6h6" />
+               {/* Red file icon */}
+               <svg className="h-10 w-10 mx-auto mb-2 text-red-500" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                 <polyline points="14,2 14,8 20,8" />
+                 <line x1="16" y1="13" x2="8" y2="13" />
+                 <line x1="16" y1="17" x2="8" y2="17" />
+                 <polyline points="10,9 9,9 8,9" />
                </svg>
-               <span className="text-xs text-red-500 font-semibold">PDF attached</span>
+               <span className="text-sm font-semibold text-green-700">File attached</span>
+               <span className="text-xs text-green-600 mt-1">{uploadedFile.name}</span>
              </span>
            ) : (
-             <Upload className={`h-10 w-10 mx-auto mb-2 ${isDragOver ? 'text-blue-500' : 'text-muted-foreground'}`} />
-           )}
-          
-           {!(uploadedFile && uploadedFile.type === "application/pdf") && (
-             <span className={`font-medium ${isDragOver ? 'text-blue-600' : 'text-muted-foreground'}`}>
-               {isDragOver ? (
-                 <span>Drop your PDF here</span>
-               ) : (
-                 <span><span className="underline">Click here</span> to upload your PDF or drag and drop</span>
-               )}
-             </span>
+             <>
+               {/* Generic file icon - three overlapping documents */}
+               <svg className="h-10 w-10 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                 <polyline points="14,2 14,8 20,8" />
+                 <line x1="16" y1="13" x2="8" y2="13" />
+                 <line x1="16" y1="17" x2="8" y2="17" />
+                 <polyline points="10,9 9,9 8,9" />
+               </svg>
+               
+               <span className="font-medium text-gray-600">
+                 <span className="font-bold text-black">Click here</span> to upload your file or drag and drop
+               </span>
+             </>
            )}
           
            <input
              id="file-upload"
              type="file"
-             accept=".pdf"
              className="hidden"
              onChange={handleFileChange}
              ref={fileInputRef}
            />
-          
-           {uploadedFile && (
-             <div className="mt-2 text-primary text-sm font-medium">{uploadedFile.name}</div>
-           )}
          </div>
          <div className="flex gap-2 justify-right">
 
 
          </div>
-         {/* Buttons directly below the upload box, perfectly aligned */}
-         {uploadedFile && (
-           <div className="flex ml-25 gap-2 justify-right">
-             {/* Choose a different file */}
-             <label htmlFor="file-upload" className="cursor-pointer m-0">
-               <button
-                 type="button"
-                 onClick={handleChooseDifferentFile}
-                 className="bg-white text-black rounded px-4 py-2 font-medium shadow hover:bg-gray-200 transition border border-gray-300 w-full h-full align-middle"
-               >
-                 Choose a different file
-               </button>
-             </label>
-             {/* Use and autofill */}
-             <button
-               className="bg-black text-white rounded px-2 py-2 font-medium shadow hover:bg-gray-800 transition border border-black w-1000 h-10 align-middle flex items-center justify-center"
-               onClick={handleAutofill}
-               disabled={autofillLoading}
-             >
-               <Sparkles className="mr-2 h-4 w-4 text-white inline" />
-               Use and autofill
-             </button>
-           </div>
-         )}
          {/* Show loading progress */}
          {autofillLoading && (
            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
@@ -1092,6 +1208,110 @@ export default function ScenarioBuilder() {
            </div>
          )}
         
+       </div>
+
+
+       {/* Teaching Notes Upload Section */}
+       <div className="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-8 mb-8 items-start">
+         {/* Left: Title and Subtitle */}
+         <div className="flex flex-col gap-2">
+           <h1 className="text-2xl font-bold">Upload your Teaching Notes</h1>
+           <p className="text-muted-foreground text-sm">We will use this for defining better learning outcomes and concise grading metrics.</p>
+         </div>
+         {/* Right: Drag and Drop File Upload Box */}
+         <div
+           className={`border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 flex flex-col items-center justify-center min-h-[120px] cursor-pointer ${
+             teachingNotesFile
+               ? 'border-green-500 bg-green-50'
+               : 'border-gray-300 bg-card hover:border-gray-400'
+           }`}
+           onDragOver={handleTeachingNotesDragOver}
+           onDragLeave={handleTeachingNotesDragLeave}
+           onDrop={handleTeachingNotesDrop}
+           onClick={() => teachingNotesInputRef.current?.click()}
+         >
+           {teachingNotesFile ? (
+             <span className="flex flex-col items-center">
+               {/* Red file icon */}
+               <svg className="h-10 w-10 mx-auto mb-2 text-red-500" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                 <polyline points="14,2 14,8 20,8" />
+                 <line x1="16" y1="13" x2="8" y2="13" />
+                 <line x1="16" y1="17" x2="8" y2="17" />
+                 <polyline points="10,9 9,9 8,9" />
+               </svg>
+               <span className="text-sm font-semibold text-green-700">File attached</span>
+               <span className="text-xs text-green-600 mt-1">{teachingNotesFile.name}</span>
+             </span>
+           ) : (
+             <>
+               {/* Generic file icon - three overlapping documents */}
+               <svg className="h-10 w-10 mx-auto mb-2 text-gray-400" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                 <polyline points="14,2 14,8 20,8" />
+                 <line x1="16" y1="13" x2="8" y2="13" />
+                 <line x1="16" y1="17" x2="8" y2="17" />
+                 <polyline points="10,9 9,9 8,9" />
+               </svg>
+               
+               <span className="font-medium text-gray-600">
+                 <span className="font-bold text-black">Click here</span> to upload your file or drag and drop
+               </span>
+             </>
+           )}
+           
+           <input
+             id="teaching-notes-upload"
+             type="file"
+             className="hidden"
+             onChange={handleTeachingNotesFileChange}
+             ref={teachingNotesInputRef}
+           />
+           
+         </div>
+         
+         <div className="flex gap-2 justify-right">
+
+
+         </div>
+         {/* Buttons directly below the upload box, perfectly aligned */}
+         {(uploadedFile || teachingNotesFile) && (
+           <div className="flex ml-25 gap-2 justify-right">
+             {/* Choose a different file */}
+             <button
+               type="button"
+               onClick={() => {
+                 // Clear both files
+                 setUploadedFile(null);
+                 setTeachingNotesFile(null);
+                 if (fileInputRef.current) fileInputRef.current.value = "";
+                 if (teachingNotesInputRef.current) teachingNotesInputRef.current.value = "";
+               }}
+               className="bg-white text-black rounded px-4 py-2 font-medium shadow hover:bg-gray-200 transition border border-gray-300 h-10"
+             >
+               Choose a different file
+             </button>
+             {/* Use and autofill */}
+             <button
+               className="bg-black text-white rounded px-4 py-2 font-medium shadow hover:bg-gray-800 transition border border-black h-10 w-60whitespace-nowrap"
+               onClick={() => {
+                 // Prioritize Teaching Notes file for autofill, but allow Business Case Study only
+                 if (teachingNotesFile) {
+                   handleAutofillWithTeachingNotes();
+                 } else if (uploadedFile) {
+                   handleAutofill();
+                 } else {
+                   console.log("No files uploaded for autofill");
+                 }
+               }}
+               disabled={autofillLoading}
+             >
+               <Sparkles className="mr-2 h-4 w-5 text-white inline" />
+               Use and autofill
+             </button>
+           </div>
+         )}
+       </div>
          {/* Show error */}
          {autofillError && (
            <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
@@ -1111,9 +1331,6 @@ export default function ScenarioBuilder() {
              </div>
            </div>
          )}
-       </div>
-
-
        {/* Accordions */}
        <div className="w-full max-w-4xl">
          <Accordion type="multiple" className="space-y-6" defaultValue={['info', 'personas', 'timeline']}>
@@ -1317,6 +1534,8 @@ export default function ScenarioBuilder() {
          />
        </SceneModal>
      )}
+       </div>
+     </div>
    </div>
  )
 }

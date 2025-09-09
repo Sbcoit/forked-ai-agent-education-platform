@@ -21,7 +21,7 @@ frontend/
 │   ├── chat-box/          # Interactive chat interface
 │   ├── agent-builder/     # AI agent creation tools
 │   ├── marketplace/       # Community scenarios marketplace
-│   ├── scenario-builder/  # PDF upload and scenario creation
+│   ├── simulation-builder/  # PDF upload and simulation creation
 │   ├── login/            # Authentication pages
 │   ├── layout.tsx        # Root layout component
 │   ├── page.tsx          # Home page
@@ -98,7 +98,7 @@ Runs ESLint to check for code quality issues.
 - **Chat Box** (`/chat-box`): Interactive AI conversations
 - **Agent Builder** (`/agent-builder`): Create and customize AI agents
 - **Marketplace** (`/marketplace`): Browse community scenarios
-- **Scenario Builder** (`/scenario-builder`): Upload PDFs and create scenarios
+- **Simulation Builder** (`/simulation-builder`): Upload PDFs and create simulations
 - **Login** (`/login`): User authentication
 
 ## 🎯 Component Library

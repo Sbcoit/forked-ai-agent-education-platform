@@ -115,7 +115,7 @@ The frontend has been restructured and modernized with:
 - **Lucide React**: Beautiful, customizable icons
 
 ## Key Features
-- **Scenario Builder**: Upload PDF case studies and create AI-driven business simulations
+- **Simulation Builder**: Upload PDF case studies and create AI-driven business simulations
 - **Chat Interface**: Interactive student-agent conversations with ChatOrchestrator
 - **Marketplace**: Browse and publish educational scenarios
 - **Dashboard**: Track learning progress and analytics
@@ -146,7 +146,7 @@ ai-agent-education-platform/
 │   └── docs/                  # API documentation
 ├── frontend/                  # Next.js + TypeScript frontend
 │   ├── app/                   # Next.js app router pages
-│   │   ├── scenario-builder/  # PDF upload and scenario creation
+│   │   ├── simulation-builder/  # PDF upload and simulation creation
 │   │   ├── chat-box/          # Interactive chat interface
 │   │   ├── marketplace/       # Community scenarios
 │   │   ├── agent-builder/     # AI agent creation tools
@@ -183,7 +183,7 @@ python simple_viewer.py
 Access at: http://localhost:5001
 
 ## Next Steps
-- Upload a business case study PDF to test the scenario builder
+- Upload a business case study PDF to test the simulation builder
 - Create your first AI-powered simulation
 - Explore the marketplace for community scenarios
 - Check out the comprehensive documentation in `backend/docs/`

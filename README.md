@@ -52,7 +52,7 @@ graph TB
     
     subgraph "Frontend (Next.js + TypeScript)"
         G[PDF Upload Interface]
-        H[Scenario Builder]
+        H[Simulation Builder]
         I[Chat-Box Experience]
         J[Marketplace]
     end
@@ -330,7 +330,7 @@ ai-agent-education-platform/
 ├── frontend/                         # Next.js + TypeScript frontend
 │   ├── app/                          # Next.js app router pages
 │   │   ├── chat-box/                # Interactive chat interface
-│   │   ├── scenario-builder/        # PDF upload and scenario creation
+│   │   ├── simulation-builder/      # PDF upload and simulation creation
 │   │   ├── marketplace/             # Community scenario discovery
 │   │   ├── dashboard/               # User progress and analytics
 │   │   ├── agent-builder/           # AI agent creation interface

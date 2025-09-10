@@ -65,10 +65,11 @@ async def save_scenario_draft(
             scenario.student_role = actual_ai_result.get("student_role", "Business Analyst")
             scenario.updated_at = datetime.utcnow()
             db.flush()
-            # Remove existing personas and scenes
-            db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == scenario.id).delete()
-            db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario.id).delete()
-            db.flush()
+            
+            # Store existing scene and persona IDs for cleanup
+            existing_scene_ids = [s.id for s in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario.id).all()]
+            existing_persona_ids = [p.id for p in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario.id).all()]
+            print(f"[DEBUG] Found {len(existing_scene_ids)} existing scenes and {len(existing_persona_ids)} existing personas to potentially clean up")
         else:
             # Create scenario record as draft
             scenario = Scenario(
@@ -98,6 +99,7 @@ async def save_scenario_draft(
         personas = actual_ai_result.get("personas", [])
         persona_list = key_figures if key_figures else personas
         print(f"[DEBUG] Saving {len(persona_list)} personas...")
+        new_persona_ids = []
         for figure in persona_list:
             if isinstance(figure, dict) and figure.get("name"):
                 persona = ScenarioPersona(
@@ -114,11 +116,13 @@ async def save_scenario_draft(
                 db.add(persona)
                 db.flush()
                 persona_mapping[figure["name"]] = persona.id
+                new_persona_ids.append(persona.id)
                 print(f"[DEBUG] Created persona: {figure['name']} with ID: {persona.id}")
 
         # Save scenes
         scenes = actual_ai_result.get("scenes", [])
         print(f"[DEBUG] Saving {len(scenes)} scenes...")
+        new_scene_ids = []
         for i, scene in enumerate(scenes):
             if isinstance(scene, dict) and scene.get("title"):
                 # Robustly extract success_metric
@@ -145,6 +149,7 @@ async def save_scenario_draft(
                 )
                 db.add(scene_record)
                 db.flush()
+                new_scene_ids.append(scene_record.id)
                 print(f"[DEBUG] Saved scene: {scene_record.title}, success_metric: {scene_record.success_metric}")
                 # Link only involved personas to each scene
                 personas_involved = scene.get("personas_involved", [])
@@ -160,6 +165,30 @@ async def save_scenario_draft(
                             )
                         )
                         print(f"[DEBUG] Linked persona {persona_name} to scene {scene['title']}")
+        
+        # Clean up old scenes and personas that are no longer needed (only for existing scenarios)
+        if 'existing_scene_ids' in locals() and existing_scene_ids:
+            # Find scenes that were deleted (exist in old but not in new)
+            deleted_scene_ids = [sid for sid in existing_scene_ids if sid not in new_scene_ids]
+            if deleted_scene_ids:
+                print(f"[DEBUG] Cleaning up {len(deleted_scene_ids)} deleted scenes: {deleted_scene_ids}")
+                # Delete scene-persona relationships for deleted scenes
+                db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(deleted_scene_ids)))
+                # Delete the scenes themselves
+                db.query(ScenarioScene).filter(ScenarioScene.id.in_(deleted_scene_ids)).delete()
+                print(f"[DEBUG] Deleted scenes and their relationships")
+        
+        if 'existing_persona_ids' in locals() and existing_persona_ids:
+            # Find personas that were deleted (exist in old but not in new)
+            deleted_persona_ids = [pid for pid in existing_persona_ids if pid not in new_persona_ids]
+            if deleted_persona_ids:
+                print(f"[DEBUG] Cleaning up {len(deleted_persona_ids)} deleted personas: {deleted_persona_ids}")
+                # Delete scene-persona relationships for deleted personas
+                db.execute(scene_personas.delete().where(scene_personas.c.persona_id.in_(deleted_persona_ids)))
+                # Delete the personas themselves
+                db.query(ScenarioPersona).filter(ScenarioPersona.id.in_(deleted_persona_ids)).delete()
+                print(f"[DEBUG] Deleted personas and their relationships")
+        
         db.commit()
         print(f"[DEBUG] Successfully saved draft scenario {scenario.id}")
         return {

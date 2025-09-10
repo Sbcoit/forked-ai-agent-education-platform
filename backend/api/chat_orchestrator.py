@@ -126,8 +126,8 @@ Image: {scene.get('image_url', 'No image')}
             return 0
         
         scene = self.scenes[self.state.current_scene_index]
-        max_turns = scene.get('max_turns', 20)  # Default 20 turns per scene
-        return max(0, max_turns - self.state.turn_count)
+        timeout_turns = scene.get('timeout_turns') or scene.get('max_turns', 15)  # Use timeout_turns first, fallback to max_turns, default 15
+        return max(0, timeout_turns - self.state.turn_count)
     
     def should_advance_scene(self) -> bool:
         """Check if scene should advance based on success criteria or timeout"""

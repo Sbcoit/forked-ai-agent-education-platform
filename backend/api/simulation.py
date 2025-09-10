@@ -1546,7 +1546,83 @@ User's message: {request.message}"""
                 
                 # Handle the validation result
                 print(f"[DEBUG] ABOUT TO RUN GOAL VALIDATION: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
-                if validation_result.get("next_scene_id") or validation_result.get("simulation_complete"):
+                
+                # --- CRITICAL FIX: Check for timeout turns FIRST ---
+                if orchestrator.state.turn_count >= timeout_turns:
+                    print(f"[DEBUG] TIMEOUT REACHED: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns} - FORCING SCENE PROGRESSION")
+                    # Force scene progression due to timeout
+                    scene_completed = True
+                    
+                    # Find next scene
+                    if orchestrator.state.current_scene_index + 1 < len(orchestrator.scenario.get('scenes', [])):
+                        next_scene_index = orchestrator.state.current_scene_index + 1
+                        next_scene = orchestrator.scenario.get('scenes', [])[next_scene_index]
+                        next_scene_id = next_scene.get('id')
+                        print(f"[DEBUG] TIMEOUT PROGRESSION: Moving to next scene: index={next_scene_index}, id={next_scene_id}, title={next_scene.get('title')}")
+                        
+                        # Update orchestrator state
+                        orchestrator.state.current_scene_index = next_scene_index
+                        orchestrator.state.turn_count = 0
+                        print(f"[DEBUG] TURN COUNT RESET TO 0 ON TIMEOUT PROGRESSION")
+                        orchestrator.state.scene_completed = False
+                        orchestrator.state.current_scene_id = next_scene_id
+                        print(f"[DEBUG] NEW SCENE START (after timeout progression): index={orchestrator.state.current_scene_index}, turn_count={orchestrator.state.turn_count}")
+                        
+                        # Add timeout message to response
+                        ai_response += f"\n\n⏰ **Time's up!** You've reached the maximum turns for this scene. Moving to the next scene."
+                        
+                        # Update database state for timeout progression
+                        user_progress.current_scene_id = next_scene_id
+                        completed_scenes = user_progress.scenes_completed or []
+                        current_scene_id = orchestrator.scenario.get('scenes', [{}])[orchestrator.state.current_scene_index - 1].get('id')
+                        if current_scene_id and current_scene_id not in completed_scenes:
+                            completed_scenes.append(current_scene_id)
+                            user_progress.scenes_completed = completed_scenes
+                        
+                        # Mark scene progress as completed with forced progression
+                        scene_progress = db.query(SceneProgress).filter(
+                            and_(
+                                SceneProgress.user_progress_id == user_progress.id,
+                                SceneProgress.scene_id == current_scene_id
+                            )
+                        ).first()
+                        
+                        if scene_progress:
+                            scene_progress.status = "completed"
+                            scene_progress.goal_achieved = False  # Timeout means goal not achieved
+                            scene_progress.forced_progression = True
+                            scene_progress.completed_at = datetime.utcnow()
+                            user_progress.forced_progressions += 1
+                        
+                        print(f"[DEBUG] TIMEOUT PROGRESSION: Updated database state - current_scene_id={next_scene_id}, completed_scenes={completed_scenes}")
+                    else:
+                        # No more scenes - simulation complete
+                        print(f"[DEBUG] TIMEOUT PROGRESSION: No more scenes - simulation complete")
+                        next_scene_id = None
+                        ai_response += f"\n\n⏰ **Time's up!** You've reached the maximum turns for this scene. This was the final scene - simulation complete!"
+                        
+                        # Mark final scene as completed with forced progression
+                        current_scene_id = orchestrator.scenario.get('scenes', [{}])[orchestrator.state.current_scene_index].get('id')
+                        completed_scenes = user_progress.scenes_completed or []
+                        if current_scene_id and current_scene_id not in completed_scenes:
+                            completed_scenes.append(current_scene_id)
+                            user_progress.scenes_completed = completed_scenes
+                        
+                        scene_progress = db.query(SceneProgress).filter(
+                            and_(
+                                SceneProgress.user_progress_id == user_progress.id,
+                                SceneProgress.scene_id == current_scene_id
+                            )
+                        ).first()
+                        
+                        if scene_progress:
+                            scene_progress.status = "completed"
+                            scene_progress.goal_achieved = False
+                            scene_progress.forced_progression = True
+                            scene_progress.completed_at = datetime.utcnow()
+                            user_progress.forced_progressions += 1
+                
+                elif validation_result.get("next_scene_id") or validation_result.get("simulation_complete"):
                     # Only allow progression if turn limit is reached
                     if orchestrator.state.turn_count < timeout_turns:
                         print(f"[DEBUG] LLM wants to progress, but turn limit not reached: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")

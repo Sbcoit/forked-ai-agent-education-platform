@@ -28,7 +28,6 @@ router = APIRouter(prefix="/api/scenarios", tags=["Publishing"])
 @router.post("/save")
 async def save_scenario_draft(
     ai_result: dict,
-    user_id: int = 1,  # TODO: Get from authentication
     db: Session = Depends(get_db)
 ):
     """
@@ -55,8 +54,8 @@ async def save_scenario_draft(
         title = actual_ai_result.get("title", "Untitled Scenario")
         print(f"[DEBUG] Extracted title: {title}")
         
-        # Try to find an existing scenario by title and user (or use a better unique key if available)
-        scenario = db.query(Scenario).filter_by(title=title, created_by=user_id).first()
+        # Try to find an existing scenario by title (since we don't have user authentication yet)
+        scenario = db.query(Scenario).filter_by(title=title).first()
         if scenario:
             print(f"[DEBUG] Updating existing scenario with ID: {scenario.id}")
             scenario.title = title
@@ -85,7 +84,7 @@ async def save_scenario_draft(
                 processing_version="1.0",
                 is_public=False,  # Draft - not public
                 allow_remixes=True,
-                created_by=user_id,
+                created_by=None,  # No user authentication yet
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
@@ -374,7 +373,6 @@ async def get_scenario_full(
 @router.post("/{scenario_id}/clone")
 async def clone_scenario(
     scenario_id: int,
-    user_id: Optional[int] = None,  # TODO: Get from authentication
     db: Session = Depends(get_db)
 ):
     """
@@ -416,7 +414,7 @@ async def clone_scenario(
         source_type="cloned",
         is_public=False,  # Clones start as private
         allow_remixes=True,
-        created_by=user_id,
+        created_by=None,  # No user authentication yet
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
     )
@@ -530,7 +528,6 @@ async def delete_scenario(
 async def create_scenario_review(
     scenario_id: int,
     review: ScenarioReviewCreate,
-    user_id: int = 1,  # TODO: Get from authentication
     db: Session = Depends(get_db)
 ):
     """
@@ -543,24 +540,13 @@ async def create_scenario_review(
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
     
-    # Check if user already reviewed this scenario
-    existing_review = db.query(ScenarioReview).filter(
-        and_(
-            ScenarioReview.scenario_id == scenario_id,
-            ScenarioReview.reviewer_id == user_id
-        )
-    ).first()
+    # For now, skip user validation since we don't have authentication
+    # TODO: Implement proper user authentication for reviews
     
-    if existing_review:
-        raise HTTPException(
-            status_code=400, 
-            detail="You have already reviewed this scenario"
-        )
-    
-    # Create new review
+    # Create new review (without user validation for now)
     new_review = ScenarioReview(
         scenario_id=scenario_id,
-        reviewer_id=user_id,
+        reviewer_id=None,  # No user authentication yet
         rating=review.rating,
         review_text=review.review_text,
         pros=review.pros,

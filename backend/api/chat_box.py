@@ -2,15 +2,10 @@ import os
 import asyncio
 import json
 from fastapi import APIRouter, HTTPException, Request
-from dotenv import load_dotenv
 import openai
+from database.connection import settings
 
-# Explicitly load the .env file from the backend directory (parent of api)
-backend_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../.env'))
-load_dotenv(backend_env_path)
-print(f"[DEBUG] Loading .env from: {backend_env_path}")
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_KEY = settings.openai_api_key
 if OPENAI_API_KEY:
     print(f"[DEBUG] OPENAI_API_KEY loaded: {OPENAI_API_KEY[:6]}...{OPENAI_API_KEY[-4:]}")
 else:

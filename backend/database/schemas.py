@@ -381,7 +381,7 @@ class CollectionResponse(BaseModel):
 
 class SimulationStartRequest(BaseModel):
     scenario_id: int
-    user_id: int
+    user_id: Optional[int] = None  # Make optional since we don't have auth yet
 
 class SimulationScenarioResponse(BaseModel):
     id: int

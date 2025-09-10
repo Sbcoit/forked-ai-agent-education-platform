@@ -8,9 +8,14 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 import os
 from pathlib import Path
+import sys
 
-# Get database URL from environment
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ai_agent_platform.db")
+# Add the backend directory to the path to import settings
+sys.path.append(str(Path(__file__).parent.parent.parent.parent))
+from database.connection import settings
+
+# Get database URL from settings
+DATABASE_URL = settings.database_url
 print(f"[DEBUG] Using DATABASE_URL: {DATABASE_URL}")
 
 def run_migration():

@@ -446,8 +446,8 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          scenario_id: scenarioId,
-          user_id: 1 // Hardcoded for now - should come from auth
+          scenario_id: scenarioId
+          // user_id removed - no authentication yet
         })
       })
 

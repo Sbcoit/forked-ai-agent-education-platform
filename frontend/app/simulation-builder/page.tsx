@@ -567,13 +567,15 @@ export default function ScenarioBuilder() {
          console.log("Description field value:", aiData.description);
        }
       
-       // Set the learning outcomes
-       if (aiData.learning_outcomes && Array.isArray(aiData.learning_outcomes)) {
-         console.log("Setting learning outcomes:", aiData.learning_outcomes);
-         setLearningOutcomes(aiData.learning_outcomes.join('\n'));
-       } else {
-         console.log("No learning outcomes found in AI result");
-       }
+      // Set the learning outcomes with proper formatting
+      if (aiData.learning_outcomes && Array.isArray(aiData.learning_outcomes)) {
+        console.log("Setting learning outcomes:", aiData.learning_outcomes);
+        const formattedOutcomes = formatLearningOutcomes(aiData.learning_outcomes);
+        console.log("Formatted learning outcomes:", formattedOutcomes);
+        setLearningOutcomes(formattedOutcomes);
+      } else {
+        console.log("No learning outcomes found in AI result");
+      }
        
        // Create personas from key figures (excluding the student role)
        console.log("[DEBUG] Checking for key_figures in aiData:", aiData.key_figures);
@@ -787,34 +789,124 @@ const handleAutofillWithTeachingNotes = async () => {
       const aiData = resultData.ai_result;
       console.log(`AI Result (${teachingNotesFile ? 'Teaching Notes priority' : 'Business Case Study only'}):`, aiData);
       
-      if (aiData.name) setName(aiData.name);
-      if (aiData.description) setDescription(aiData.description);
-      if (aiData.learning_outcomes) setLearningOutcomes(aiData.learning_outcomes);
+      // Set the title (same logic as handleAutofill)
+      if (aiData.title) {
+        console.log("Setting title:", aiData.title);
+        setName(aiData.title);
+      } else {
+        console.log("No title found in AI result");
+      }
       
-      // Process personas with Teaching Notes context
-      if (aiData.personas && Array.isArray(aiData.personas)) {
-        console.log(`=== PERSONAS DEBUG (${teachingNotesFile ? 'Teaching Notes Priority' : 'Business Case Study Only'}) ===`);
-        console.log("Total personas identified:", aiData.personas.length);
-        console.log("All personas:", aiData.personas);
+      // Set the description with proper formatting
+      if (aiData.description) {
+        console.log("Setting description:", aiData.description);
+        const formattedDescription = formatDescription(aiData.description);
+        console.log("Formatted description:", formattedDescription);
+        setDescription(formattedDescription);
+      } else {
+        console.log("No description found in AI result");
+      }
+      
+      // Set the learning outcomes with proper formatting
+      if (aiData.learning_outcomes && Array.isArray(aiData.learning_outcomes)) {
+        console.log("Setting learning outcomes:", aiData.learning_outcomes);
+        const formattedOutcomes = formatLearningOutcomes(aiData.learning_outcomes);
+        console.log("Formatted learning outcomes:", formattedOutcomes);
+        setLearningOutcomes(formattedOutcomes);
+      } else {
+        console.log("No learning outcomes found in AI result");
+      }
+      
+      // Process personas from key_figures with Teaching Notes context (same logic as main handler)
+      console.log("[DEBUG] Checking for key_figures in aiData (Teaching Notes):", aiData.key_figures);
+      if (aiData.key_figures && Array.isArray(aiData.key_figures)) {
+        console.log(`=== KEY FIGURES DEBUG (${teachingNotesFile ? 'Teaching Notes Priority' : 'Business Case Study Only'}) ===`);
+        console.log("Total key figures identified:", aiData.key_figures.length);
+        console.log("All key figures:", aiData.key_figures);
         console.log("Student role:", aiData.student_role);
         
-        // Apply the same persona processing logic as the original function
+        console.log("=== FILTERING PROCESS (Teaching Notes) ===");
+        
+        // Only exclude the actual main character (student role), not everyone mentioned in the description
         const studentRole = aiData.student_role?.toLowerCase() || '';
-        const filteredPersonas = aiData.personas.filter((persona: any) => {
-          const personaName = persona.name?.toLowerCase() || '';
-          const personaRole = persona.role?.toLowerCase() || '';
+        
+        console.log(`[DEBUG] Student role: "${studentRole}"`);
+        
+        const filteredFigures = aiData.key_figures.filter((figure: any) => {
+          const figureName = figure.name?.toLowerCase() || '';
+          const figureRole = figure.role?.toLowerCase() || '';
           
-          // Skip if this persona matches the student role exactly
-          if (personaName === studentRole || personaRole === studentRole) {
-            console.log(`[DEBUG] Excluding persona matching student role: "${persona.name}"`);
+          console.log(`[DEBUG] Checking figure: "${figure.name}" (role: "${figure.role}")`);
+          
+          // Check 1: Skip if this figure matches the student role exactly
+          if (studentRole && (figureName.includes(studentRole) || figureRole.includes(studentRole))) {
+            console.log(`[DEBUG] ❌ EXCLUDING ${figure.name} - matches student role: "${studentRole}"`);
             return false;
           }
           
+          // Check 2: Skip if this figure has a role that suggests they're the main protagonist
+          // Only exclude if they're clearly the main character, not just mentioned in the description
+          const protagonistRoles = ['protagonist', 'main character', 'lead', 'principal', 'central figure'];
+          if (protagonistRoles.some(role => figureRole.includes(role))) {
+            console.log(`[DEBUG] ❌ EXCLUDING ${figure.name} - has protagonist role: "${figureRole}"`);
+            return false;
+          }
+          
+          console.log(`[DEBUG] ✅ KEEPING ${figure.name}`);
           return true;
         });
         
-        console.log("Filtered personas (Teaching Notes priority):", filteredPersonas);
-        setPersonas(filteredPersonas);
+        console.log(`[DEBUG] After filtering: ${filteredFigures.length} figures remain out of ${aiData.key_figures.length} total`);
+        
+        const newPersonas = filteredFigures
+          .map((figure: any, index: number) => {
+            console.log(`[DEBUG] Processing key figure ${index + 1}:`, figure);
+            console.log(`[DEBUG] Personality traits for ${figure.name}:`, figure.personality_traits);
+            console.log(`[DEBUG] Primary goals for ${figure.name}:`, figure.primary_goals);
+            
+            // Format goals properly
+            let formattedGoals = 'Goals not specified in the case study.';
+            if (Array.isArray(figure.primary_goals) && figure.primary_goals.length > 0) {
+              formattedGoals = figure.primary_goals.map((goal: string) => `• ${goal}`).join('\n');
+            } else if (typeof figure.primary_goals === 'string' && figure.primary_goals.trim()) {
+              // If it's a string, try to split by common separators and bullet them
+              const goals = figure.primary_goals.split(/[;\n]/).map((goal: string) => goal.trim()).filter((goal: string) => goal.length > 0);
+              if (goals.length > 1) {
+                formattedGoals = goals.map((goal: string) => `• ${goal}`).join('\n');
+              } else {
+                formattedGoals = `• ${figure.primary_goals}`;
+              }
+            }
+            
+            console.log(`[DEBUG] Formatted goals for ${figure.name}:`, formattedGoals);
+            
+            return {
+              id: `persona-${Date.now()}-${index}`,
+              name: figure.name || `Person ${index + 1}`,
+              position: figure.role || 'Unknown',
+              description: formatDescription(figure.background || figure.correlation || 'No background information available.'),
+              primaryGoals: formattedGoals,
+              traits: {
+                assertiveness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.assertive || 5) / 2))),
+                cooperativeness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.collaborative || 5) / 2))),
+                openness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.creative || 5) / 2))),
+                risk_tolerance: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.analytical || 5) / 2))),
+                emotional_stability: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.detail_oriented || 5) / 2)))
+              }
+            };
+          });
+        
+        console.log("=== FINAL PERSONAS (Teaching Notes) ===");
+        console.log(`Total personas created: ${newPersonas.length}`);
+        newPersonas.forEach((persona: any, index: number) => {
+          console.log(`Persona ${index + 1}: ${persona.name} (${persona.position})`);
+          console.log(`  Goals: ${persona.primaryGoals}`);
+          console.log(`  Personality:`, persona.traits);
+        });
+        setPersonas(newPersonas);
+      } else {
+        console.log("[DEBUG] No key_figures found in aiData (Teaching Notes), creating empty personas array");
+        setPersonas([]);
       }
       
       // Process scenes with Teaching Notes context
@@ -884,17 +976,20 @@ const handleAutofillWithTeachingNotes = async () => {
  function formatDescription(text: string): string {
    if (!text) return '';
    
+   // First, clean up the text by removing excessive whitespace
+   let cleanedText = text.replace(/\s+/g, ' ').trim();
+   
    // Split by common paragraph separators
-   let paragraphs = text.split(/\n\s*\n/);
+   let paragraphs = cleanedText.split(/\n\s*\n/);
    
    // If no double line breaks, try splitting by single line breaks
    if (paragraphs.length <= 1) {
-     paragraphs = text.split(/\n/);
+     paragraphs = cleanedText.split(/\n/);
    }
    
    // If still only one paragraph, try to break it up by sentences
    if (paragraphs.length <= 1) {
-     const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
+     const sentences = cleanedText.match(/[^.!?]+[.!?]+/g) || [];
      if (sentences.length > 2) {
        // Group sentences into paragraphs (2-3 sentences per paragraph)
        const groupedParagraphs = [];
@@ -911,7 +1006,7 @@ const handleAutofillWithTeachingNotes = async () => {
      .map(p => p.trim())
      .filter(p => p.length > 0)
      .map(p => {
-       // Remove excessive whitespace
+       // Remove excessive whitespace within paragraphs
        p = p.replace(/\s+/g, ' ');
        // Ensure proper sentence endings
        if (!p.endsWith('.') && !p.endsWith('!') && !p.endsWith('?')) {
@@ -922,6 +1017,31 @@ const handleAutofillWithTeachingNotes = async () => {
    
    // Join with double line breaks for proper paragraph separation
    return paragraphs.join('\n\n');
+ }
+
+ // Helper to format learning outcomes with proper spacing
+ function formatLearningOutcomes(outcomes: string[]): string {
+   if (!outcomes || !Array.isArray(outcomes)) return '';
+   
+   return outcomes
+     .map((outcome, index) => {
+       // Clean up each outcome
+       let cleaned = outcome.trim();
+       // Remove existing numbering if present (e.g., "1. " or "• ")
+       cleaned = cleaned.replace(/^[\d\-\•\*]\s*\.?\s*/, '');
+       // Ensure it starts with a capital letter
+       if (cleaned && !cleaned.match(/^[A-Z]/)) {
+         cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+       }
+       // Ensure it ends with proper punctuation
+       if (cleaned && !cleaned.endsWith('.') && !cleaned.endsWith('!') && !cleaned.endsWith('?')) {
+         cleaned += '.';
+       }
+       // Add proper numbering
+       return `${index + 1}. ${cleaned}`;
+     })
+     .filter(outcome => outcome.length > 0)
+     .join('\n\n'); // Use double line breaks for better spacing
  }
 
  // Helper to extract likely player names from the title and description
@@ -1062,12 +1182,13 @@ const handleAutofillWithTeachingNotes = async () => {
  const handleDeleteScene = (idx: number) => {
    setScenes(scenes => scenes.filter((_, i) => i !== idx));
    setEditingSceneIdx(null);
- };
+};
 
+// Debug logging for personas
+console.log("[DEBUG] Temp personas to render:", tempPersonas.map(p => p.name));
+console.log("[DEBUG] Permanent personas to render:", personas.map(p => p.name));
 
-
-
- return (
+return (
    <div className="min-h-screen bg-background text-foreground">
      {/* New Sidebar Component */}
      <Sidebar currentPath="/simulation-builder" />
@@ -1363,7 +1484,7 @@ const handleAutofillWithTeachingNotes = async () => {
                        setDescription(e.target.value);
                        markAsUnsaved();
                      }}
-                     className="mt-1 w-full overflow-visible rounded-none z-10 p-2 min-h-[200px] resize-y"
+                     className="mt-1 w-full overflow-visible rounded-none z-10 p-2 min-h-[200px] resize-y whitespace-pre-wrap"
                      style={{ minHeight: '200px', maxHeight: '400px' }}
                    />
                  </div>
@@ -1376,7 +1497,7 @@ const handleAutofillWithTeachingNotes = async () => {
                        setLearningOutcomes(e.target.value);
                        markAsUnsaved();
                      }}
-                     className="mt-1 w-full box-border p-2 min-h-[200px] resize-y"
+                     className="mt-1 w-full box-border p-2 min-h-[200px] resize-y whitespace-pre-wrap"
                      style={{ minHeight: '200px', maxHeight: '400px' }}
                    />
                  </div>
@@ -1426,9 +1547,6 @@ const handleAutofillWithTeachingNotes = async () => {
                  <Button onClick={handleAddPersona} variant="outline" className="w-60">Add new persona</Button>
                  {/* Render persona cards here, excluding the player character */}
                  {(tempPersonas.length > 0 || personas.length > 0) && (
-                   // Debug log to show which personas are being rendered
-                   console.log("[DEBUG] Temp personas to render:", tempPersonas.map(p => p.name)),
-                   console.log("[DEBUG] Permanent personas to render:", personas.map(p => p.name)),
                    <div className="w-full flex flex-col items-center mt-6">
                      {/* Render temporary personas first (at the top) */}
                      {tempPersonas.map((persona: any, idx: number) => (
@@ -1483,22 +1601,31 @@ const handleAutofillWithTeachingNotes = async () => {
                    {/* Render scene cards */}
                    {scenes.length > 0 && (
                      <div className="w-full flex flex-col items-center mt-6">
-                       {scenes
-                         .sort((a, b) => a.sequence_order - b.sequence_order)
-                         .map((scene: any, idx: number) => (
-                         <div key={scene.id} className="relative w-full">
-                           <div onClick={() => setEditingSceneIdx(idx)} style={{ cursor: 'pointer' }}>
-                             <SceneCard
-                               scene={scene}
-                               onSave={updatedScene => handleSaveScene(idx, updatedScene)}
-                               onDelete={() => handleDeleteScene(idx)}
-                               editMode={false}
-                               allPersonas={[...personas, ...tempPersonas]}
-                               studentRole={autofillResult?.student_role || ""}
-                             />
-                           </div>
-                         </div>
-                       ))}
+                       {(() => {
+                         // Create a sorted array with original indices preserved
+                         const sortedScenesWithIndices = scenes
+                           .map((scene, originalIdx) => ({ scene, originalIdx }))
+                           .sort((a, b) => a.scene.sequence_order - b.scene.sequence_order);
+                         
+                         return sortedScenesWithIndices.map(({ scene, originalIdx }, sortedIdx) => {
+                           // Use a combination of id and index as key to ensure uniqueness
+                           const uniqueKey = scene.id ? `scene-${scene.id}` : `scene-temp-${sortedIdx}`;
+                           return (
+                             <div key={uniqueKey} className="relative w-full">
+                               <div onClick={() => setEditingSceneIdx(originalIdx)} style={{ cursor: 'pointer' }}>
+                                 <SceneCard
+                                   scene={scene}
+                                   onSave={updatedScene => handleSaveScene(originalIdx, updatedScene)}
+                                   onDelete={() => handleDeleteScene(originalIdx)}
+                                   editMode={false}
+                                   allPersonas={[...personas, ...tempPersonas]}
+                                   studentRole={autofillResult?.student_role || ""}
+                                 />
+                               </div>
+                             </div>
+                           );
+                         });
+                       })()}
                      </div>
                    )}
                  </div>

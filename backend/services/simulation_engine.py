@@ -9,13 +9,14 @@ import time
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import os
+from database.connection import settings
 
 class SimulationEngine:
     """Core AI engine for sequential timeline simulations"""
     
     def __init__(self):
         self.openai_client = openai
-        self.openai_client.api_key = os.getenv("OPENAI_API_KEY")
+        self.openai_client.api_key = settings.openai_api_key
         self.default_model = "gpt-4o"
         
     def generate_persona_response(

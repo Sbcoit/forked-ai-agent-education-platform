@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 import openai
 import os
 
-from database.connection import get_db
+from database.connection import get_db, settings
 from database.models import (
     Scenario, ScenarioScene, ScenarioPersona, User,
     UserProgress, SceneProgress, ConversationLog
@@ -31,7 +31,7 @@ from .chat_orchestrator import ChatOrchestrator, SimulationState
 router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 
 # OpenAI configuration
-openai.api_key = os.getenv("OPENAI_API_KEY")
+openai.api_key = settings.openai_api_key
 
 def validate_goal_with_function_calling(
     conversation_history: str,
@@ -139,7 +139,7 @@ Call the progress_to_next_scene function with your analysis.
 """
     # --- END PATCH ---
     try:
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = settings.openai_api_key
         if not api_key:
             raise Exception("OpenAI API key not found in environment variables")
         
@@ -270,10 +270,17 @@ async def start_simulation(
     """Start a new simulation or resume existing one"""
     # --- PATCH: Always create a new UserProgress and clean up all old progress/logs ---
     # Delete all previous progress and related logs for this user and scenario
-    existing_progresses = db.query(UserProgress).filter(
-        UserProgress.user_id == request.user_id,
-        UserProgress.scenario_id == request.scenario_id
-    ).all()
+    # Skip user filtering if user_id is None (no authentication yet)
+    if request.user_id is not None:
+        existing_progresses = db.query(UserProgress).filter(
+            UserProgress.user_id == request.user_id,
+            UserProgress.scenario_id == request.scenario_id
+        ).all()
+    else:
+        # For now, just get all progress for this scenario (temporary solution)
+        existing_progresses = db.query(UserProgress).filter(
+            UserProgress.scenario_id == request.scenario_id
+        ).all()
     for progress in existing_progresses:
         db.query(SceneProgress).filter(SceneProgress.user_progress_id == progress.id).delete()
         db.query(ConversationLog).filter(ConversationLog.user_progress_id == progress.id).delete()
@@ -331,6 +338,7 @@ async def start_simulation(
         "personas": [
             {
                 "id": persona.name.lower().replace(" ", "_"),
+                "db_id": persona.id,  # Include the actual database ID
                 "identity": {
                     "name": persona.name,
                     "role": persona.role,
@@ -345,7 +353,7 @@ async def start_simulation(
         ]
     }
     user_progress = UserProgress(
-        user_id=request.user_id,
+        user_id=request.user_id,  # Can be None
         scenario_id=request.scenario_id,
         current_scene_id=first_scene.id,
         simulation_status="waiting_for_begin",
@@ -1307,7 +1315,7 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                 next_scene_id=next_scene_id,
                 next_scene=next_scene_obj if 'next_scene_obj' in locals() else None,
                 persona_name=persona_name,
-                persona_id=persona_id,
+                persona_id=str(persona_id) if persona_id is not None else None,
                 turn_count=orchestrator.state.turn_count
             )
         
@@ -1404,6 +1412,8 @@ This is about {orchestrator.scenario.get('title', '...')} and its challenges, NO
 
 User's message: {request.message}"""
                     persona_name = target_persona['identity']['name']
+                    # Use the actual database ID for logging
+                    persona_id = target_persona.get('db_id')
                 else:
                     # Fallback to orchestrator
                     system_prompt = f"""You are the ChatOrchestrator managing a business simulation about {orchestrator.scenario.get('title', '...')}.
@@ -1437,7 +1447,7 @@ User's message: {request.message}"""
             import openai
             import os
             
-            api_key = os.getenv("OPENAI_API_KEY")
+            api_key = settings.openai_api_key
             if not api_key:
                 raise HTTPException(status_code=500, detail="OpenAI API key not configured")
             
@@ -1623,7 +1633,7 @@ User's message: {request.message}"""
             scene_completed=scene_completed,
             next_scene_id=next_scene_id,
             persona_name=persona_name,
-            persona_id=persona_id,
+            persona_id=str(persona_id) if persona_id is not None else None,
             turn_count=orchestrator.state.turn_count
         )
         
@@ -1724,7 +1734,7 @@ async def get_simulation_grading(
     scene_feedback = []
     total_score = 0
     max_score = 0
-    openai_api_key = os.getenv("OPENAI_API_KEY")
+    openai_api_key = settings.openai_api_key
     client = None
     if openai_api_key:
         try:

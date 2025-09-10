@@ -5,7 +5,6 @@ import re
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from sqlalchemy.orm import Session
 import httpx
-from dotenv import load_dotenv
 import openai
 from typing import List
 from PyPDF2 import PdfReader
@@ -13,16 +12,11 @@ from datetime import datetime
 import string
 import unicodedata
 
-from database.connection import get_db
+from database.connection import get_db, settings
 from database.models import Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, scene_personas
 
-# Explicitly load the .env file from the backend directory (parent of api)
-backend_env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../.env'))
-load_dotenv(backend_env_path)
-print(f"[DEBUG] Loading .env from: {backend_env_path}")
-
-LLAMAPARSE_API_KEY = os.getenv("LLAMAPARSE_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+LLAMAPARSE_API_KEY = settings.llamaparse_api_key
+OPENAI_API_KEY = settings.openai_api_key
 if LLAMAPARSE_API_KEY:
     print(f"[DEBUG] LLAMAPARSE_API_KEY loaded: {LLAMAPARSE_API_KEY[:6]}...{LLAMAPARSE_API_KEY[-4:]}")
 else:
@@ -185,7 +179,7 @@ async def parse_pdf(
     file: UploadFile = File(...), 
     context_files: List[UploadFile] = File(default=[]),
     save_to_db: bool = False,  # Changed to False - don't auto-save
-    user_id: int = 1,  # TODO: Get from authentication
+    # user_id removed - no authentication yet
     db: Session = Depends(get_db)
 ):
     """Main endpoint: Parse PDF and context files, then process with AI"""
@@ -522,6 +516,8 @@ async def process_with_ai(parsed_content: str, context_text: str = "") -> dict:
         
         # Prepend context files' content as most important
         if context_text.strip():
+            print(f"[DEBUG] Context files provided, length: {len(context_text)} characters")
+            print(f"[DEBUG] Context files preview: {context_text[:500]}...")
             combined_content = f"""
 IMPORTANT CONTEXT FILES (most authoritative, follow these first):
 {context_text}
@@ -529,12 +525,20 @@ IMPORTANT CONTEXT FILES (most authoritative, follow these first):
 CASE STUDY CONTENT (main PDF):
 {cleaned_content}
 """
+            print(f"[DEBUG] Combined content length: {len(combined_content)} characters")
         else:
+            print("[DEBUG] No context files provided, using only main content")
             combined_content = cleaned_content
             
         # --- AI Prompt for Scenario Extraction ---
         prompt = f"""
 You are a highly structured JSON-only generator trained to analyze business case studies for college business education.
+
+CRITICAL CONTEXT USAGE INSTRUCTIONS:
+- If context files (teaching notes, instructor materials, etc.) are provided, they contain the MOST AUTHORITATIVE information about learning objectives, grading criteria, and pedagogical focus
+- ALWAYS prioritize information from context files over the main case study content when there are conflicts
+- Use context files to inform and enhance the learning outcomes, scene design, and success metrics
+- Context files may contain specific learning objectives, assessment criteria, or teaching guidance that should be incorporated into the simulation design
 
 CRITICAL: You must identify ALL named individuals, companies, organizations, and significant unnamed roles mentioned within the case study narrative. Focus ONLY on characters and entities that are part of the business story being told.
 
@@ -587,11 +591,11 @@ Your task is to analyze the following business case study content and return a J
     }}
   ],
   "learning_outcomes": [
-    "1. <Outcome 1>",
-    "2. <Outcome 2>",
-    "3. <Outcome 3>",
-    "4. <Outcome 4>",
-    "5. <Outcome 5>"
+    "1. <Outcome 1 - prioritize learning objectives from context files if available>",
+    "2. <Outcome 2 - use teaching notes to inform specific skills and knowledge to be developed>",
+    "3. <Outcome 3 - incorporate assessment criteria from context files>",
+    "4. <Outcome 4 - align with pedagogical goals mentioned in teaching materials>",
+    "5. <Outcome 5 - ensure outcomes support the overall educational objectives>"
   ],
   "scene_cards": [
     {{
@@ -618,11 +622,12 @@ Scene Card generation instructions:
   * Decisions & Tradeoffs
   * Actions & Outcomes
 - For each scene_card, ensure the goal, core_challenge, scene_description, and success_metric are written in a way that references or supports the main learning outcomes, but do not embed or list the learning outcomes directly in the scene_card fields.
-- The scene_title must NOT include stage names, numbers, or generic labels (such as “Context & Setup”, “Analysis & Challenges”, “Decisions & Tradeoffs”, “Actions & Outcomes”, or similar). The title should be a concise, descriptive summary of the scene’s unique content only.
+- IMPORTANT: If context files (teaching notes) are provided, use them to inform the scene design, success metrics, and learning objectives. Teaching notes may contain specific assessment criteria, grading rubrics, or pedagogical approaches that should be reflected in the scene design.
+- The scene_title must NOT include stage names, numbers, or generic labels (such as "Context & Setup", "Analysis & Challenges", "Decisions & Tradeoffs", "Actions & Outcomes", or similar). The title should be a concise, descriptive summary of the scene's unique content only.
 - For each scene_card, include a personas_involved field listing the names of personas (from the key_figures array) who are actively participating in or relevant to the scene. The scene_description and goal should narratively reference these personas.
-- Do not invent facts; only use what is in the case study content.
+- Do not invent facts; only use what is in the case study content and context files.
 - Each scene_card object must include exactly those 6 fields listed above. 
-- The success_metric field is required for every scene and must be a clear, measurable metric but make sure to avoid anything numeric related (not vague like “learn something”).
+- The success_metric field is required for every scene and must be a clear, measurable metric but make sure to avoid anything numeric related (not vague like "learn something"). Use context files to inform appropriate success metrics if available.
 
 Important generation rules:
 - Output ONLY a valid JSON object. Do not include any extra commentary, markdown, or formatting.

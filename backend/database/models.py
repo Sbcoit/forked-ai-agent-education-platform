@@ -232,7 +232,7 @@ class UserProgress(Base):
     __tablename__ = "user_progress"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Allow None for now
     scenario_id = Column(Integer, ForeignKey("scenarios.id"), nullable=False)
     
     # Current simulation state

@@ -173,6 +173,9 @@ api_keys.txt
 .local/
 local_settings.py
 
+# Setup completion flag
+.setup_completed
+
 # Uploads and media
 uploads/
 media/

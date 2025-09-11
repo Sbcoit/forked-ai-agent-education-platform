@@ -1,11 +1,12 @@
 # AI Agent Education Platform Requirements
+# Updated: 2024-09-10
 
 # Core Framework
 fastapi==0.115.14
 uvicorn[standard]==0.35.0
 
 # Database
-SQLAlchemy==2.0.36
+SQLAlchemy>=1.4.0,<2.0.36
 alembic==1.16.2
 # PostgreSQL support (primary database)
 psycopg2-binary==2.9.10
@@ -20,6 +21,26 @@ python-multipart==0.0.20
 # AI Services
 openai>=1.97.1
 anthropic==0.55.0
+
+# LangChain Framework
+langchain==0.3.7
+langchain-openai==0.2.8
+langchain-community==0.3.7
+langchain-postgres==0.0.12
+langchain-experimental==0.3.4
+
+# Vector Database & Embeddings
+pgvector>=0.2.5,<0.3.0
+sentence-transformers==3.1.1
+faiss-cpu==1.12.0
+
+# Caching & Session Management
+redis==5.2.0
+python-memcached==1.62
+
+# Additional LangChain Tools
+langchain-text-splitters==0.3.2
+langchain-chroma==0.1.4
 
 # HTTP & Async
 httpx>=0.28.1
@@ -49,5 +70,12 @@ flask-admin==1.6.1
 
 # Additional utilities
 pathlib2==2.3.7
-typing-extensions==4.12.2 
+typing-extensions==4.12.2
+
+# Scientific Computing
+numpy>=1.26.0,<2.0.0  # Used in vector_store.py for array operations, compatible with LangChain
+
+# Note: The following are built-in Python modules and don't need to be installed:
+# hashlib, base64, pickle, asyncio, json, datetime, time, os, sys, 
+# logging, subprocess, re, string, unicodedata 
 

@@ -24,12 +24,35 @@ from api.parse_pdf import router as pdf_router
 from api.simulation import router as simulation_router
 from api.publishing import router as publishing_router
 
+# Import startup check
+from startup_check import run_startup_checks, auto_setup_if_needed
+
 # Create FastAPI app
 app = FastAPI(
     title="AI Agent Education Platform",
     description="Transform business case studies into immersive AI-powered educational simulations",
     version="2.0.0"
 )
+
+@app.on_event("startup")
+async def startup_event():
+    """Run startup checks when the application starts"""
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    
+    logger.info("🚀 Starting AI Agent Education Platform...")
+    
+    # Try auto-setup first (only in development)
+    if not auto_setup_if_needed():
+        logger.warning("⚠️  Auto-setup failed, continuing with manual checks...")
+    
+    # Run startup checks
+    if not run_startup_checks():
+        logger.error("❌ Startup checks failed - the application may not work correctly")
+        logger.error("Please run: python backend/setup_dev_environment.py")
+    else:
+        logger.info("✅ Application startup completed successfully!")
 
 # CORS middleware
 app.add_middleware(

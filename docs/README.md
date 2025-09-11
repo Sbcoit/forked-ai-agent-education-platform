@@ -29,6 +29,13 @@ An innovative educational platform that transforms business case studies into im
 - **Real-Time Feedback**: AI assesses understanding and provides contextual hints
 - **Progress Tracking**: Comprehensive analytics on learning outcomes and engagement
 
+### 🤖 **Advanced AI Agent System**
+- **LangChain Integration**: Professional AI agent orchestration framework
+- **Specialized Agents**: Dedicated agents for personas, summarization, and grading
+- **Vector Memory**: Semantic search and persistent memory across sessions
+- **Session Management**: Intelligent session state and conversation history
+- **Context Awareness**: Agents maintain context across multiple interactions
+
 ### 🏪 **Community Marketplace**
 - **Scenario Sharing**: Publish successful simulations for the educational community
 - **Content Discovery**: Browse scenarios by industry, difficulty, and user ratings
@@ -51,26 +58,41 @@ graph TB
     B --> E[OpenAI GPT-4]
     B --> F[LlamaParse API]
     B --> G[ChatOrchestrator]
+    B --> H[LangChain Integration]
     
     subgraph "Frontend (Next.js + TypeScript)"
-        H[PDF Upload Interface]
-        I[Simulation Builder]
-        J[Chat-Box Experience]
-        K[Marketplace]
+        I[PDF Upload Interface]
+        J[Simulation Builder]
+        K[Chat-Box Experience]
+        L[Marketplace]
     end
     
     subgraph "Backend (FastAPI + Python)"
-        L[PDF Processing API]
-        M[Linear Simulation API]
-        N[ChatOrchestrator Engine]
-        O[Publishing System]
+        M[PDF Processing API]
+        N[Linear Simulation API]
+        O[ChatOrchestrator Engine]
+        P[Publishing System]
+        Q[Agent Services]
+        R[Session Management]
+        S[Vector Store]
     end
     
     subgraph "AI Processing Layer"
-        P[PDF Analysis]
-        Q[Persona Generation]
-        R[Scene Creation]
-        S[Image Generation]
+        T[PDF Analysis]
+        U[Persona Generation]
+        V[Scene Creation]
+        W[Image Generation]
+        X[LangChain Agents]
+        Y[Vector Embeddings]
+    end
+    
+    subgraph "New Services"
+        Z[Persona Agent]
+        AA[Summarization Agent]
+        BB[Grading Agent]
+        CC[Session Manager]
+        DD[Vector Store Service]
+        EE[Scene Memory]
     end
 ```
 
@@ -104,21 +126,68 @@ graph TB
 
 ### 5-Minute Setup
 
+#### ⚠️ **IMPORTANT: Virtual Environment Required**
+**You MUST create a virtual environment before starting the backend. This is NOT automatic.**
+
+#### 🚀 **Quick Setup (Recommended)**
+
 ```bash
-# 1. Clone and setup
+# 1. Create and activate virtual environment (REQUIRED)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# 2. Clone and setup
 git clone <repository-url>
 cd ai-agent-education-platform
 
-# 2. Install dependencies
+# 3. Start the backend - setup happens automatically!
+cd backend
+uvicorn main:app --reload
+# The backend will automatically:
+# - Install PostgreSQL (if needed)
+# - Install Python dependencies
+# - Create database and user
+# - Set up .env file
+# - Run database migrations
+
+# 4. Edit .env file with your API keys (after first run)
+# OPENAI_API_KEY=your_openai_api_key
+# LLAMAPARSE_API_KEY=your_llamaparse_api_key
+```
+
+#### 🤖 **What's Automatic vs Manual**
+
+**Manual (You Must Do):**
+- ✅ **Create virtual environment** (python -m venv venv)
+- ✅ **Activate virtual environment** (source venv/bin/activate)
+- ✅ **Add API keys to .env file** (after first run)
+
+**Automatic (Platform Handles):**
+- ✅ Install PostgreSQL (if needed)
+- ✅ Install Python dependencies
+- ✅ Create database and user
+- ✅ Set up .env file from template
+- ✅ Run database migrations
+
+#### 🔧 **Manual Setup (Alternative)**
+
+```bash
+# 1. Create and activate virtual environment (REQUIRED)
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# 2. Clone and setup
+git clone <repository-url>
+cd ai-agent-education-platform
+
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# 3. Configure environment
+# 4. Configure environment
 cp env_template.txt .env
 # Edit .env with your API keys
 
-# 4. Start the application
+# 5. Start the application
 cd backend
 uvicorn main:app --reload
 ```
@@ -312,6 +381,9 @@ ChatOrchestrator: Available commands: @mention, progress, hint...
 - **LlamaParse** for advanced PDF processing and content extraction
 - **AI Image Generation** for scene visualization
 - **Custom ChatOrchestrator** for linear simulation management
+- **LangChain Integration** for advanced AI agent orchestration
+- **Vector Embeddings** for semantic search and memory
+- **Specialized AI Agents** (Persona, Summarization, Grading)
 
 ### Database
 - **PostgreSQL** for all environments (development and production)
@@ -331,20 +403,28 @@ ai-agent-education-platform/
 │   │   ├── chat_orchestrator.py     # ChatOrchestrator logic
 │   │   ├── chat_box.py              # Chat interface endpoints
 │   │   └── publishing.py            # Marketplace publishing
+│   ├── agents/                       # AI Agent implementations
+│   │   ├── persona_agent.py         # Persona-specific AI interactions
+│   │   ├── summarization_agent.py   # Content summarization agent
+│   │   └── grading_agent.py         # Assessment and grading agent
 │   ├── database/                     # Database layer
 │   │   ├── models.py                 # SQLAlchemy models (scenarios, personas, scenes)
 │   │   ├── schemas.py                # Pydantic schemas for API validation
 │   │   ├── connection.py             # Database connection setup
-│   │   ├── migrations/               # Alembic migration files
-│   │   └── migrations/               # Database migration files
+│   │   └── migrations/               # Alembic migration files
 │   ├── services/                     # Business logic layer
-│   │   └── simulation_engine.py     # Core simulation business logic
+│   │   ├── simulation_engine.py     # Core simulation business logic
+│   │   ├── session_manager.py       # Session and memory management
+│   │   ├── vector_store.py          # Vector embeddings and search
+│   │   └── scene_memory.py          # Scene-specific memory handling
 │   ├── utilities/                    # Helper utilities
-│   │   └── auth.py                   # Authentication utilities
-│   ├── utils/                        # Additional utilities
+│   │   ├── auth.py                   # Authentication utilities
 │   │   └── image_storage.py          # Image handling utilities
+│   ├── langchain_config.py          # LangChain configuration and setup
+│   ├── startup_check.py             # Application startup validation
+│   ├── setup_dev_environment.py     # Development environment setup
+│   ├── clear_database.py            # Database cleanup utilities
 │   ├── db_admin/                     # Database administration tools
-│   ├── docs/                         # Comprehensive API documentation
 │   └── static/                      # Static files
 ├── frontend/                         # Next.js + TypeScript frontend
 │   ├── app/                          # Next.js app router pages
@@ -372,7 +452,12 @@ ai-agent-education-platform/
 ├── .gitignore                        # Git ignore rules (consolidated)
 ├── env_template.txt                  # Environment variables template
 ├── requirements.txt                  # All Python dependencies
-├── QUICK_START.md                   # Quick setup guide
+├── docs/                             # Comprehensive documentation
+│   ├── README.md                     # Main project documentation
+│   ├── QUICK_START.md               # Quick setup guide
+│   ├── API_Reference.md             # Complete API documentation
+│   ├── Developer_Guide.md           # Development guide
+│   └── architecture/                # Architecture documentation
 └── README.md                        # This file
 ```
 
@@ -408,9 +493,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 - **Quick Start Guide**: [QUICK_START.md](QUICK_START.md)
-- **Integration Documentation**: [CHAT_ORCHESTRATOR_INTEGRATION.md](CHAT_ORCHESTRATOR_INTEGRATION.md)
-- **API Reference**: [backend/docs/API_Reference.md](backend/docs/API_Reference.md)
-- **Architecture Documentation**: [backend/docs/architecture/](backend/docs/architecture/)
+- **API Reference**: [API_Reference.md](API_Reference.md)
+- **Developer Guide**: [Developer_Guide.md](Developer_Guide.md)
+- **Architecture Documentation**: [architecture/](architecture/)
 - **Issues**: [GitHub Issues](../../issues)
 - **Discussions**: [GitHub Discussions](../../discussions)
 
@@ -421,6 +506,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **ChatOrchestrator Integration** with linear simulation flow
 - [x] **Multi-Scene Progression** with goal tracking
 - [x] **Community Marketplace** with publishing system
+- [x] **LangChain Integration** with advanced AI agents
+- [x] **Vector Store Service** for semantic search and memory
+- [x] **Session Management** with persistent memory
+- [x] **Specialized AI Agents** (Persona, Summarization, Grading)
 
 ### Phase 2: Enhanced Learning (🚧 In Progress)
 - [ ] **Advanced Analytics Dashboard** for educators

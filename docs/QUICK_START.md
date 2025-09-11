@@ -6,6 +6,8 @@
 - **Git**
 - **OpenAI API Key** (for AI features)
 - **LlamaParse API Key** (for PDF processing)
+- **PostgreSQL** (primary database)
+- **Redis** (optional, for caching)
 
 ### Database Options
 
@@ -21,12 +23,22 @@
 
 ### PostgreSQL Installation by OS (Only if using Option 2)
 
+**🔄 Automatic Installation (Recommended):**
+The setup script can automatically install PostgreSQL on all supported platforms:
+
+```bash
+# Run the setup script - it will detect your OS and install PostgreSQL automatically
+python backend/setup_dev_environment.py
+```
+
+**Manual Installation (Alternative):**
+
 **Windows:**
 ```bash
 # Option 1: Download installer
 # Visit: https://www.postgresql.org/download/windows/
 
-# Option 2: Using winget
+# Option 2: Using winget (Windows 10/11)
 winget install PostgreSQL.PostgreSQL
 
 # Option 3: Using Chocolatey
@@ -69,27 +81,147 @@ sudo postgresql-setup initdb
 sudo systemctl start postgresql
 ```
 
+**Linux (Arch):**
+```bash
+# Update package database
+sudo pacman -Sy
+
+# Install PostgreSQL
+sudo pacman -S postgresql
+
+# Initialize database
+sudo -u postgres initdb -D /var/lib/postgres/data
+
+# Start PostgreSQL service
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+```
+
 ## Complete Setup (5 minutes)
 
+### ⚠️ **IMPORTANT: Virtual Environment Required**
+**You MUST create a virtual environment before starting the backend. This is NOT automatic.**
+
+### 🚀 **Quick Setup (Recommended)**
+
 ```bash
-# 1. Clone and navigate to project
+# 1. Create and activate virtual environment (REQUIRED)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# 2. Clone and navigate to project
 git clone <repository-url>
 cd ai-agent-education-platform
 
-# 2. Create virtual environment and install dependencies
+# 3. Start the backend - setup happens automatically!
+cd backend
+uvicorn main:app --reload
+# The backend will automatically:
+# - Install PostgreSQL (if needed)
+# - Install Python dependencies
+# - Create database and user
+# - Set up .env file
+# - Run database migrations
+# - Start the application
+
+# 4. Edit .env file with your API keys (after first run)
+# OPENAI_API_KEY=your_openai_api_key
+# LLAMAPARSE_API_KEY=your_llamaparse_api_key
+```
+
+### 🤖 **What's Automatic vs Manual**
+
+**Manual (You Must Do):**
+- ✅ **Create virtual environment** (python -m venv venv)
+- ✅ **Activate virtual environment** (source venv/bin/activate)
+- ✅ **Add API keys to .env file** (after first run)
+
+**Automatic (Platform Handles):**
+- ✅ Install PostgreSQL (if needed)
+- ✅ Install Python dependencies
+- ✅ Create database and user
+- ✅ Set up .env file from template
+- ✅ Run database migrations
+
+### 🔧 **Automatic Setup Behavior**
+
+The platform includes **intelligent automatic setup** that runs when you first start the backend:
+
+- **✅ Detects missing dependencies** (PostgreSQL, Python packages)
+- **✅ Installs PostgreSQL automatically** (Windows, macOS, Linux)
+- **✅ Creates database and user** with sensible defaults
+- **✅ Sets up environment file** from template
+- **✅ Runs database migrations** automatically
+- **✅ Only runs once** (marked with completion flag)
+- **✅ Non-interactive** (no user prompts needed)
+
+**When automatic setup runs:**
+- First time starting the backend
+- Missing `.env` file
+- Database connection fails
+- Development environment (not production)
+
+**To force re-setup:**
+```bash
+FORCE_SETUP=true python backend/main.py
+```
+
+> **💡 Pro Tip**: The setup runs automatically when you first start the backend! Just remember to create and activate your virtual environment first.
+
+### 🔧 **Manual Setup (Alternative)**
+
+> **When to use**: Only if automatic setup fails or you prefer manual control
+
+```bash
+# 1. Create and activate virtual environment (REQUIRED)
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# 2. Clone and navigate to project
+git clone <repository-url>
+cd ai-agent-education-platform
+
+# 3. Run the setup script manually
+python backend/setup_dev_environment.py
+# This will:
+# - Install PostgreSQL (if needed)
+# - Install Python dependencies
+# - Create database and user
+# - Set up .env file
+# - Run database migrations
+
+# 4. Edit .env file with your API keys
+# OPENAI_API_KEY=your_openai_api_key
+# LLAMAPARSE_API_KEY=your_llamaparse_api_key
+
+# 5. Start the application
+cd backend
+uvicorn main:app --reload
+```
+
+**Or step-by-step manual setup:**
+
+```bash
+# 1. Create and activate virtual environment (REQUIRED)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# 2. Clone and navigate to project
+git clone <repository-url>
+cd ai-agent-education-platform
+
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# 3. Set up environment variables
+# 4. Set up environment variables
 cp env_template.txt .env
 # Edit .env with your API keys
 
-# 4. Initialize database (Alembic will handle this automatically)
+# 5. Initialize database (Alembic will handle this automatically)
 cd backend/database
 alembic upgrade head
 
-# 5. Start the application
+# 6. Start the application
 cd ..
 uvicorn main:app --reload
 ```
@@ -146,30 +278,20 @@ alembic history
 
 ## Backend Setup
 
-1. **Create and activate virtual environment:**
-```bash
-# From the root directory
-# Windows
-python -m venv venv
-venv\Scripts\activate
+> **Note**: Virtual environment setup is now covered in the main setup sections above. This section provides additional backend-specific details.
 
-# macOS/Linux  
-python -m venv venv
-source venv/bin/activate
-```
-
-2. **Install dependencies:**
+1. **Install dependencies:**
 ```bash
-# From the root directory
+# From the root directory (with virtual environment activated)
 pip install -r requirements.txt
 ```
 
-3. **Navigate to backend directory:**
+2. **Navigate to backend directory:**
 ```bash
 cd backend
 ```
 
-4. **Environment setup:**
+3. **Environment setup:**
 ```bash
 # Copy template and edit with your API keys (from root directory)
 cp env_template.txt .env
@@ -181,6 +303,11 @@ cp env_template.txt .env
 # Database Configuration (choose one):
 # DATABASE_URL=sqlite:///./ai_agent_platform.db  # Easiest (SQLite - no installation needed)
 # DATABASE_URL=postgresql://username:password@localhost:5432/ai_agent_platform  # Production (PostgreSQL)
+
+# LangChain Configuration (optional):
+# LANGCHAIN_REDIS_URL=redis://localhost:6379/0  # For caching (optional)
+# LANGCHAIN_EMBEDDING_MODEL=openai  # or huggingface
+# LANGCHAIN_HUGGINGFACE_MODEL=sentence-transformers/all-MiniLM-L6-v2
 ```
 
 5. **Initialize database:**
@@ -273,9 +400,21 @@ ai-agent-education-platform/
 │   │   ├── simulation.py      # Simulation management
 │   │   ├── chat_orchestrator.py # Chat system
 │   │   └── publishing.py      # Marketplace features
+│   ├── agents/                # AI Agent implementations
+│   │   ├── persona_agent.py   # Persona-specific AI interactions
+│   │   ├── summarization_agent.py # Content summarization
+│   │   └── grading_agent.py   # Assessment and grading
 │   ├── database/              # Database models and migrations
 │   ├── services/              # Business logic
+│   │   ├── simulation_engine.py # Core simulation logic
+│   │   ├── session_manager.py # Session and memory management
+│   │   ├── vector_store.py    # Vector embeddings and search
+│   │   └── scene_memory.py    # Scene-specific memory
 │   ├── utilities/             # Helper functions
+│   ├── langchain_config.py    # LangChain configuration
+│   ├── startup_check.py       # Application startup validation
+│   ├── setup_dev_environment.py # Development setup
+│   ├── clear_database.py      # Database cleanup utilities
 │   ├── db_admin/              # Database admin interface
 │   └── docs/                  # API documentation
 ├── frontend/                  # Next.js + TypeScript frontend
@@ -306,6 +445,13 @@ ai-agent-education-platform/
 - ✅ **PostgreSQL Support**: Production-ready database with optimized indexes
 - ✅ **Cross-Database Compatibility**: Works with both SQLite (dev) and PostgreSQL (prod)
 - ✅ **Migration Management**: Version control for database schema changes
+
+### **LangChain Integration & AI Agents**
+- ✅ **LangChain Framework**: Professional AI agent orchestration
+- ✅ **Specialized Agents**: Persona, Summarization, and Grading agents
+- ✅ **Vector Store Service**: Semantic search and memory with pgvector
+- ✅ **Session Management**: Persistent conversation memory and state
+- ✅ **Scene Memory**: Context-aware memory for simulation scenes
 
 ### **Project Structure Cleanup**
 - ✅ **Clean Root Directory**: Removed outdated documentation and duplicate files

@@ -4,6 +4,15 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database.connection import Base
 
+# Import pgvector if available
+try:
+    from pgvector.sqlalchemy import Vector
+    PGVECTOR_AVAILABLE = True
+except ImportError:
+    PGVECTOR_AVAILABLE = False
+    # Fallback for when pgvector is not available
+    Vector = None
+
 # Junction table for scene-persona relationships
 scene_personas = Table(
     'scene_personas',
@@ -333,4 +342,177 @@ class ConversationLog(Base):
     # Relationships
     user_progress = relationship("UserProgress", back_populates="conversation_logs")
     scene = relationship("ScenarioScene", back_populates="conversation_logs")
-    persona = relationship("ScenarioPersona", back_populates="conversation_logs") 
+    persona = relationship("ScenarioPersona", back_populates="conversation_logs")
+
+
+# ============================================================================
+# LangChain Integration Models
+# ============================================================================
+
+class VectorEmbeddings(Base):
+    """Store vector embeddings for similarity search"""
+    __tablename__ = "vector_embeddings"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    content_type = Column(String, nullable=False, index=True)  # 'scenario', 'persona', 'conversation', etc.
+    content_id = Column(Integer, nullable=False, index=True)  # ID of the original content
+    content_hash = Column(String, nullable=False, index=True)  # Hash for deduplication
+    embedding_vector = Column(Vector(1536) if PGVECTOR_AVAILABLE else Text, nullable=False)  # Vector embedding
+    embedding_model = Column(String, nullable=False)  # 'openai-ada-002', 'sentence-transformers', etc.
+    embedding_dimension = Column(Integer, nullable=False)  # Dimension of the vector
+    original_content = Column(Text, nullable=False)  # Original text content
+    content_metadata = Column(JSON, nullable=True)  # Additional metadata
+    similarity_threshold = Column(Float, nullable=True)  # Threshold for similarity matching
+    is_active = Column(Boolean, default=True, index=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_vector_embeddings_content_type', 'content_type'),
+        Index('idx_vector_embeddings_content_id', 'content_id'),
+        Index('idx_vector_embeddings_content_hash', 'content_hash'),
+        Index('idx_vector_embeddings_active', 'is_active'),
+        Index('idx_vector_embeddings_created_at', 'created_at'),
+    )
+
+
+class SessionMemory(Base):
+    """Store session-specific memory for LangChain agents"""
+    __tablename__ = "session_memory"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, nullable=False, index=True)
+    user_progress_id = Column(Integer, ForeignKey("user_progress.id"), nullable=False, index=True)
+    scene_id = Column(Integer, ForeignKey("scenario_scenes.id"), nullable=True, index=True)
+    memory_type = Column(String, nullable=False, index=True)  # 'conversation', 'context', 'summary', 'insight'
+    memory_content = Column(Text, nullable=False)  # The actual memory content
+    memory_metadata = Column(JSON, nullable=True)  # Additional metadata
+    parent_memory_id = Column(Integer, ForeignKey("session_memory.id"), nullable=True)  # For hierarchical memory
+    related_persona_id = Column(Integer, ForeignKey("scenario_personas.id"), nullable=True)  # If memory is persona-specific
+    importance_score = Column(Float, nullable=True, index=True)  # 0.0 to 1.0
+    access_count = Column(Integer, default=0)  # How many times this memory was accessed
+    last_accessed = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user_progress = relationship("UserProgress")
+    scene = relationship("ScenarioScene")
+    persona = relationship("ScenarioPersona")
+    parent_memory = relationship("SessionMemory", remote_side=[id])
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_session_memory_session_id', 'session_id'),
+        Index('idx_session_memory_user_progress_id', 'user_progress_id'),
+        Index('idx_session_memory_scene_id', 'scene_id'),
+        Index('idx_session_memory_type', 'memory_type'),
+        Index('idx_session_memory_importance', 'importance_score'),
+        Index('idx_session_memory_last_accessed', 'last_accessed'),
+    )
+
+
+class ConversationSummaries(Base):
+    """Store AI-generated summaries of conversations"""
+    __tablename__ = "conversation_summaries"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_progress_id = Column(Integer, ForeignKey("user_progress.id"), nullable=False, index=True)
+    scene_id = Column(Integer, ForeignKey("scenario_scenes.id"), nullable=True, index=True)
+    summary_type = Column(String, nullable=False, index=True)  # 'scene_completion', 'conversation', 'learning_moment'
+    summary_text = Column(Text, nullable=False)  # The summary content
+    key_points = Column(JSON, nullable=True)  # Extracted key points
+    learning_moments = Column(JSON, nullable=True)  # Important learning moments
+    insights = Column(JSON, nullable=True)  # AI-generated insights
+    recommendations = Column(JSON, nullable=True)  # Recommendations for improvement
+    conversation_count = Column(Integer, nullable=True)  # Number of conversations summarized
+    message_count = Column(Integer, nullable=True)  # Number of messages summarized
+    summary_metadata = Column(JSON, nullable=True)  # Additional metadata
+    quality_score = Column(Float, nullable=True, index=True)  # Quality score of the summary
+    relevance_score = Column(Float, nullable=True)  # Relevance to learning objectives
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user_progress = relationship("UserProgress")
+    scene = relationship("ScenarioScene")
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_conversation_summaries_user_progress_id', 'user_progress_id'),
+        Index('idx_conversation_summaries_scene_id', 'scene_id'),
+        Index('idx_conversation_summaries_type', 'summary_type'),
+        Index('idx_conversation_summaries_quality', 'quality_score'),
+        Index('idx_conversation_summaries_created_at', 'created_at'),
+    )
+
+
+class AgentSessions(Base):
+    """Store LangChain agent session information"""
+    __tablename__ = "agent_sessions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(String, nullable=False, unique=True, index=True)
+    user_progress_id = Column(Integer, ForeignKey("user_progress.id"), nullable=False, index=True)
+    agent_type = Column(String, nullable=False, index=True)  # 'persona', 'grading', 'summarization', 'retrieval'
+    agent_id = Column(String, nullable=True, index=True)  # Specific agent identifier
+    session_state = Column(JSON, nullable=True)  # Current session state
+    session_config = Column(JSON, nullable=True)  # Session configuration
+    session_metadata = Column(JSON, nullable=True)  # Additional metadata
+    total_interactions = Column(Integer, default=0)  # Total number of interactions
+    total_tokens_used = Column(Integer, default=0)  # Total tokens consumed
+    average_response_time = Column(Float, nullable=True)  # Average response time in seconds
+    error_count = Column(Integer, default=0)  # Number of errors encountered
+    is_active = Column(Boolean, default=True, index=True)  # Whether session is active
+    last_activity = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)  # Session expiration
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    user_progress = relationship("UserProgress")
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_agent_sessions_session_id', 'session_id'),
+        Index('idx_agent_sessions_user_progress_id', 'user_progress_id'),
+        Index('idx_agent_sessions_agent_type', 'agent_type'),
+        Index('idx_agent_sessions_active', 'is_active'),
+        Index('idx_agent_sessions_last_activity', 'last_activity'),
+    )
+
+
+class CacheEntries(Base):
+    """Store cached data for performance optimization"""
+    __tablename__ = "cache_entries"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    cache_key = Column(String, nullable=False, unique=True, index=True)
+    cache_type = Column(String, nullable=False, index=True)  # 'embedding', 'response', 'summary', 'context'
+    cache_data = Column(JSON, nullable=False)  # The cached data
+    cache_size = Column(Integer, nullable=True)  # Size of cached data in bytes
+    hit_count = Column(Integer, default=0)  # Number of cache hits
+    miss_count = Column(Integer, default=0)  # Number of cache misses
+    last_accessed = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)  # Cache expiration
+    is_expired = Column(Boolean, default=False, index=True)  # Whether cache is expired
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_cache_entries_key', 'cache_key'),
+        Index('idx_cache_entries_type', 'cache_type'),
+        Index('idx_cache_entries_expires_at', 'expires_at'),
+        Index('idx_cache_entries_last_accessed', 'last_accessed'),
+    )
+
+
+# Alias for backward compatibility
+EmbeddingStore = VectorEmbeddings 

@@ -1,13 +1,17 @@
-# Developer Guide - CrewAI Agent Builder Platform
+# Developer Guide - AI Agent Education Platform
 
 ## Table of Contents
 1. [Quick Start](#quick-start)
 2. [Development Setup](#development-setup)
-3. [API Development](#api-development)
-4. [Testing Strategy](#testing-strategy)
-5. [Code Standards](#code-standards)
-6. [Deployment Guide](#deployment-guide)
-7. [Troubleshooting](#troubleshooting)
+3. [Architecture Overview](#architecture-overview)
+4. [LangChain Integration](#langchain-integration)
+5. [AI Agents Development](#ai-agents-development)
+6. [API Development](#api-development)
+7. [Database & Migrations](#database--migrations)
+8. [Testing Strategy](#testing-strategy)
+9. [Code Standards](#code-standards)
+10. [Deployment Guide](#deployment-guide)
+11. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -16,39 +20,149 @@
 ### Prerequisites
 - Python 3.11+
 - Node.js 18+
-- PostgreSQL (or Neon cloud database)
+- PostgreSQL (primary database)
+- Redis (optional, for caching)
 - Git
+- OpenAI API Key
+- LlamaParse API Key
 
 ### 5-Minute Setup
 
-```bash
-# Clone repository
-git clone <repository-url>
-cd AOM_2025
+#### ⚠️ **IMPORTANT: Virtual Environment Required**
+**You MUST create a virtual environment before starting the backend. This is NOT automatic.**
 
-# Backend setup
-cd backend
+#### 🚀 **Quick Setup (Recommended)**
+
+```bash
+# 1. Create and activate virtual environment (REQUIRED)
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
 
-# Create .env file
-cp .env.example .env
-# Edit .env with your database credentials
+# 2. Clone repository
+git clone <repository-url>
+cd ai-agent-education-platform
 
-# Run backend
+# 3. Start backend - setup happens automatically!
+cd backend
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
+# The backend will automatically:
+# - Install PostgreSQL (if needed)
+# - Install Python dependencies
+# - Create database and user
+# - Set up .env file
+# - Run database migrations
 
-# Frontend setup (new terminal)
+# 4. Edit .env file with your API keys (after first run)
+# OPENAI_API_KEY=your_openai_api_key
+# LLAMAPARSE_API_KEY=your_llamaparse_api_key
+
+# 5. Frontend setup (new terminal)
 cd ../frontend
 npm install
-npm start
+npm run dev
+```
+
+#### 🤖 **What's Automatic vs Manual**
+
+**Manual (You Must Do):**
+- ✅ **Create virtual environment** (python -m venv venv)
+- ✅ **Activate virtual environment** (source venv/bin/activate)
+- ✅ **Add API keys to .env file** (after first run)
+
+**Automatic (Platform Handles):**
+- ✅ Install PostgreSQL (if needed)
+- ✅ Install Python dependencies
+- ✅ Create database and user
+- ✅ Set up .env file from template
+- ✅ Run database migrations
+
+#### 🔧 **Manual Setup (Alternative)**
+
+```bash
+# 1. Create and activate virtual environment (REQUIRED)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# 2. Clone repository
+git clone <repository-url>
+cd ai-agent-education-platform
+
+# 3. Backend setup
+cd backend
+pip install -r requirements.txt
+
+# 4. Create .env file (from root directory)
+cp env_template.txt .env
+# Edit .env with your API keys and database credentials
+
+# 5. Initialize database
+cd database
+alembic upgrade head
+cd ..
+
+# 6. Run backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# 7. Frontend setup (new terminal)
+cd ../frontend
+npm install
+npm run dev
 ```
 
 ### Verify Installation
 - Backend: http://localhost:8000/docs
 - Frontend: http://localhost:3000
 - Health Check: http://localhost:8000/health
+
+---
+
+## Architecture Overview
+
+The AI Agent Education Platform follows a modern microservices-inspired architecture with clear separation of concerns:
+
+### Core Components
+
+#### Backend Services
+- **FastAPI Application** (`main.py`) - Main application entry point
+- **API Layer** (`api/`) - RESTful endpoints for all functionality
+- **AI Agents** (`agents/`) - Specialized LangChain-powered agents
+- **Services** (`services/`) - Business logic and core functionality
+- **Database Layer** (`database/`) - Models, schemas, and migrations
+- **Utilities** (`utilities/`) - Helper functions and utilities
+
+#### AI Agent System
+- **Persona Agent** - Handles persona-specific interactions
+- **Summarization Agent** - Content analysis and summarization
+- **Grading Agent** - Assessment and feedback generation
+- **Session Manager** - Conversation state and memory management
+- **Vector Store** - Semantic search and embeddings
+
+#### Frontend Architecture
+- **Next.js 15** with App Router
+- **TypeScript** for type safety
+- **Tailwind CSS** + **shadcn/ui** for styling
+- **React Hook Form** + **Zod** for form management
+
+### Data Flow
+
+```mermaid
+graph TB
+    A[Frontend] --> B[FastAPI Backend]
+    B --> C[AI Agents]
+    B --> D[Database]
+    B --> E[External APIs]
+    
+    C --> F[LangChain Manager]
+    F --> G[OpenAI GPT-4]
+    F --> H[Vector Store]
+    F --> I[Session Memory]
+    
+    E --> J[LlamaParse]
+    E --> K[DALL-E]
+    
+    D --> L[PostgreSQL]
+    D --> M[Alembic Migrations]
+```
 
 ---
 
@@ -144,6 +258,108 @@ npm start
 npm run build
 npm run serve
 ```
+
+---
+
+## LangChain Integration
+
+The platform uses LangChain for advanced AI agent orchestration and management.
+
+### Configuration
+
+LangChain configuration is centralized in `backend/langchain_config.py`:
+
+```python
+from langchain_config import langchain_manager, settings
+
+# Access LLM
+llm = langchain_manager.llm
+
+# Access embeddings
+embeddings = langchain_manager.embeddings
+
+# Access vector store
+vectorstore = langchain_manager.vectorstore
+```
+
+### Environment Variables
+
+```env
+# LangChain Configuration
+LANGCHAIN_REDIS_URL=redis://localhost:6379/0
+LANGCHAIN_EMBEDDING_MODEL=openai
+LANGCHAIN_HUGGINGFACE_MODEL=sentence-transformers/all-MiniLM-L6-v2
+LANGCHAIN_OPENAI_MODEL=gpt-4o
+LANGCHAIN_OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+### Key Components
+
+#### LangChain Manager
+- Centralized configuration and initialization
+- Automatic fallback for missing dependencies
+- Connection pooling and caching
+
+#### Vector Store Service
+- PostgreSQL with pgvector support
+- Fallback to in-memory storage
+- Semantic search capabilities
+
+#### Session Management
+- Persistent conversation memory
+- Context-aware agent interactions
+- Performance optimization
+
+---
+
+## AI Agents Development
+
+### Creating New Agents
+
+1. **Create Agent Class** in `backend/agents/`:
+
+```python
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+from langchain_config import langchain_manager
+
+class CustomAgent:
+    def __init__(self, agent_type: str):
+        self.agent_type = agent_type
+        self.llm = langchain_manager.llm
+        
+    async def process_message(self, message: str, context: dict):
+        # Agent logic here
+        pass
+```
+
+2. **Register Agent** in the session manager
+3. **Add API Endpoints** for agent interactions
+4. **Update Documentation** with agent capabilities
+
+### Agent Types
+
+#### Persona Agent
+- Handles persona-specific interactions
+- Maintains personality traits and context
+- Provides contextual responses
+
+#### Summarization Agent
+- Analyzes conversation content
+- Extracts key points and insights
+- Generates progress summaries
+
+#### Grading Agent
+- Assesses student performance
+- Provides detailed feedback
+- Tracks learning objectives
+
+### Best Practices
+
+- Use async/await for all agent operations
+- Implement proper error handling
+- Log all agent interactions
+- Use vector embeddings for context retrieval
+- Maintain conversation memory
 
 ---
 
@@ -303,6 +519,90 @@ def upgrade():
 def downgrade():
     op.drop_index(op.f('ix_new_resources_id'), table_name='new_resources')
     op.drop_table('new_resources')
+```
+
+---
+
+## Database & Migrations
+
+The platform uses PostgreSQL with Alembic for database management and migrations.
+
+### Database Models
+
+Key models in `backend/database/models.py`:
+
+- **User** - User accounts and profiles
+- **Scenario** - Business scenarios and case studies
+- **ScenarioPersona** - AI personas for scenarios
+- **ScenarioScene** - Individual scenes within scenarios
+- **UserProgress** - User simulation progress
+- **SessionMemory** - LangChain session memory
+- **VectorEmbeddings** - Vector store embeddings
+
+### Alembic Migrations
+
+#### Creating Migrations
+
+```bash
+# Navigate to database directory
+cd backend/database
+
+# Create new migration
+alembic revision --autogenerate -m "Description of changes"
+
+# Apply migrations
+alembic upgrade head
+
+# Check current version
+alembic current
+
+# View migration history
+alembic history
+```
+
+#### Migration Best Practices
+
+- Always review auto-generated migrations
+- Test migrations on development data
+- Use descriptive migration messages
+- Never edit existing migration files
+- Create rollback scripts for complex changes
+
+### Database Setup
+
+#### Development
+
+```bash
+# Using PostgreSQL
+DATABASE_URL=postgresql://username:password@localhost:5432/ai_agent_platform
+
+# Using SQLite (fallback)
+DATABASE_URL=sqlite:///./ai_agent_platform.db
+```
+
+#### Production
+
+```bash
+# Production PostgreSQL with SSL
+DATABASE_URL=postgresql://username:password@hostname:5432/database_name?sslmode=require
+```
+
+### Vector Store Setup
+
+The platform supports pgvector for semantic search:
+
+```sql
+-- Enable pgvector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Create vector embeddings table
+CREATE TABLE vector_embeddings (
+    id SERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding VECTOR(1536),
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
 ```
 
 ---

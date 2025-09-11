@@ -13,7 +13,8 @@ from datetime import datetime
 from database.connection import get_db
 from database.models import (
     Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, 
-    ScenarioReview, User, scene_personas, UserProgress
+    ScenarioReview, User, scene_personas, UserProgress,
+    ConversationLog, SceneProgress
 )
 from database.schemas import (
     ScenarioPublishingResponse, ScenarioPublishRequest, MarketplaceFilters,
@@ -532,20 +533,42 @@ async def delete_scenario(
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
 
+    # Get all related IDs first
+    scene_ids = [s.id for s in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario_id).all()]
+    persona_ids = [p.id for p in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario_id).all()]
+    user_progress_ids = [up.id for up in db.query(UserProgress.id).filter(UserProgress.scenario_id == scenario_id).all()]
+
+    # Delete conversation logs first (they reference multiple tables)
+    if scene_ids:
+        db.query(ConversationLog).filter(ConversationLog.scene_id.in_(scene_ids)).delete()
+    if persona_ids:
+        db.query(ConversationLog).filter(ConversationLog.persona_id.in_(persona_ids)).delete()
+    if user_progress_ids:
+        db.query(ConversationLog).filter(ConversationLog.user_progress_id.in_(user_progress_ids)).delete()
+
+    # Delete scene progress (references user_progress and scenes)
+    if user_progress_ids:
+        db.query(SceneProgress).filter(SceneProgress.user_progress_id.in_(user_progress_ids)).delete()
+
     # Delete related user progress
     db.query(UserProgress).filter(UserProgress.scenario_id == scenario_id).delete()
+    
     # Delete related scene_personas links
-    scene_ids = [s.id for s in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario_id).all()]
     if scene_ids:
         db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(scene_ids)))
+    
     # Delete related personas
     db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == scenario_id).delete()
+    
     # Delete related scenes
     db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario_id).delete()
+    
     # Delete related files
     db.query(ScenarioFile).filter(ScenarioFile.scenario_id == scenario_id).delete()
+    
     # Delete related reviews
     db.query(ScenarioReview).filter(ScenarioReview.scenario_id == scenario_id).delete()
+    
     # Delete the scenario itself
     db.delete(scenario)
     db.commit()

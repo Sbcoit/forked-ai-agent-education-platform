@@ -36,6 +36,8 @@ graph TB
         SCENARIO_SERVICE[Scenario Management]
         PUBLISHING_SERVICE[Publishing Service]
         USER_SERVICE[User Management]
+        SESSION_SERVICE[Session Management]
+        VECTOR_SERVICE[Vector Store Service]
     end
     
     subgraph "AI Processing Layer"
@@ -44,6 +46,10 @@ graph TB
         PERSONA_ENGINE[AI Persona Engine]
         SCENE_MANAGER[Scene Progression Manager]
         CONTENT_GENERATOR[Content Generation]
+        LANGCHAIN_MANAGER[LangChain Manager]
+        PERSONA_AGENT[Persona Agent]
+        SUMMARIZATION_AGENT[Summarization Agent]
+        GRADING_AGENT[Grading Agent]
     end
     
     subgraph "External AI Services"
@@ -122,44 +128,50 @@ graph TB
 backend/
 ├── main.py                      # FastAPI application entry point
 ├── requirements.txt             # Python dependencies
-├── pytest.ini                  # Test configuration
+├── langchain_config.py         # LangChain configuration and setup
+├── startup_check.py            # Application startup validation
+├── setup_dev_environment.py    # Development environment setup
+├── clear_database.py           # Database cleanup utilities
 ├── 
 ├── database/                    # Database layer
 │   ├── __init__.py
 │   ├── connection.py           # Database connection setup
 │   ├── models.py               # SQLAlchemy models (scenarios, personas, scenes, user_progress)
 │   ├── schemas.py              # Pydantic schemas for API validation
-│   └── migrations/             # Database migrations
-│       ├── add_simulation_system.py
-│       └── add_publishing_schema.py
+│   └── migrations/             # Alembic database migrations
+│       ├── versions/           # Migration files
+│       └── env.py              # Alembic environment
 │
-├── utilities/                   # Shared utilities
+├── agents/                      # AI Agent implementations
 │   ├── __init__.py
-│   └── auth.py                 # Authentication utilities
+│   ├── persona_agent.py        # Persona-specific AI interactions
+│   ├── summarization_agent.py  # Content summarization agent
+│   └── grading_agent.py        # Assessment and grading agent
 │
 ├── services/                   # Core business services
 │   ├── __init__.py
-│   └── simulation_engine.py   # Linear simulation orchestration
+│   ├── simulation_engine.py   # Linear simulation orchestration
+│   ├── session_manager.py     # Session and memory management
+│   ├── vector_store.py        # Vector embeddings and search
+│   └── scene_memory.py        # Scene-specific memory handling
+│
+├── utilities/                   # Shared utilities
+│   ├── __init__.py
+│   ├── auth.py                 # Authentication utilities
+│   └── image_storage.py        # Image handling utilities
 │
 ├── api/                        # API layer organization
 │   ├── __init__.py
 │   ├── chat_orchestrator.py   # ChatOrchestrator endpoint logic
 │   ├── parse_pdf.py           # PDF processing endpoints
 │   ├── simulation.py          # Linear simulation endpoints
-│   └── publishing.py          # Marketplace publishing endpoints
+│   ├── publishing.py          # Marketplace publishing endpoints
+│   └── chat_box.py            # Chat interface endpoints
 │
-├── unit_tests/                 # Comprehensive test suite
-│   ├── conftest.py            # Test fixtures and configuration
-│   ├── README.md              # Test documentation
-│   ├── 
-│   ├── auth/                  # Authentication tests
-│   ├── api/                   # API endpoint tests
-│   │   ├── test_pdf_processing.py
-│   │   ├── test_simulation.py
-│   │   └── test_orchestrator.py
-│   └── core/                  # Core functionality tests
-│       ├── test_health.py
-│       └── test_linear_flow.py
+├── db_admin/                   # Database administration tools
+│   ├── app.py                  # Flask admin interface
+│   ├── simple_viewer.py       # Database viewer
+│   └── templates/              # Admin templates
 │
 └── docs/                      # Comprehensive documentation
     ├── API_Reference.md       # Complete API documentation
@@ -272,7 +284,49 @@ graph TD
     F --> F4[Marketplace metadata]
 ```
 
-### 4. Linear Simulation Flow
+### 4. LangChain Integration & AI Agents
+
+```mermaid
+graph TD
+    A[LangChain Manager] --> B[LLM Configuration]
+    A --> C[Embeddings Service]
+    A --> D[Vector Store]
+    A --> E[Session Management]
+    
+    B --> B1[OpenAI GPT-4]
+    B --> B2[Model Configuration]
+    B --> B3[Temperature & Tokens]
+    
+    C --> C1[OpenAI Embeddings]
+    C --> C2[HuggingFace Fallback]
+    C --> C3[Vector Generation]
+    
+    D --> D1[PostgreSQL + pgvector]
+    D --> D2[In-Memory Fallback]
+    D --> D3[Semantic Search]
+    
+    E --> E1[Conversation Memory]
+    E --> E2[Context Persistence]
+    E --> E3[Session Analytics]
+    
+    F[Persona Agent] --> A
+    G[Summarization Agent] --> A
+    H[Grading Agent] --> A
+    
+    F --> F1[Personality Traits]
+    F --> F2[Context Awareness]
+    F --> F3[Memory Integration]
+    
+    G --> G1[Content Analysis]
+    G --> G2[Key Point Extraction]
+    G --> G3[Progress Summaries]
+    
+    H --> H1[Performance Assessment]
+    H --> H2[Feedback Generation]
+    H --> H3[Learning Objectives]
+```
+
+### 5. Linear Simulation Flow
 
 ```mermaid
 graph TD

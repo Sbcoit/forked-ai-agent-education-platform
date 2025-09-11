@@ -57,21 +57,9 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 def get_db():
-    """Database dependency with connection retry logic"""
+    """Database dependency"""
     db = SessionLocal()
     try:
-        # Test the connection
-        db.execute(text("SELECT 1"))
         yield db
-    except Exception as e:
-        db.close()
-        # Retry once with a new connection
-        try:
-            db = SessionLocal()
-            db.execute(text("SELECT 1"))
-            yield db
-        except Exception as retry_e:
-            db.close()
-            raise retry_e
     finally:
         db.close() 

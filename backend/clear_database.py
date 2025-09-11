@@ -8,7 +8,8 @@ import os
 import sys
 import logging
 from pathlib import Path
-from sqlalchemy import create_engine, text, MetaData
+from sqlalchemy import create_engine, text, MetaData, Table
+from sqlalchemy.schema import DropTable
 from sqlalchemy.exc import SQLAlchemyError
 
 # Add the backend directory to the Python path
@@ -35,7 +36,9 @@ def clear_database():
             logger.info("✅ Database connection successful")
         
         # Get database URL for logging (partial for security)
-        db_url_partial = settings.database_url.split('@')[0] + '@...'
+        from urllib.parse import urlparse
+        parsed = urlparse(settings.database_url)
+        db_url_partial = f"{parsed.scheme}://***@{parsed.hostname or 'localhost'}/{parsed.path.lstrip('/')}"
         logger.info(f"🔗 Database URL: {db_url_partial}")
         
         # Confirm with user
@@ -67,10 +70,12 @@ def clear_database():
                 
                 logger.info(f"Found {len(table_names)} tables to drop: {', '.join(table_names)}")
                 
-                # Drop all tables at once (PostgreSQL handles dependencies)
+                # Drop all tables with CASCADE to handle foreign key constraints
                 for table_name in table_names:
                     logger.info(f"Dropping table: {table_name}")
-                    conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}" CASCADE'))
+                    # Use raw SQL with CASCADE to handle foreign key dependencies
+                    drop_stmt = text(f"DROP TABLE IF EXISTS {table_name} CASCADE")
+                    conn.execute(drop_stmt)
                 
                 # Commit the transaction
                 trans.commit()

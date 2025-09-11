@@ -3,7 +3,7 @@ Publishing API endpoints for PDF-to-Scenario functionality
 Handles scenario publishing, marketplace browsing, cloning, and reviews
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import and_, or_, desc, func
 from typing import List, Optional
@@ -11,6 +11,8 @@ import json
 from datetime import datetime
 
 from database.connection import get_db
+from utilities.rate_limiter import check_anonymous_review_rate_limit
+from utilities.auth import get_current_user, get_current_user_optional
 from database.models import (
     Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, 
     ScenarioReview, User, scene_personas, UserProgress,
@@ -29,16 +31,25 @@ router = APIRouter(prefix="/api/scenarios", tags=["Publishing"])
 @router.post("/save")
 async def save_scenario_draft(
     ai_result: dict,
-    db: Session = Depends(get_db)
+    scenario_id: Optional[int] = Query(None, description="Scenario ID for updates (requires authentication)"),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     Save AI processing results as a draft scenario
     Called when user clicks "Save" button
+    
+    Security: 
+    - If scenario_id is provided, requires authentication and ownership verification
+    - If no scenario_id, creates a new scenario (create-only behavior)
+    - No longer allows title-based lookups for security
     """
     
     try:
         print("[DEBUG] Saving scenario as draft...")
         print(f"[DEBUG] AI result keys: {list(ai_result.keys())}")
+        print(f"[DEBUG] Scenario ID: {scenario_id}")
+        print(f"[DEBUG] Current user: {current_user.id if current_user else 'None'}")
         
         # Check if we received the wrapper response instead of direct AI result
         if "ai_result" in ai_result and isinstance(ai_result["ai_result"], dict):
@@ -55,9 +66,31 @@ async def save_scenario_draft(
         title = actual_ai_result.get("title", "Untitled Scenario")
         print(f"[DEBUG] Extracted title: {title}")
         
-        # Try to find an existing scenario by title (since we don't have user authentication yet)
-        scenario = db.query(Scenario).filter_by(title=title).first()
-        if scenario:
+        scenario = None
+        
+        # Handle update case: scenario_id provided
+        if scenario_id is not None:
+            if not current_user:
+                raise HTTPException(
+                    status_code=401,
+                    detail="Authentication required to update existing scenarios"
+                )
+            
+            # Find scenario and verify ownership
+            scenario = db.query(Scenario).filter_by(id=scenario_id).first()
+            if not scenario:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Scenario with ID {scenario_id} not found"
+                )
+            
+            # Verify ownership
+            if scenario.created_by != current_user.id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="You can only update scenarios you created"
+                )
+            
             print(f"[DEBUG] Updating existing scenario with ID: {scenario.id}")
             scenario.title = title
             scenario.description = actual_ai_result.get("description", "")
@@ -71,6 +104,8 @@ async def save_scenario_draft(
             existing_scene_ids = [s.id for s in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario.id).all()]
             existing_persona_ids = [p.id for p in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario.id).all()]
             print(f"[DEBUG] Found {len(existing_scene_ids)} existing scenes and {len(existing_persona_ids)} existing personas to potentially clean up")
+        
+        # Handle create case: no scenario_id provided
         else:
             # Create scenario record as draft
             scenario = Scenario(
@@ -86,7 +121,7 @@ async def save_scenario_draft(
                 processing_version="1.0",
                 is_public=False,  # Draft - not public
                 allow_remixes=True,
-                created_by=None,  # No user authentication yet
+                created_by=current_user.id if current_user else None,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
@@ -103,6 +138,10 @@ async def save_scenario_draft(
         new_persona_ids = []
         for figure in persona_list:
             if isinstance(figure, dict) and figure.get("name"):
+                # Debug: Log the traits being received
+                traits = figure.get("personality_traits", {}) or figure.get("traits", {})
+                print(f"[DEBUG] Persona {figure['name']} traits received: {traits}")
+                
                 persona = ScenarioPersona(
                     scenario_id=scenario.id,
                     name=figure.get("name", ""),
@@ -110,7 +149,7 @@ async def save_scenario_draft(
                     background=figure.get("background", ""),
                     correlation=figure.get("correlation", ""),
                     primary_goals=figure.get("primary_goals", []) or figure.get("primaryGoals", []),
-                    personality_traits=figure.get("personality_traits", {}) or figure.get("traits", {}),
+                    personality_traits=traits,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
@@ -118,7 +157,7 @@ async def save_scenario_draft(
                 db.flush()
                 persona_mapping[figure["name"]] = persona.id
                 new_persona_ids.append(persona.id)
-                print(f"[DEBUG] Created persona: {figure['name']} with ID: {persona.id}")
+                print(f"[DEBUG] Created persona: {figure['name']} with ID: {persona.id} and traits: {persona.personality_traits}")
 
         # Save scenes
         scenes = actual_ai_result.get("scenes", [])
@@ -139,7 +178,7 @@ async def save_scenario_draft(
                     title=scene.get("title", ""),
                     description=scene.get("description", ""),
                     user_goal=scene.get("user_goal", ""),
-                    scene_order=i + 1,
+                    scene_order=scene.get("sequence_order", i + 1),  # Use sequence_order from frontend, fallback to loop index
                     estimated_duration=scene.get("estimated_duration", 30),
                     image_url=scene.get("image_url", ""),
                     image_prompt=f"Business scene: {scene.get('title', '')}",
@@ -340,11 +379,16 @@ async def get_marketplace_scenarios(
 @router.get("/{scenario_id}/full", response_model=ScenarioPublishingResponse)
 async def get_scenario_full(
     scenario_id: int,
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     """
     Get full scenario details with personas, scenes, and reviews
     Increments usage count for public scenarios
+    
+    Security:
+    - Public scenarios can be accessed by anyone
+    - Private scenarios can only be accessed by their creator
     """
     scenario = db.query(Scenario).options(
         selectinload(Scenario.personas),
@@ -354,6 +398,20 @@ async def get_scenario_full(
     ).filter(Scenario.id == scenario_id).first()
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
+    
+    # Check access permissions
+    if not scenario.is_public:
+        if not current_user:
+            raise HTTPException(
+                status_code=401, 
+                detail="Authentication required to access private scenarios"
+            )
+        if scenario.created_by != current_user.id:
+            raise HTTPException(
+                status_code=403, 
+                detail="You can only access scenarios you created"
+            )
+    
     if scenario.is_public:
         scenario.usage_count += 1
         db.commit()
@@ -524,14 +582,23 @@ async def clone_scenario(
 @router.delete("/{scenario_id}")
 async def delete_scenario(
     scenario_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """
     Delete a scenario and all related data by scenario ID.
+    Only the scenario creator can delete their scenarios.
     """
     scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
+    
+    # Check if the current user owns this scenario
+    if scenario.created_by != current_user.id:
+        raise HTTPException(
+            status_code=403, 
+            detail="You can only delete scenarios you created"
+        )
 
     # Get all related IDs first
     scene_ids = [s.id for s in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario_id).all()]
@@ -539,12 +606,18 @@ async def delete_scenario(
     user_progress_ids = [up.id for up in db.query(UserProgress.id).filter(UserProgress.scenario_id == scenario_id).all()]
 
     # Delete conversation logs first (they reference multiple tables)
+    # Use OR condition to delete all related logs in one query
+    from sqlalchemy import or_
+    conditions = []
     if scene_ids:
-        db.query(ConversationLog).filter(ConversationLog.scene_id.in_(scene_ids)).delete()
+        conditions.append(ConversationLog.scene_id.in_(scene_ids))
     if persona_ids:
-        db.query(ConversationLog).filter(ConversationLog.persona_id.in_(persona_ids)).delete()
+        conditions.append(ConversationLog.persona_id.in_(persona_ids))
     if user_progress_ids:
-        db.query(ConversationLog).filter(ConversationLog.user_progress_id.in_(user_progress_ids)).delete()
+        conditions.append(ConversationLog.user_progress_id.in_(user_progress_ids))
+    
+    if conditions:
+        db.query(ConversationLog).filter(or_(*conditions)).delete(synchronize_session=False)
 
     # Delete scene progress (references user_progress and scenes)
     if user_progress_ids:
@@ -580,12 +653,18 @@ async def delete_scenario(
 async def create_scenario_review(
     scenario_id: int,
     review: ScenarioReviewCreate,
+    request: Request,
+    response: Response,
     db: Session = Depends(get_db)
 ):
     """
     Create a review for a scenario
     Updates the scenario's average rating
+    Includes rate limiting for anonymous reviews
     """
+    
+    # Check rate limit for anonymous reviews
+    rate_limit_result = check_anonymous_review_rate_limit(request)
     
     # Check if scenario exists
     scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
@@ -622,6 +701,12 @@ async def create_scenario_review(
     
     db.commit()
     db.refresh(new_review)
+    
+    # Add rate limit headers to response
+    from utilities.rate_limiter import rate_limiter, ANONYMOUS_REVIEW_CONFIG
+    headers = rate_limiter.get_rate_limit_headers(rate_limit_result, ANONYMOUS_REVIEW_CONFIG)
+    for header_name, header_value in headers.items():
+        response.headers[header_name] = header_value
     
     return new_review
 
@@ -681,109 +766,3 @@ async def get_difficulty_levels():
             "Advanced": "Complex scenarios requiring deep business expertise"
         }
     } 
-
-@router.get("/{scenario_id}/chatbox-format")
-async def get_scenario_for_chatbox(
-    scenario_id: int,
-    db: Session = Depends(get_db)
-):
-    """
-    Transform scenario data into the format expected by the chatbox simulation
-    """
-    
-    scenario = db.query(Scenario).options(
-        selectinload(Scenario.personas),
-        selectinload(Scenario.scenes)
-    ).filter(Scenario.id == scenario_id).first()
-    
-    if not scenario:
-        raise HTTPException(status_code=404, detail="Scenario not found")
-    
-    # Transform personas to characters format
-    characters = []
-    for persona in scenario.personas:
-        personality_traits = persona.personality_traits or {}
-        
-        character = {
-            "name": persona.name,
-            "role": persona.role,
-            "personality_profile": {
-                "strengths": [],  # Could be derived from personality_traits
-                "motivations": persona.primary_goals or [],
-                "leadership_style": persona.background or "",
-                "key_quote": f"As {persona.role}, I focus on achieving our objectives.",
-                "decision_making_approach": "Strategic and analytical",
-                "risk_tolerance": "Medium",
-                "communication_style": "Professional and direct",
-                "background": persona.background or "",
-                "correlation": persona.correlation or ""
-            }
-        }
-        characters.append(character)
-    
-    # Transform scenes to simulation timeline phases
-    phases = []
-    for i, scene in enumerate(sorted(scenario.scenes, key=lambda x: x.scene_order or 0)):
-        phase = {
-            "phase": i + 1,
-            "title": scene.title,
-            "duration": f"{scene.estimated_duration or 30} minutes",
-            "goal": scene.user_goal or "Complete the phase objectives",
-            "activities": [scene.description] if scene.description else ["Analyze the situation and make decisions"],
-            "deliverables": [
-                "Analysis summary",
-                "Strategic recommendations", 
-                "Decision rationale"
-            ]
-        }
-        phases.append(phase)
-    
-    # If no scenes, create default phases
-    if not phases:
-        phases = [
-            {
-                "phase": 1,
-                "title": "Initial Analysis",
-                "duration": "30 minutes", 
-                "goal": "Analyze the business situation and identify key challenges",
-                "activities": ["Review case study materials", "Identify stakeholders", "Assess current situation"],
-                "deliverables": ["Situation analysis", "Stakeholder map", "Problem identification"]
-            },
-            {
-                "phase": 2,
-                "title": "Strategic Planning",
-                "duration": "45 minutes",
-                "goal": "Develop strategic options and recommendations",
-                "activities": ["Brainstorm solutions", "Evaluate alternatives", "Select preferred approach"],
-                "deliverables": ["Strategic options", "Evaluation criteria", "Recommended approach"]
-            }
-        ]
-    
-    # Build the chatbox format
-    chatbox_data = {
-        "case_study": {
-            "title": scenario.title,
-            "description": scenario.description,
-            "industry": scenario.industry or "Business",
-            "primary_challenge": scenario.challenge or "Strategic decision making",
-            "learning_outcomes": [
-                {"outcome": outcome, "description": f"Students will {outcome.lower()}"}
-                for outcome in (scenario.learning_objectives or ["Analyze business scenarios", "Make strategic decisions"])
-            ],
-            "characters": characters,
-            "simulation_timeline": {
-                "total_duration": f"{sum(int(p.get('duration', '30').split()[0]) for p in phases)} minutes",
-                "phases": phases
-            },
-            "teaching_notes": {
-                "preparation_required": "Students should review the case study materials thoroughly",
-                "key_concepts": [
-                    "Strategic analysis",
-                    "Decision making",
-                    "Business problem solving"
-                ]
-            }
-        }
-    }
-    
-    return chatbox_data 

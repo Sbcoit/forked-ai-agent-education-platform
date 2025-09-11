@@ -421,8 +421,7 @@ ai-agent-education-platform/
 │   ├── app/                   # Next.js app router pages
 │   │   ├── simulation-builder/  # PDF upload and simulation creation
 │   │   ├── chat-box/          # Interactive chat interface
-│   │   ├── marketplace/       # Community scenarios
-│   │   ├── agent-builder/     # AI agent creation tools
+│   │   ├── signup/           # User registration
 │   │   ├── dashboard/         # User analytics
 │   │   └── login/            # Authentication pages
 │   ├── components/            # React components (shadcn/ui)
@@ -488,7 +487,7 @@ Access at: http://localhost:5001
 ## Next Steps
 - Upload a business case study PDF to test the simulation builder
 - Create your first AI-powered simulation
-- Explore the marketplace for community scenarios
+- Create and manage your simulations
 - Check out the comprehensive documentation in `backend/docs/`
 - Use the database admin interface to inspect your data
 

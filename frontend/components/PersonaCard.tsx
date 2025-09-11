@@ -10,23 +10,20 @@ interface Persona {
   position: string;
   description: string;
   primaryGoals?: string;
-  traits: {
-    assertiveness: number;
-    cooperativeness: number;
-    openness: number;
-    risk_tolerance: number;
-    emotional_stability: number;
-  };
-  defaultTraits?: Persona["traits"];
+  traits: Record<string, number>;
+  defaultTraits?: Record<string, number>;
   imageUrl?: string;
 }
 
 const traitLabels = [
-  { key: "assertiveness", label: "Assertiveness" },
-  { key: "cooperativeness", label: "Cooperativeness" },
-  { key: "openness", label: "Openness" },
-  { key: "risk_tolerance", label: "Risk Tolerance" },
-  { key: "emotional_stability", label: "Emotional Stability" },
+  { key: "analytical", label: "Analytical" },
+  { key: "creative", label: "Creative" },
+  { key: "assertive", label: "Assertive" },
+  { key: "collaborative", label: "Collaborative" },
+  { key: "detail_oriented", label: "Detail Oriented" },
+  { key: "risk_taking", label: "Risk Taking" },
+  { key: "empathetic", label: "Empathetic" },
+  { key: "decisive", label: "Decisive" },
 ];
 
 interface PersonaCardProps {
@@ -46,73 +43,104 @@ export default function PersonaCard({
   onDelete, 
   editMode = false 
 }: PersonaCardProps) {
-  const [traits, setTraits] = useState({ ...persona.traits });
-  const [editFields, setEditFields] = useState({
+  // Ensure all traits are present with default values
+  const defaultTraitValues = {
+    analytical: 5, creative: 5, assertive: 5, collaborative: 5,
+    detail_oriented: 5, risk_taking: 5, empathetic: 5, decisive: 5,
+  };
+  const fullTraits = { ...defaultTraitValues, ...persona.traits };
+  
+  const [traits, setTraits] = useState<Record<string, number>>(fullTraits);
+  const [editFields, setEditFields] = useState<{
+    name: string;
+    position: string;
+    description: string;
+    primaryGoals?: string;
+    traits: Record<string, number>;
+  }>({
     name: persona.name,
     position: persona.position,
     description: persona.description,
     primaryGoals: persona.primaryGoals,
-    traits: { ...persona.traits }
+    traits: fullTraits
   });
 
   // Sync local traits state with props when persona.traits or defaultTraits change
   useEffect(() => {
-    setTraits({ ...persona.traits });
-    setEditFields(fields => ({ ...fields, traits: { ...persona.traits } }));
-  }, [persona.traits, defaultTraits]);
+    // Ensure all traits are present with default values
+    const defaultTraitValues = {
+      analytical: 5, creative: 5, assertive: 5, collaborative: 5,
+      detail_oriented: 5, risk_taking: 5, empathetic: 5, decisive: 5,
+    };
+    const fullTraits = { ...defaultTraitValues, ...persona.traits };
+    console.log(`[DEBUG] PersonaCard: Syncing traits for ${persona.name}:`, {
+      original: persona.traits,
+      full: fullTraits,
+      defaultTraitsProvided: !!defaultTraits
+    });
+    setTraits(fullTraits);
+    setEditFields(fields => ({ ...fields, traits: fullTraits }));
+  }, [persona.traits, defaultTraits, persona.name]);
 
   // Keep display sliders in sync with parent
   useEffect(() => {
-    if (!editMode) setTraits({ ...persona.traits });
+    if (!editMode) {
+      const defaultTraits = {
+        analytical: 5, creative: 5, assertive: 5, collaborative: 5,
+        detail_oriented: 5, risk_taking: 5, empathetic: 5, decisive: 5,
+      };
+      const fullTraits = { ...defaultTraits, ...persona.traits };
+      setTraits(fullTraits);
+    }
   }, [persona.traits, editMode]);
 
-  const handleSliderChange = (key: keyof typeof traits, value: number[]) => {
+  const handleSliderChange = (key: string, value: number[]) => {
+    console.log(`[DEBUG] PersonaCard: Slider changed for ${persona.name} - ${key}: ${value[0]}`);
+    
     if (editMode) {
       setEditFields(fields => ({
         ...fields,
         traits: {
-          assertiveness: typeof fields.traits.assertiveness === 'number' ? fields.traits.assertiveness : 1,
-          cooperativeness: typeof fields.traits.cooperativeness === 'number' ? fields.traits.cooperativeness : 1,
-          openness: typeof fields.traits.openness === 'number' ? fields.traits.openness : 1,
-          risk_tolerance: typeof fields.traits.risk_tolerance === 'number' ? fields.traits.risk_tolerance : 1,
-          emotional_stability: typeof fields.traits.emotional_stability === 'number' ? fields.traits.emotional_stability : 1,
+          ...fields.traits,
           [key]: value[0],
         },
       }));
     } else {
       const newTraits = { ...traits, [key]: value[0] };
       setTraits(newTraits);
+      // Also update editFields to keep them in sync
+      setEditFields(fields => ({
+        ...fields,
+        traits: {
+          ...fields.traits,
+          [key]: value[0],
+        },
+      }));
+      console.log(`[DEBUG] PersonaCard: Calling onTraitsChange with:`, newTraits);
       if (onTraitsChange) onTraitsChange(newTraits);
     }
   };
 
   const handleReset = () => {
+    const resetTraits = defaultTraits || {
+      analytical: 5,
+      creative: 5,
+      assertive: 5,
+      collaborative: 5,
+      detail_oriented: 5,
+      risk_taking: 5,
+      empathetic: 5,
+      decisive: 5,
+    };
+    
     if (editMode) {
       setEditFields(fields => ({
         ...fields,
-        traits: {
-          assertiveness: defaultTraits?.assertiveness ?? 1,
-          cooperativeness: defaultTraits?.cooperativeness ?? 1,
-          openness: defaultTraits?.openness ?? 1,
-          risk_tolerance: defaultTraits?.risk_tolerance ?? 1,
-          emotional_stability: defaultTraits?.emotional_stability ?? 1,
-        },
+        traits: { ...resetTraits },
       }));
     } else {
-      setTraits({
-        assertiveness: defaultTraits?.assertiveness ?? 1,
-        cooperativeness: defaultTraits?.cooperativeness ?? 1,
-        openness: defaultTraits?.openness ?? 1,
-        risk_tolerance: defaultTraits?.risk_tolerance ?? 1,
-        emotional_stability: defaultTraits?.emotional_stability ?? 1,
-      });
-      if (onTraitsChange) onTraitsChange({
-        assertiveness: defaultTraits?.assertiveness ?? 1,
-        cooperativeness: defaultTraits?.cooperativeness ?? 1,
-        openness: defaultTraits?.openness ?? 1,
-        risk_tolerance: defaultTraits?.risk_tolerance ?? 1,
-        emotional_stability: defaultTraits?.emotional_stability ?? 1,
-      });
+      setTraits({ ...resetTraits });
+      if (onTraitsChange) onTraitsChange({ ...resetTraits });
     }
   };
 
@@ -188,22 +216,26 @@ export default function PersonaCard({
         </div>
         {/* Right: Traits (read-only) */}
         <div className="flex flex-col justify-center min-w-[220px]">
-          {traitLabels.map(({ key, label }) => (
-            <div key={key} className="flex items-center mb-1.5">
-              <span className="w-32 text-right pr-2 text-sm font-medium text-gray-800">{label}</span>
-              <div className="flex-1 flex items-center">
-                <Slider
-                  min={1}
-                  max={5}
-                  step={1}
-                  value={[traits[key as keyof typeof traits] || 1]}
-                  disabled
-                  className="w-32 mx-1"
-                />
-                <span className="w-5 text-xs text-gray-500 text-center">{traits[key as keyof typeof traits]}</span>
+          {traitLabels.map(({ key, label }) => {
+            const traitValue = traits[key as keyof typeof traits] || 5;
+            console.log(`[DEBUG] PersonaCard Display: Showing trait ${key} for ${persona.name}: ${traitValue}`);
+            return (
+              <div key={key} className="flex items-center mb-1.5">
+                <span className="w-32 text-right pr-2 text-sm font-medium text-gray-800">{label}</span>
+                <div className="flex-1 flex items-center">
+                  <Slider
+                    min={0}
+                    max={10}
+                    step={1}
+                    value={[traitValue]}
+                    disabled
+                    className="w-32 mx-1"
+                  />
+                  <span className="w-5 text-xs text-gray-500 text-center">{traitValue}</span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Card>
     );
@@ -261,20 +293,37 @@ export default function PersonaCard({
         <div>
           <span className="block text-xl font-bold text-gray-800 mb-2">Personality</span>
           <div className="space-y-2">
-            {traitLabels.map(({ key, label }) => (
-              <div key={key} className="flex items-center">
-                <span className="w-40 text-gray-700">{label}</span>
-                <Slider
-                  min={1}
-                  max={5}
-                  step={1}
-                  value={[editFields.traits[key as keyof typeof traits] || 1]}
-                  onValueChange={value => handleSliderChange(key as keyof typeof traits, value)}
-                  className="w-36 accent-gray-600 mx-2"
-                />
-                <span className="ml-2 text-gray-500 text-xs">{editFields.traits[key as keyof typeof traits]}</span>
-              </div>
-            ))}
+            {traitLabels.map(({ key, label }) => {
+              const sliderValue = editMode ? (editFields.traits[key] || 5) : (traits[key] || 5);
+              const displayValue = editMode ? editFields.traits[key] : traits[key];
+              
+              // Debug log for first render
+              if (key === 'analytical') {
+                console.log(`[DEBUG] PersonaCard: Rendering sliders for ${persona.name} (editMode: ${editMode}):`, {
+                  traits,
+                  editFields: editFields.traits,
+                  sliderValue,
+                  displayValue
+                });
+              }
+              
+              return (
+                <div key={key} className="flex items-center">
+                  <span className="w-40 text-gray-700">{label}</span>
+                  <Slider
+                    min={0}
+                    max={10}
+                    step={1}
+                    value={[sliderValue]}
+                    onValueChange={value => handleSliderChange(key, value)}
+                    className="w-36 accent-gray-600 mx-2"
+                  />
+                  <span className="ml-2 text-gray-500 text-xs">
+                    {displayValue}
+                  </span>
+                </div>
+              );
+            })}
           </div>
           <div className="flex justify-end mt-2">
             <Button

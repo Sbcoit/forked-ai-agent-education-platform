@@ -54,11 +54,14 @@ class ScenarioUpdate(BaseModel):
 # --- PDF-TO-SCENARIO PUBLISHING SCHEMAS ---
 
 class PersonalityTraits(BaseModel):
-    analytical: Optional[int] = None
-    creative: Optional[int] = None
-    assertive: Optional[int] = None
-    collaborative: Optional[int] = None
-    detail_oriented: Optional[int] = None
+    analytical: Optional[int] = None  # 0-10 scale
+    creative: Optional[int] = None    # 0-10 scale
+    assertive: Optional[int] = None   # 0-10 scale
+    collaborative: Optional[int] = None  # 0-10 scale
+    detail_oriented: Optional[int] = None  # 0-10 scale
+    risk_taking: Optional[int] = None  # 0-10 scale
+    empathetic: Optional[int] = None   # 0-10 scale
+    decisive: Optional[int] = None     # 0-10 scale
 
 class ScenarioPersonaCreate(BaseModel):
     name: str
@@ -381,7 +384,6 @@ class CollectionResponse(BaseModel):
 
 class SimulationStartRequest(BaseModel):
     scenario_id: int
-    user_id: Optional[int] = None  # Make optional since we don't have auth yet
 
 class SimulationScenarioResponse(BaseModel):
     id: int
@@ -405,10 +407,7 @@ class SimulationStartResponse(BaseModel):
         from_attributes = True
 
 class SimulationChatRequest(BaseModel):
-    # Support both old and new formats
-    user_progress_id: Optional[int] = None
-    scenario_id: Optional[int] = None
-    user_id: Optional[int] = None
+    user_progress_id: int
     scene_id: Optional[int] = None
     message: str
     target_persona_id: Optional[int] = None  # Which persona to address
@@ -428,7 +427,7 @@ class SimulationChatResponse(BaseModel):
     scene_completed: Optional[bool] = None
     next_scene_id: Optional[int] = None
     next_scene: Optional[Dict[str, Any]] = None  # Full next scene object for frontend
-    persona_id: Optional[str] = None  # Persona ID for @mentions
+    persona_id: Optional[str] = None  # Persona ID for @mentions (converted from int at API boundary)
     
     class Config:
         from_attributes = True
@@ -539,13 +538,3 @@ class SimulationSceneResponse(ScenarioSceneResponse):
     
     class Config:
         from_attributes = True
-
-# --- LEGACY SCHEMAS (for backwards compatibility) ---
-class ChatMessage(BaseModel):
-    message: str
-
-class ChatResponse(BaseModel):
-    simulation_id: int
-    user_message: str
-    crew_response: str
-    timestamp: str 

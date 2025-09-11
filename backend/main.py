@@ -27,6 +27,9 @@ from api.publishing import router as publishing_router
 # Import startup check
 from startup_check import run_startup_checks, auto_setup_if_needed
 
+# Import session manager for cleanup task
+from services.session_manager import session_manager
+
 # Create FastAPI app
 app = FastAPI(
     title="AI Agent Education Platform",
@@ -53,6 +56,14 @@ async def startup_event():
         logger.error("Please run: python backend/setup_dev_environment.py")
     else:
         logger.info("✅ Application startup completed successfully!")
+    
+    # Start the session cleanup task
+    try:
+        session_manager.start_cleanup_task()
+        logger.info("🧹 Session cleanup task started successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to start session cleanup task: {e}")
+        # Don't fail startup for this, but log the error
 
 # CORS middleware
 app.add_middleware(
@@ -96,10 +107,15 @@ async def health_check():
     }
 
 @app.get("/api/scenarios/")
-async def get_scenarios(db: Session = Depends(get_db)):
-    """Get all scenarios with their personas and scenes"""
+async def get_scenarios(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get scenarios created by the current user with their personas and scenes"""
     try:
-        scenarios = db.query(Scenario).order_by(Scenario.created_at.desc()).all()
+        scenarios = db.query(Scenario).filter(
+            Scenario.created_by == current_user.id
+        ).order_by(Scenario.created_at.desc()).all()
         
         result = []
         for scenario in scenarios:
@@ -201,7 +217,7 @@ async def login_user(user: UserLogin, db: Session = Depends(get_db)):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    access_token = create_access_token(data={"sub": db_user.email})
+    access_token = create_access_token(data={"sub": str(db_user.id)})
     
     return UserLoginResponse(
         access_token=access_token,
@@ -230,6 +246,18 @@ async def login_user(user: UserLogin, db: Session = Depends(get_db)):
 async def get_current_user_profile(current_user: User = Depends(get_current_user)):
     """Get current user profile"""
     return current_user
+
+@app.post("/test-login")
+async def test_login(user: UserLogin, db: Session = Depends(get_db)):
+    """Test endpoint to debug login issues"""
+    try:
+        db_user = authenticate_user(db, user.email, user.password)
+        if not db_user:
+            return {"error": "Authentication failed", "status": "invalid_credentials"}
+        
+        return {"success": True, "user_id": db_user.id, "email": db_user.email}
+    except Exception as e:
+        return {"error": str(e), "status": "exception"}
 
 @app.put("/users/me", response_model=UserResponse)
 async def update_current_user(

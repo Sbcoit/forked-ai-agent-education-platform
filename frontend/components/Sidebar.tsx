@@ -4,9 +4,7 @@ import Link from "next/link"
 import { 
   Home, 
   Monitor, 
-  Users, 
-  Package, 
-  User
+  MessageSquare
 } from "lucide-react"
 
 interface SidebarProps {
@@ -44,40 +42,17 @@ export default function Sidebar({ currentPath = "/dashboard" }: SidebarProps) {
           <Monitor className="h-6 w-6 text-white" />
         </Link>
         <Link 
-          href="/cohorts" 
+          href="/chat-box" 
           className={`p-3 rounded-lg transition-colors ${
-            currentPath === "/cohorts" 
+            currentPath === "/chat-box" 
               ? "bg-gray-700" 
               : "hover:bg-gray-800"
           }`}
         >
-          <Users className="h-6 w-6 text-white" />
-        </Link>
-        <Link 
-          href="/resources" 
-          className={`p-3 rounded-lg transition-colors ${
-            currentPath === "/resources" 
-              ? "bg-gray-700" 
-              : "hover:bg-gray-800"
-          }`}
-        >
-          <Package className="h-6 w-6 text-white" />
+          <MessageSquare className="h-6 w-6 text-white" />
         </Link>
       </nav>
 
-      {/* Profile Icon at bottom */}
-      <div className="mt-auto">
-        <Link 
-          href="/profile" 
-          className={`p-3 rounded-lg transition-colors ${
-            currentPath === "/profile" 
-              ? "bg-gray-700" 
-              : "hover:bg-gray-800"
-          }`}
-        >
-          <User className="h-6 w-6 text-white" />
-        </Link>
-      </div>
     </div>
   )
 }

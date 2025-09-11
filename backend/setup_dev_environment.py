@@ -9,10 +9,32 @@ import sys
 import subprocess
 from pathlib import Path
 import logging
+import psycopg2
+from psycopg2 import sql
+import re
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def validate_username(username):
+    """Validate PostgreSQL username format"""
+    if not username:
+        raise ValueError("Username cannot be empty")
+    
+    # Check if username starts with letter or underscore
+    if not re.match(r'^[a-zA-Z_]', username):
+        raise ValueError("Username must start with a letter or underscore")
+    
+    # Check if username contains only allowed characters
+    if not re.match(r'^[a-zA-Z0-9_$]+$', username):
+        raise ValueError("Username can only contain letters, digits, underscores, and dollar signs")
+    
+    # Check length (PostgreSQL has a limit of 63 characters for identifiers)
+    if len(username) > 63:
+        raise ValueError("Username cannot exceed 63 characters")
+    
+    return True
 
 def check_postgresql_installation():
     """Check if PostgreSQL is installed"""
@@ -111,11 +133,21 @@ def install_postgresql_windows():
 def install_postgresql_linux():
     """Install PostgreSQL on Linux using package managers"""
     logger.info("Installing PostgreSQL on Linux...")
-    
-    # Detect Linux distribution
     try:
         with open('/etc/os-release', 'r') as f:
             os_info = f.read().lower()
+    except FileNotFoundError:
+        # Try alternative detection methods
+        try:
+            result = subprocess.run(['lsb_release', '-a'], capture_output=True, text=True)
+            if result.returncode == 0:
+                os_info = result.stdout.lower()
+            else:
+                logger.error("❌ Cannot detect Linux distribution")
+                return False
+        except FileNotFoundError:
+            logger.error("❌ Cannot detect Linux distribution")
+            return False
     except FileNotFoundError:
         logger.error("❌ Cannot detect Linux distribution")
         return False
@@ -226,32 +258,71 @@ def create_database_and_user():
         if custom_db:
             db_name = custom_db
     
+    # Validate username before proceeding
     try:
-        # Create user
+        validate_username(db_user)
+    except ValueError as e:
+        logger.error(f"❌ Invalid username: {e}")
+        return None
+    
+    try:
+        # Connect to PostgreSQL as superuser (postgres)
+        conn = psycopg2.connect(
+            host="localhost",
+            port="5432",
+            database="postgres",
+            user="postgres"
+        )
+        conn.autocommit = True
+        cursor = conn.cursor()
+        
+        # Create user using safe SQL composition
         logger.info(f"Creating user '{db_user}'...")
-        create_user_sql = f"""
+        create_user_sql = sql.SQL("""
         DO $$
         BEGIN
-            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{db_user}') THEN
-                CREATE USER {db_user} WITH PASSWORD '{db_password}';
+            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = {username}) THEN
+                CREATE USER {username} WITH PASSWORD {password};
             END IF;
         END
         $$;
-        """
-        subprocess.run(['psql', 'postgres', '-c', create_user_sql], check=True)
+        """).format(
+            username=sql.Identifier(db_user),
+            password=sql.Literal(db_password)
+        )
+        cursor.execute(create_user_sql)
         
-        # Create database
+        # Create database using safe SQL composition
         logger.info(f"Creating database '{db_name}'...")
-        create_db_sql = f"""
-        SELECT 'CREATE DATABASE {db_name} OWNER {db_user}'
-        WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{db_name}')\\gexec
-        """
-        subprocess.run(['psql', 'postgres', '-c', create_db_sql], check=True)
+        # Create database using safe SQL composition
+        logger.info(f"Creating database '{db_name}'...")
+        # Check if database exists
+        cursor.execute(
+            "SELECT 1 FROM pg_database WHERE datname = %s",
+            (db_name,)
+        )
+        if not cursor.fetchone():
+            # Database doesn't exist, create it
+            # Note: CREATE DATABASE cannot be parameterized, but we use sql.Identifier for safety
+            create_db_sql = sql.SQL("CREATE DATABASE {dbname} OWNER {owner}").format(
+                dbname=sql.Identifier(db_name),
+                owner=sql.Identifier(db_user)
+            )
+            cursor.execute(create_db_sql)
+            logger.info(f"Database '{db_name}' created successfully")
+        else:
+            logger.info(f"Database '{db_name}' already exists")
         
-        # Grant privileges
+        # Grant privileges using safe SQL composition
         logger.info("Granting privileges...")
-        grant_sql = f"GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {db_user};"
-        subprocess.run(['psql', 'postgres', '-c', grant_sql], check=True)
+        grant_sql = sql.SQL("GRANT ALL PRIVILEGES ON DATABASE {dbname} TO {username};").format(
+            dbname=sql.Identifier(db_name),
+            username=sql.Identifier(db_user)
+        )
+        cursor.execute(grant_sql)
+        
+        cursor.close()
+        conn.close()
         
         logger.info("✅ Database and user created successfully")
         
@@ -261,9 +332,9 @@ def create_database_and_user():
         
         return connection_string
         
-    except subprocess.CalledProcessError as e:
+    except (psycopg2.Error, Exception) as e:
         logger.error(f"❌ Failed to create database/user: {e}")
-        return False
+        return None
 
 def create_env_file(connection_string):
     """Create .env file from template"""
@@ -311,9 +382,31 @@ def run_alembic_migration():
     
     try:
         # Change to database directory and run migration
-        result = subprocess.run([
-            'alembic', 'upgrade', 'head'
-        ], cwd=database_dir, check=True, capture_output=True, text=True)
+        try:
+            # Change to database directory and run migration
+            result = subprocess.run([
+                'alembic', 'upgrade', 'head'
+            ], cwd=database_dir, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"❌ Alembic migration failed: {e}")
+            logger.error(f"Error output: {e.stderr}")
+            # Attempt to show current migration status
+            try:
+                status_result = subprocess.run([
+                    'alembic', 'current'
+                ], cwd=database_dir, capture_output=True, text=True)
+                logger.info(f"Current migration status: {status_result.stdout}")
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"Failed to get current migration status: {e}")
+                if e.stderr:
+                    logger.warning(f"Error output: {e.stderr}")
+            except FileNotFoundError:
+                logger.warning("Alembic command not found - cannot show current migration status")
+            except OSError as e:
+                logger.warning(f"OS error while checking migration status: {e}")
+            except Exception as e:
+                logger.warning(f"Unexpected error while checking migration status: {e}")
+            return False
         
         logger.info("✅ Alembic migration completed successfully")
         logger.info(f"Migration output: {result.stdout}")

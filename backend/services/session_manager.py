@@ -53,8 +53,9 @@ class SessionManager:
         )
         
         # Create session in database
-        db = next(get_db())
+        db = None
         try:
+            db = next(get_db())
             agent_session = AgentSession(
                 session_id=session_id,
                 user_progress_id=user_progress_id,
@@ -82,11 +83,13 @@ class SessionManager:
             return session_id
             
         except Exception as e:
-            db.rollback()
+            if db:
+                db.rollback()
             print(f"Error creating agent session: {e}")
             raise e
         finally:
-            db.close()
+            if db:
+                db.close()
     
     async def get_agent_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get agent session by ID"""
@@ -260,11 +263,18 @@ class SessionManager:
             ).limit(limit).all()
             
             # Update access count
-            for memory in memories:
-                memory.access_count += 1
-                memory.last_accessed = datetime.utcnow()
-            
-            db.commit()
+            if memories:
+                memory_ids = [m.id for m in memories]
+                db.query(SessionMemory).filter(
+                    SessionMemory.id.in_(memory_ids)
+                ).update(
+                    {
+                        SessionMemory.access_count: SessionMemory.access_count + 1,
+                        SessionMemory.last_accessed: datetime.utcnow()
+                    },
+                    synchronize_session=False
+                )
+                db.commit()
             return memories
             
         except Exception as e:
@@ -506,17 +516,18 @@ class SessionManager:
             ).count()
             
             # Cache statistics
+            from sqlalchemy import func
             cache_stats = db.query(CacheEntry).with_entities(
                 CacheEntry.cache_type,
-                db.func.count(CacheEntry.id).label('count'),
-                db.func.sum(CacheEntry.hit_count).label('total_hits'),
-                db.func.sum(CacheEntry.miss_count).label('total_misses')
+                func.count(CacheEntry.id).label('count'),
+                func.sum(CacheEntry.hit_count).label('total_hits'),
+                func.sum(CacheEntry.miss_count).label('total_misses')
             ).group_by(CacheEntry.cache_type).all()
             
             # Memory statistics
             memory_stats = db.query(SessionMemory).with_entities(
                 SessionMemory.memory_type,
-                db.func.count(SessionMemory.id).label('count')
+                func.count(SessionMemory.id).label('count')
             ).group_by(SessionMemory.memory_type).all()
             
             return {
@@ -545,6 +556,24 @@ class SessionManager:
             return {}
         finally:
             db.close()
+    
+    def start_cleanup_task(self):
+        """Start the background cleanup task"""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # If we're already in an event loop, create the task
+                asyncio.create_task(cleanup_task())
+                print("✅ Session cleanup task started successfully")
+            else:
+                # If no event loop is running, we need to run it
+                loop.run_until_complete(cleanup_task())
+        except RuntimeError:
+            # No event loop exists, create one
+            asyncio.run(cleanup_task())
+        except Exception as e:
+            print(f"❌ Error starting cleanup task: {e}")
+            raise e
 
 # Global session manager instance
 session_manager = SessionManager()

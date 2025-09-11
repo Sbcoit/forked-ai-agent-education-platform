@@ -31,7 +31,7 @@ def upgrade():
         sa.Column('content_hash', sa.String(), nullable=False),
         sa.Column('embedding_vector', Vector(1536), nullable=False),
         sa.Column('embedding_model', sa.String(), nullable=False),
-        sa.Column('embedding_dimension', sa.Integer(), nullable=False),
+        sa.Column('embedding_dimensions', sa.Integer(), nullable=False),
         sa.Column('original_content', sa.Text(), nullable=False),
         sa.Column('content_metadata', sa.JSON(), nullable=True),
         sa.Column('similarity_threshold', sa.Float(), nullable=True),
@@ -49,7 +49,7 @@ def upgrade():
     op.create_index('idx_vector_embeddings_created_at', 'vector_embeddings', ['created_at'])
     
     # Create vector index for similarity search
-    op.execute('CREATE INDEX idx_vector_embeddings_embedding_vector ON vector_embeddings USING ivfflat (embedding_vector vector_l2_ops) WITH (lists = 100)')
+    op.execute('CREATE INDEX IF NOT EXISTS idx_vector_embeddings_embedding_vector ON vector_embeddings USING ivfflat (embedding_vector vector_l2_ops) WITH (lists = 100)')
     
     # Create session_memory table
     op.create_table('session_memory',
@@ -160,7 +160,7 @@ def upgrade():
     )
     
     # Create indexes for cache_entries
-    op.create_index('idx_cache_entries_key', 'cache_entries', ['cache_key'])
+    op.create_index('idx_cache_entries_key', 'cache_entries', ['cache_key'], unique=True)
     op.create_index('idx_cache_entries_type', 'cache_entries', ['cache_type'])
     op.create_index('idx_cache_entries_expires_at', 'cache_entries', ['expires_at'])
     op.create_index('idx_cache_entries_last_accessed', 'cache_entries', ['last_accessed'])

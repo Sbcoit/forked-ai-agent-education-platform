@@ -1,7 +1,8 @@
 "use client"
 
-
 import React, { useState, useRef, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/lib/auth-context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,7 +15,7 @@ import Link from "next/link"
 import PersonaCard from "@/components/PersonaCard";
 import SceneCard from "@/components/SceneCard";
 import Sidebar from "@/components/Sidebar";
-import { buildApiUrl } from "@/lib/api";
+import { buildApiUrl, apiClient } from "@/lib/api";
 
 
 // Simple Modal component
@@ -104,7 +105,11 @@ function SceneModal({ isOpen, onClose, children }: { isOpen: boolean; onClose: (
 
 
 export default function ScenarioBuilder() {
- const [uploadedFile, setUploadedFile] = useState<File | null>(null)
+  const router = useRouter()
+  const { user, logout, isLoading: authLoading } = useAuth()
+  
+  // All hooks must be called before any conditional returns
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null)
  const fileInputRef = useRef<HTMLInputElement>(null)
  const [teachingNotesFile, setTeachingNotesFile] = useState<File | null>(null)
  const teachingNotesInputRef = useRef<HTMLInputElement>(null)
@@ -137,6 +142,36 @@ export default function ScenarioBuilder() {
  const [isPublishing, setIsPublishing] = useState(false);
  const [savedScenarioId, setSavedScenarioId] = useState<number | null>(null);
 
+ // Authentication logic - must be after all hooks
+ useEffect(() => {
+   if (!authLoading && !user) {
+     router.push("/")
+   }
+ }, [user, authLoading, router])
+ 
+ // Show loading while auth is being checked
+ if (authLoading) {
+   return (
+     <div className="min-h-screen bg-white flex items-center justify-center">
+       <div className="text-center">
+         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
+         <p className="text-black">Loading...</p>
+       </div>
+     </div>
+   )
+ }
+
+ // If no user, show redirecting message (navigation handled in useEffect)
+ if (!user) {
+   return (
+     <div className="min-h-screen bg-white flex items-center justify-center">
+       <div className="text-center">
+         <p className="text-black">Redirecting...</p>
+       </div>
+     </div>
+   )
+ }
+
  // Save and Publish handlers
  const handleSave = async (): Promise<number | null> => {
    if (!autofillResult) {
@@ -157,9 +192,14 @@ export default function ScenarioBuilder() {
      personas,
    };
 
-   // Debug log to check scenes state before saving
-   console.log("Scenes state before save:", scenes);
-   console.log("Personas state before save:", personas);
+  // Debug log to check scenes state before saving
+  console.log("Scenes state before save:", scenes);
+  console.log("Personas state before save:", personas);
+  
+  // Debug: Log persona traits specifically
+  personas.forEach((persona, index) => {
+    console.log(`[DEBUG] Persona ${index} (${persona.name}) traits being sent:`, persona.traits);
+  });
 
    setIsSaving(true);
    try {
@@ -170,11 +210,13 @@ export default function ScenarioBuilder() {
        scenes_count: payload.scenes?.length || 0
      });
      
-     const response = await fetch(buildApiUrl("/api/scenarios/save"), {
+     // Build endpoint with scenario_id if updating an existing scenario
+     const endpoint = savedScenarioId 
+       ? `/api/scenarios/save?scenario_id=${savedScenarioId}`
+       : "/api/scenarios/save";
+     
+     const response = await apiClient.apiRequest(endpoint, {
        method: "POST",
-       headers: {
-         "Content-Type": "application/json",
-       },
        body: JSON.stringify(payload),
      });
 
@@ -231,11 +273,8 @@ export default function ScenarioBuilder() {
        estimated_duration: 60
      };
      
-           const response = await fetch(buildApiUrl(`/api/scenarios/publish/${scenarioId}`), {
+           const response = await apiClient.apiRequest(`/api/scenarios/publish/${scenarioId}`, {
        method: "POST",
-       headers: {
-         "Content-Type": "application/json",
-       },
        body: JSON.stringify(publishData),
      });
 
@@ -368,18 +407,24 @@ export default function ScenarioBuilder() {
      position: "",
      description: "",
      traits: {
-       assertiveness: 3,
-       cooperativeness: 3,
-       openness: 3,
-       risk_tolerance: 3,
-       emotional_stability: 3
+       analytical: 5,
+       creative: 5,
+       assertive: 5,
+       collaborative: 5,
+       detail_oriented: 5,
+       risk_taking: 5,
+       empathetic: 5,
+       decisive: 5
      },
      defaultTraits: {
-       assertiveness: 3,
-       cooperativeness: 3,
-       openness: 3,
-       risk_tolerance: 3,
-       emotional_stability: 3
+       analytical: 5,
+       creative: 5,
+       assertive: 5,
+       collaborative: 5,
+       detail_oriented: 5,
+       risk_taking: 5,
+       empathetic: 5,
+       decisive: 5
      },
      primaryGoals: "",
      isTemp: true // Mark as temporary
@@ -647,11 +692,24 @@ export default function ScenarioBuilder() {
                description: formatDescription(figure.background || figure.correlation || 'No background information available.'),
                primaryGoals: formattedGoals,
                traits: {
-                 assertiveness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.assertive || 5) / 2))),
-                 cooperativeness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.collaborative || 5) / 2))),
-                 openness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.creative || 5) / 2))),
-                 risk_tolerance: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.analytical || 5) / 2))),
-                 emotional_stability: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.detail_oriented || 5) / 2)))
+                analytical: figure.personality_traits?.analytical || 5,
+                creative: figure.personality_traits?.creative || 5,
+                assertive: figure.personality_traits?.assertive || 5,
+                collaborative: figure.personality_traits?.collaborative || 5,
+                detail_oriented: figure.personality_traits?.detail_oriented || 5,
+                risk_taking: figure.personality_traits?.risk_taking || 5,
+                empathetic: figure.personality_traits?.empathetic || 5,
+                decisive: figure.personality_traits?.decisive || 5
+               },
+               defaultTraits: {
+                analytical: 5,
+                creative: 5,
+                assertive: 5,
+                collaborative: 5,
+                detail_oriented: 5,
+                risk_taking: 5,
+                empathetic: 5,
+                decisive: 5
                }
              };
            });
@@ -759,7 +817,7 @@ const handleAutofillWithTeachingNotes = async () => {
     console.log("[DEBUG] handleAutofillWithTeachingNotes: Secondary context (Business Case Study):", uploadedFile?.name || "None");
     console.log("[DEBUG] handleAutofillWithTeachingNotes: Additional context files:", uploadedFiles.map(f => f.name));
     
-    setAutofillStep(teachingNotesFile ? "Sending Teaching Notes and context files to backend..." : "Sending Business Case Study to backend...");
+    setAutofillStep("Processing Uploaded Files...");
     setAutofillProgress(50);
     
     const response = await fetch(buildApiUrl("/api/parse-pdf/"), {
@@ -887,11 +945,24 @@ const handleAutofillWithTeachingNotes = async () => {
               description: formatDescription(figure.background || figure.correlation || 'No background information available.'),
               primaryGoals: formattedGoals,
               traits: {
-                assertiveness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.assertive || 5) / 2))),
-                cooperativeness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.collaborative || 5) / 2))),
-                openness: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.creative || 5) / 2))),
-                risk_tolerance: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.analytical || 5) / 2))),
-                emotional_stability: Math.max(1, Math.min(5, Math.round((figure.personality_traits?.detail_oriented || 5) / 2)))
+                analytical: figure.personality_traits?.analytical || 5,
+                creative: figure.personality_traits?.creative || 5,
+                assertive: figure.personality_traits?.assertive || 5,
+                collaborative: figure.personality_traits?.collaborative || 5,
+                detail_oriented: figure.personality_traits?.detail_oriented || 5,
+                risk_taking: figure.personality_traits?.risk_taking || 5,
+                empathetic: figure.personality_traits?.empathetic || 5,
+                decisive: figure.personality_traits?.decisive || 5
+              },
+              defaultTraits: {
+                analytical: 5,
+                creative: 5,
+                assertive: 5,
+                collaborative: 5,
+                detail_oriented: 5,
+                risk_taking: 5,
+                empathetic: 5,
+                decisive: 5
               }
             };
           });
@@ -1044,24 +1115,6 @@ const handleAutofillWithTeachingNotes = async () => {
      .join('\n\n'); // Use double line breaks for better spacing
  }
 
- // Helper to extract likely player names from the title and description
- function extractPlayerNames(title: string, description: string) {
-   const names: string[] = [];
-   // Extract all 'Firstname Lastname' patterns from the entire description
-   if (description) {
-     const nameMatches = [...description.matchAll(/([A-Z][a-z]+ [A-Z][a-z]+)/g)];
-     for (const match of nameMatches) {
-       const name = match[1].trim();
-       if (!names.includes(name)) names.push(name);
-     }
-   }
-   // Fallback: try to extract from the title
-   if (title) {
-     const match = title.match(/([A-Z][a-z]+ [A-Z][a-z]+)/);
-     if (match && !names.includes(match[1].trim())) names.push(match[1].trim());
-   }
-   return names;
- }
 
  // Helper to extract single names that might be the main character
  function extractSingleNames(title: string, description: string) {
@@ -1083,55 +1136,21 @@ const handleAutofillWithTeachingNotes = async () => {
  }
 
 
- function isLikelySamePersonFuzzy(playerNames: string[], personaName: string) {
-   const nPersona = normalizeName(personaName);
-   return playerNames.some(playerName => {
-     const nPlayer = normalizeName(playerName);
-     const playerWords = nPlayer.split(" ").filter(Boolean);
-     // Require all player words (e.g., first and last name) to be present in persona name
-     return playerWords.length > 1 && playerWords.every(word => nPersona.includes(word));
-   });
- }
 
 
- // When autofillResult changes, update personas state (only if it contains personas array)
- useEffect(() => {
-   // Only run this if we have personas in the old format
-   if (
-     autofillResult &&
-     autofillResult.ai_result &&
-     Array.isArray(autofillResult.ai_result.personas) &&
-     autofillResult.ai_result.personas.length > 0 &&
-     !autofillResult.ai_result.key_figures // Only run if we don't have key_figures (old format)
-   ) {
-     console.log("[DEBUG] Found personas in autofillResult, applying legacy persona processing");
-     const playerNames = extractPlayerNames(name, description);
-     console.log("[DEBUG] Extracted player names:", playerNames);
-     const mainCharacter = playerNames[0]?.toLowerCase().trim();
-     autofillResult.ai_result.personas.forEach((persona: any) => {
-       console.log(`[DEBUG] Persona: '${persona.name}', Excluded: ${persona.name?.toLowerCase().trim() === mainCharacter}`);
-     });
-     const filtered = autofillResult.ai_result.personas.filter((persona: any) => {
-       return persona.name?.toLowerCase().trim() !== mainCharacter;
-     }).map((persona: any) => ({
-       ...persona,
-       traits: { ...persona.traits }, // editable traits
-       defaultTraits: { ...persona.traits } // original LLM traits
-     }));
-     setPersonas(filtered);
-   } else {
-     console.log("[DEBUG] No personas array in autofillResult or key_figures present, skipping legacy persona processing");
-   }
- }, [autofillResult, name, description]);
 
 
  // Update persona traits handler
  const handleTraitsChange = (idx: number, newTraits: any) => {
+   console.log(`[DEBUG] SimulationBuilder: handleTraitsChange called for persona ${idx} with traits:`, newTraits);
+   
    // Check if we're editing a temporary persona
    if (editingIdx !== null && tempPersonas[editingIdx]?.isTemp) {
      setTempPersonas(tempPersonas => tempPersonas.map((p, i) => i === idx ? { ...p, traits: { ...newTraits } } : p));
+     console.log(`[DEBUG] SimulationBuilder: Updated temp persona ${idx} traits`);
    } else {
      setPersonas(personas => personas.map((p, i) => i === idx ? { ...p, traits: { ...newTraits } } : p));
+     console.log(`[DEBUG] SimulationBuilder: Updated persona ${idx} traits`);
    }
  };
 

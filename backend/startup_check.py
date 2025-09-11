@@ -52,13 +52,17 @@ def check_postgresql_connection():
     except FileNotFoundError:
         logger.error("❌ PostgreSQL is not installed or not in PATH")
         return False
+    except Exception as e:
+        logger.error(f"❌ Error checking PostgreSQL: {e}")
+        return False
 
 def check_database_connection():
     """Check if we can connect to the database"""
     try:
         from database.connection import engine
+        from sqlalchemy import text
         with engine.connect() as conn:
-            result = conn.execute("SELECT 1")
+            result = conn.execute(text("SELECT 1"))
             if result.scalar() == 1:
                 logger.info("✅ Database connection successful")
                 return True
@@ -79,10 +83,18 @@ def check_env_file():
     missing_vars = []
     
     with open(env_file, 'r') as f:
-        env_content = f.read()
+        env_lines = f.readlines()
+    
+    env_vars = set()
+    for line in env_lines:
+        line = line.strip()
+        if line and not line.startswith('#'):
+            if '=' in line:
+                var_name = line.split('=', 1)[0].strip()
+                env_vars.add(var_name)
     
     for var in required_vars:
-        if f"{var}=" not in env_content:
+        if var not in env_vars:
             missing_vars.append(var)
     
     if missing_vars:
@@ -96,11 +108,11 @@ def check_database_tables():
     """Check if database tables exist"""
     try:
         from database.connection import engine
-        from database.models import Base
+        from sqlalchemy import text
         
         # Check if tables exist by trying to query a simple table
         with engine.connect() as conn:
-            result = conn.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'")
+            result = conn.execute(text("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public'"))
             table_count = result.scalar()
             
             if table_count > 0:

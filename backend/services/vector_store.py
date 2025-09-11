@@ -20,16 +20,39 @@ except ImportError:
 
 from database.connection import get_db, settings
 from database.models import VectorEmbeddings
-from langchain_config import embeddings
+from langchain_config import embeddings, settings as langchain_settings
 
 class VectorStoreService:
     """
     Vector store service with fallback implementations
     """
     
-    def __init__(self):
+    def __init__(self, embedding_model: str = None):
         self.pgvector_available = PGVECTOR_AVAILABLE
         self.embeddings_model = embeddings
+        # Use provided embedding model or get from config with fallback
+        self.embedding_model = embedding_model or self._get_configured_embedding_model()
+    
+    def _get_configured_embedding_model(self) -> str:
+        """Get the configured embedding model with fallback"""
+        try:
+            # Try to get from langchain settings first
+            if hasattr(langchain_settings, 'embedding_model'):
+                if langchain_settings.embedding_model == "openai":
+                    return getattr(langchain_settings, 'openai_embedding_model', 'text-embedding-ada-002')
+                else:
+                    return langchain_settings.embedding_model
+        except Exception:
+            pass
+        
+        # Fallback to environment variable
+        import os
+        env_model = os.getenv('EMBEDDING_MODEL')
+        if env_model:
+            return env_model
+        
+        # Final fallback
+        return "text-embedding-ada-002"
         
     async def store_embedding(self, 
                             content: str, 
@@ -62,27 +85,46 @@ class VectorStoreService:
             return None
     
     async def _generate_embedding(self, text: str) -> List[float]:
-        """Generate embedding for text"""
+        """Generate embedding for text (async version)"""
         try:
-            # Use LangChain embeddings
-            embedding = await self.embeddings_model.aembed_query(text)
+            # Use LangChain embeddings - check if async method exists
+            if hasattr(self.embeddings_model, 'aembed_query'):
+                embedding = await self.embeddings_model.aembed_query(text)
+            else:
+                # Fall back to sync method
+                embedding = self.embeddings_model.embed_query(text)
             
-            # Ensure we have the right dimension (1536 for OpenAI, 384 for HuggingFace)
-            if len(embedding) == 384:
-                # Pad to 1536 dimensions for consistency
-                embedding = embedding + [0.0] * (1536 - 384)
-            elif len(embedding) != 1536:
-                # Truncate or pad to 1536 dimensions
-                if len(embedding) > 1536:
-                    embedding = embedding[:1536]
-                else:
-                    embedding = embedding + [0.0] * (1536 - len(embedding))
-            
-            return embedding
+            return self._normalize_embedding_dimensions(embedding)
         except Exception as e:
             print(f"Error generating embedding: {e}")
             # Fallback to simple hash-based embedding
             return self._generate_fallback_embedding(text)
+    
+    def _generate_embedding_sync(self, text: str) -> List[float]:
+        """Generate embedding for text (sync version)"""
+        try:
+            # Use LangChain embeddings sync method
+            embedding = self.embeddings_model.embed_query(text)
+            return self._normalize_embedding_dimensions(embedding)
+        except Exception as e:
+            print(f"Error generating embedding: {e}")
+            # Fallback to simple hash-based embedding
+            return self._generate_fallback_embedding(text)
+    
+    def _normalize_embedding_dimensions(self, embedding: List[float]) -> List[float]:
+        """Normalize embedding dimensions to 1536 for consistency"""
+        # Ensure we have the right dimension (1536 for OpenAI, 384 for HuggingFace)
+        if len(embedding) == 384:
+            # Pad to 1536 dimensions for consistency
+            embedding = embedding + [0.0] * (1536 - 384)
+        elif len(embedding) != 1536:
+            # Truncate or pad to 1536 dimensions
+            if len(embedding) > 1536:
+                embedding = embedding[:1536]
+            else:
+                embedding = embedding + [0.0] * (1536 - len(embedding))
+        
+        return embedding
     
     def _generate_fallback_embedding(self, text: str) -> List[float]:
         """Generate a simple fallback embedding when OpenAI is not available"""
@@ -120,8 +162,9 @@ class VectorStoreService:
                                  collection_name: str,
                                  document_id: str) -> str:
         """Store embedding using pgvector"""
+        db_gen = get_db()
         try:
-            db = next(get_db())
+            db = next(db_gen)
             
             # Check if document already exists
             existing = db.query(VectorEmbeddings).filter(
@@ -143,7 +186,7 @@ class VectorStoreService:
                 content_id=0,  # We'll use content_hash as the unique identifier
                 content_hash=document_id,
                 embedding_vector=embedding_vector,
-                embedding_model="openai-ada-002",
+                embedding_model=self.embedding_model,
                 embedding_dimension=len(embedding_vector),
                 original_content=content,
                 content_metadata=metadata
@@ -160,8 +203,10 @@ class VectorStoreService:
                 content, embedding_vector, metadata, collection_name, document_id
             )
         finally:
-            if 'db' in locals():
-                db.close()
+            try:
+                next(db_gen)  # This will trigger the finally block in get_db()
+            except StopIteration:
+                pass  # Generator is already closed
     
     async def _store_with_fallback(self, 
                                  content: str, 
@@ -170,8 +215,9 @@ class VectorStoreService:
                                  collection_name: str,
                                  document_id: str) -> str:
         """Store embedding using fallback method (JSON storage)"""
+        db_gen = get_db()
         try:
-            db = next(get_db())
+            db = next(db_gen)
             
             # Store as JSON in metadata field
             embedding_data = {
@@ -201,7 +247,7 @@ class VectorStoreService:
                 content_id=0,
                 content_hash=document_id,
                 embedding_vector=embedding_vector,  # Store the actual vector
-                embedding_model="fallback",
+                embedding_model=f"fallback-{self.embedding_model}",
                 embedding_dimension=len(embedding_vector),
                 original_content=content,
                 content_metadata=embedding_data
@@ -215,8 +261,10 @@ class VectorStoreService:
             print(f"Error storing with fallback: {e}")
             return None
         finally:
-            if 'db' in locals():
-                db.close()
+            try:
+                next(db_gen)  # This will trigger the finally block in get_db()
+            except StopIteration:
+                pass  # Generator is already closed
     
     async def similarity_search(self, 
                               query: str, 
@@ -249,8 +297,9 @@ class VectorStoreService:
                                         k: int,
                                         score_threshold: float) -> List[Dict[str, Any]]:
         """Similarity search using pgvector"""
+        db_gen = get_db()
         try:
-            db = next(get_db())
+            db = next(db_gen)
             
             # Use pgvector similarity search
             results = db.execute(
@@ -289,8 +338,10 @@ class VectorStoreService:
                 query_embedding, collection_name, k, score_threshold
             )
         finally:
-            if 'db' in locals():
-                db.close()
+            try:
+                next(db_gen)  # This will trigger the finally block in get_db()
+            except StopIteration:
+                pass  # Generator is already closed
     
     async def _similarity_search_fallback(self, 
                                         query_embedding: List[float],
@@ -298,8 +349,9 @@ class VectorStoreService:
                                         k: int,
                                         score_threshold: float) -> List[Dict[str, Any]]:
         """Similarity search using fallback method (cosine similarity)"""
+        db_gen = get_db()
         try:
-            db = next(get_db())
+            db = next(db_gen)
             
             # Get all embeddings from collection
             embeddings_data = db.query(VectorEmbeddings).filter(
@@ -332,8 +384,10 @@ class VectorStoreService:
             print(f"Error in fallback similarity search: {e}")
             return []
         finally:
-            if 'db' in locals():
-                db.close()
+            try:
+                next(db_gen)  # This will trigger the finally block in get_db()
+            except StopIteration:
+                pass  # Generator is already closed
     
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """Calculate cosine similarity between two vectors"""
@@ -358,8 +412,9 @@ class VectorStoreService:
     
     async def get_document(self, document_id: str, collection_name: str = "default") -> Optional[Dict[str, Any]]:
         """Retrieve a specific document"""
+        db_gen = get_db()
         try:
-            db = next(get_db())
+            db = next(db_gen)
             
             result = db.query(VectorEmbeddings).filter(
                 VectorEmbeddings.content_hash == document_id,
@@ -380,13 +435,16 @@ class VectorStoreService:
             print(f"Error retrieving document: {e}")
             return None
         finally:
-            if 'db' in locals():
-                db.close()
+            try:
+                next(db_gen)  # This will trigger the finally block in get_db()
+            except StopIteration:
+                pass  # Generator is already closed
     
     async def delete_document(self, document_id: str, collection_name: str = "default") -> bool:
         """Delete a document"""
+        db_gen = get_db()
         try:
-            db = next(get_db())
+            db = next(db_gen)
             
             result = db.query(VectorEmbeddings).filter(
                 VectorEmbeddings.content_hash == document_id,
@@ -404,13 +462,16 @@ class VectorStoreService:
             print(f"Error deleting document: {e}")
             return False
         finally:
-            if 'db' in locals():
-                db.close()
+            try:
+                next(db_gen)  # This will trigger the finally block in get_db()
+            except StopIteration:
+                pass  # Generator is already closed
     
     async def get_collection_stats(self, collection_name: str = "default") -> Dict[str, Any]:
         """Get statistics for a collection"""
+        db_gen = get_db()
         try:
-            db = next(get_db())
+            db = next(db_gen)
             
             total_docs = db.query(VectorEmbeddings).filter(
                 VectorEmbeddings.content_type == collection_name
@@ -431,8 +492,10 @@ class VectorStoreService:
                 "error": str(e)
             }
         finally:
-            if 'db' in locals():
-                db.close()
+            try:
+                next(db_gen)  # This will trigger the finally block in get_db()
+            except StopIteration:
+                pass  # Generator is already closed
 
-# Global instance
+# Global instance - uses configured embedding model
 vector_store_service = VectorStoreService()

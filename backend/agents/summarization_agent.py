@@ -53,28 +53,105 @@ class SummarizationAgent:
         """Create tools for summarization operations"""
         from langchain.tools import tool
         
-        @tool
-        def summarize_conversation(conversation_text: str) -> str:
-            """Summarize a conversation while preserving key information"""
-            return f"Summarized conversation with {len(conversation_text.split())} words"
+        # Create tool instances that can access self.llm
+        summarize_tool = tool(self._summarize_conversation_tool)
+        extract_tool = tool(self._extract_key_points_tool)
+        learning_tool = tool(self._identify_learning_moments_tool)
+        context_tool = tool(self._create_context_summary_tool)
         
-        @tool
-        def extract_key_points(conversation_text: str) -> str:
-            """Extract key points and decisions from conversation"""
-            return f"Extracted key points from conversation"
-        
-        @tool
-        def identify_learning_moments(conversation_text: str) -> str:
-            """Identify important learning moments and insights"""
-            return f"Identified learning moments from conversation"
-        
-        @tool
-        def create_context_summary(scene_context: str, persona_context: str) -> str:
-            """Create a comprehensive context summary"""
-            return f"Created context summary combining scene and persona information"
-        
-        return [summarize_conversation, extract_key_points, 
-                identify_learning_moments, create_context_summary]
+        return [summarize_tool, extract_tool, learning_tool, context_tool]
+    
+    async def _summarize_conversation_tool(self, conversation_text: str) -> str:
+        """Summarize a conversation while preserving key information"""
+        try:
+            prompt = f"""Please provide a concise summary of the following conversation while preserving key information, decisions made, and important context:
+
+{conversation_text}
+
+Summary should be:
+- Clear and concise (2-3 sentences)
+- Include key decisions or outcomes
+- Preserve important context for future reference
+- Maintain the educational value
+
+Summary:"""
+            
+            response = await self.llm.ainvoke(prompt)
+            return response.content
+            
+        except Exception as e:
+            print(f"Error in summarize_conversation: {e}")
+            return f"Conversation summary unavailable due to processing error. Original text length: {len(conversation_text)} words."
+    
+    async def _extract_key_points_tool(self, conversation_text: str) -> str:
+        """Extract key points and decisions from conversation"""
+        try:
+            prompt = f"""Extract the key points and important decisions from this conversation:
+
+{conversation_text}
+
+Please identify:
+- Key decisions made
+- Important insights or realizations
+- Action items or next steps
+- Critical information for future reference
+
+Format as a bulleted list of key points:"""
+            
+            response = await self.llm.ainvoke(prompt)
+            return response.content
+            
+        except Exception as e:
+            print(f"Error in extract_key_points: {e}")
+            return "Key points extraction unavailable due to processing error."
+    
+    async def _identify_learning_moments_tool(self, conversation_text: str) -> str:
+        """Identify important learning moments and insights"""
+        try:
+            prompt = f"""Identify the most important learning moments and insights from this educational conversation:
+
+{conversation_text}
+
+Focus on:
+- Moments where new understanding was gained
+- Insights that could be applied to future situations
+- Key lessons learned
+- Breakthrough moments or realizations
+
+Provide a structured analysis of the learning moments:"""
+            
+            response = await self.llm.ainvoke(prompt)
+            return response.content
+            
+        except Exception as e:
+            print(f"Error in identify_learning_moments: {e}")
+            return "Learning moments analysis unavailable due to processing error."
+    
+    async def _create_context_summary_tool(self, scene_context: str, persona_context: str) -> str:
+        """Create a comprehensive context summary"""
+        try:
+            prompt = f"""Create a comprehensive context summary by combining the following scene and persona information:
+
+SCENE CONTEXT:
+{scene_context}
+
+PERSONA CONTEXT:
+{persona_context}
+
+Please create a unified context summary that:
+- Integrates both scene and persona information
+- Highlights the key context elements
+- Provides a clear understanding of the current situation
+- Maintains important details for future reference
+
+Comprehensive Context Summary:"""
+            
+            response = await self.llm.ainvoke(prompt)
+            return response.content
+            
+        except Exception as e:
+            print(f"Error in create_context_summary: {e}")
+            return f"Context summary unavailable due to processing error. Scene context length: {len(scene_context)} chars, Persona context length: {len(persona_context)} chars."
     
     def _create_summarization_prompt(self) -> ChatPromptTemplate:
         """Create summarization prompt template"""
@@ -101,6 +178,16 @@ SUMMARIZATION PRINCIPLES:
 - Maintain context for future persona interactions
 - Keep summaries concise but comprehensive
 - Focus on educational value and progress
+
+OUTPUT FORMAT:
+Return your response as valid JSON only, with no additional text. Use this exact structure:
+{
+  "summary": "A concise summary of the conversation or content",
+  "key_points": ["Point 1", "Point 2", "Point 3"],
+  "learning_moments": ["Moment 1", "Moment 2"],
+  "insights": ["Insight 1", "Insight 2"],
+  "recommendations": ["Recommendation 1", "Recommendation 2"]
+}
 
 Use your tools to systematically analyze and summarize conversations."""
     
@@ -283,26 +370,80 @@ Use your tools to analyze and synthesize these summaries.
         
         return "\n".join(formatted_lines)
     
-    def _parse_summarization_response(self, response: str) -> Dict[str, Any]:
-        """Parse summarization response"""
-        try:
-            # Try to extract JSON from response
-            import re
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                json_str = json_match.group(0)
-                result = json.loads(json_str)
+    def _extract_json_from_response(self, response: str) -> str:
+        """Extract the first complete JSON object from response using balanced bracket matching"""
+        if not response:
+            return ""
+        
+        # Find the first opening brace
+        start_idx = response.find('{')
+        if start_idx == -1:
+            return ""
+        
+        # Count braces to find the matching closing brace
+        brace_count = 0
+        in_string = False
+        escape_next = False
+        
+        for i in range(start_idx, len(response)):
+            char = response[i]
+            
+            if escape_next:
+                escape_next = False
+                continue
                 
-                # Ensure required fields exist
-                return {
-                    "summary": result.get("summary", response),
-                    "key_points": result.get("key_points", []),
-                    "learning_moments": result.get("learning_moments", []),
-                    "insights": result.get("insights", []),
-                    "recommendations": result.get("recommendations", [])
-                }
+            if char == '\\':
+                escape_next = True
+                continue
+                
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+                
+            if not in_string:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        # Found the complete JSON object
+                        return response[start_idx:i+1]
+        
+        # If we get here, no complete JSON object was found
+        return ""
+    
+    def _parse_summarization_response(self, response: str) -> Dict[str, Any]:
+        """Parse summarization response with robust JSON extraction and error handling"""
+        import json
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # First, try to parse the entire response as JSON (in case it's clean JSON)
+            try:
+                result = json.loads(response.strip())
+                logger.debug("Successfully parsed entire response as JSON")
+                return self._validate_and_format_result(result, response)
+            except json.JSONDecodeError:
+                logger.debug("Response is not clean JSON, attempting extraction")
+            
+            # Extract JSON using balanced bracket matching
+            json_str = self._extract_json_from_response(response)
+            
+            if json_str:
+                try:
+                    result = json.loads(json_str)
+                    logger.debug("Successfully extracted and parsed JSON from response")
+                    return self._validate_and_format_result(result, response)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse extracted JSON: {e}")
+                    logger.debug(f"Extracted JSON string: {json_str[:200]}...")
+            else:
+                logger.warning("No complete JSON object found in response")
             
             # Fallback: return response as summary
+            logger.info("Using fallback parsing - returning response as summary")
             return {
                 "summary": response,
                 "key_points": [],
@@ -312,7 +453,8 @@ Use your tools to analyze and synthesize these summaries.
             }
             
         except Exception as e:
-            print(f"Error parsing summarization response: {e}")
+            logger.error(f"Unexpected error parsing summarization response: {e}")
+            logger.debug(f"Response content: {response[:200]}...")
             return {
                 "summary": response,
                 "key_points": [],
@@ -320,6 +462,16 @@ Use your tools to analyze and synthesize these summaries.
                 "insights": [],
                 "recommendations": []
             }
+    
+    def _validate_and_format_result(self, result: Dict[str, Any], original_response: str) -> Dict[str, Any]:
+        """Validate and format the parsed result to ensure required fields exist"""
+        return {
+            "summary": result.get("summary", original_response),
+            "key_points": result.get("key_points", []),
+            "learning_moments": result.get("learning_moments", []),
+            "insights": result.get("insights", []),
+            "recommendations": result.get("recommendations", [])
+        }
     
     def create_memory_summary(self, 
                             conversation_history: List[BaseMessage],
@@ -471,7 +623,33 @@ Create a detailed summary that:
 
 Summary:"""
 
-            # Use LangChain LLM for enhanced generation
+            # Use LangChain LLM for enhanced generation with persona awareness
+            persona_name = scene_data.get('persona_name', 'the persona')
+            persona_role = scene_data.get('persona_role', 'Team Member')
+            summary_prompt = f"""Analyze the interaction between the user and {persona_name} in this business simulation.
+
+PERSONA: {persona_name} - {persona_role}
+
+SCENE: {scene_data.get('title', 'Unknown Scene')}
+GOAL: {scene_data.get('user_goal', 'Not specified')}
+GOAL ACHIEVED: {goal_achieved}
+FORCED PROGRESSION: {forced_progression}
+
+CONVERSATION:
+{conversation_text}
+
+Create a detailed summary that:
+1. Acknowledges what the user accomplished or attempted with {persona_name}
+2. Identifies key insights, decisions, or missed opportunities in the interaction
+3. Analyzes the user's communication style and approach with the persona
+4. Provides constructive feedback for learning and improvement
+5. Encourages progression to the next scene
+6. Maintains a supportive, educational tone
+7. Is 2-3 sentences for brief summaries or more detailed for comprehensive analysis
+
+Focus on the interpersonal dynamics, decision-making process, and learning outcomes from the user's interaction with {persona_name}.
+
+Summary:"""
             response = await self.llm.ainvoke(summary_prompt)
             return response.content
             

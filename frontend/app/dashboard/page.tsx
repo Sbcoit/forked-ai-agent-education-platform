@@ -21,81 +21,40 @@ export default function Dashboard() {
   const router = useRouter()
   const { user, logout, isLoading: authLoading } = useAuth()
   
-  const [agents, setAgents] = useState<Agent[]>([])
-  const [scenarios, setScenarios] = useState<Scenario[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState("")
-
+  // Handle redirect when user is not authenticated
   useEffect(() => {
-    // Commented out auth check for development
-    // if (!authLoading && !user) {
-    //   router.push("/")
-    //   return
-    // }
-
-    // if (user) {
-    //   loadDashboardData()
-    // }
-    
-    // Load dashboard data without auth for now
-    loadDashboardData()
-  }, [user, authLoading, router])
-
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true)
-      
-      // Commented out API calls for development - just show empty state
-      // const [userAgents, allScenarios] = await Promise.all([
-      //   apiClient.getUserAgents(user!.id),
-      //   apiClient.getScenarios()
-      // ])
-      
-      // setAgents(userAgents.slice(0, 3)) // Show only recent 3 agents
-      // setScenarios(allScenarios.slice(0, 3)) // Show only recent 3 scenarios
-      
-      // Set empty arrays for now
-      setAgents([])
-      setScenarios([])
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load dashboard data")
-    } finally {
-      setLoading(false)
+    if (!authLoading && !user) {
+      router.push("/")
     }
+  }, [user, authLoading, router])
+  
+  // Show loading while auth is being checked
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
+          <p className="text-black">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // If no user, show redirecting message (navigation handled in useEffect)
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-black">Redirecting...</p>
+        </div>
+      </div>
+    )
   }
 
   const handleLogout = () => {
     logout()
     router.push("/")
   }
-
-  // Commented out loading check for development
-  // if (authLoading || loading) {
-  //   return (
-  //     <div className="min-h-screen bg-white flex items-center justify-center">
-  //       <div className="text-center">
-  //         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
-  //         <p className="text-black">Loading your dashboard...</p>
-  //       </div>
-  //     </div>
-  //   )
-  // }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-500 mb-4">{error}</p>
-          <Button onClick={loadDashboardData} className="bg-black text-white hover:bg-gray-800">
-            Try Again
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  // Commented out user check for development
-  // if (!user) return null
 
   return (
     <div className="min-h-screen bg-white">
@@ -187,41 +146,18 @@ export default function Dashboard() {
           <div>
             <h2 className="text-2xl font-bold text-black mb-6">My simulations</h2>
             
-            {scenarios.length === 0 ? (
-              <div className="text-center py-8">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Package className="h-8 w-8 text-gray-400" />
-                </div>
-                <p className="text-gray-500 text-base mb-2">No simulations yet</p>
-                <p className="text-gray-400 text-sm mb-4">Create your first simulation to get started</p>
-                <Link href="/simulation-builder">
-                  <Button className="bg-black text-white hover:bg-gray-800 text-sm">
-                    Create Simulation
-                  </Button>
-                </Link>
+            <div className="text-center py-8">
+              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Package className="h-8 w-8 text-gray-400" />
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {scenarios.map((scenario) => (
-                  <Card key={scenario.id} className="bg-white border-gray-200 hover:shadow-lg transition-shadow">
-                    <CardHeader>
-                      <CardTitle className="text-lg">{scenario.title}</CardTitle>
-                      <p className="text-sm text-gray-600">{scenario.description}</p>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center justify-between">
-                        <Badge variant="outline" className="border-gray-300 text-gray-600">
-                          {scenario.difficulty}
-                        </Badge>
-                        <Button size="sm" variant="ghost" className="text-black hover:text-gray-600">
-                          View
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
+              <p className="text-gray-500 text-base mb-2">No simulations yet</p>
+              <p className="text-gray-400 text-sm mb-4">Create your first simulation to get started</p>
+              <Link href="/simulation-builder">
+                <Button className="bg-black text-white hover:bg-gray-800 text-sm">
+                  Create Simulation
+                </Button>
+              </Link>
+            </div>
           </div>
         </div>
       </div>

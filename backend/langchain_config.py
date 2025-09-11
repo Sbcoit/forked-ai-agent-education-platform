@@ -60,28 +60,12 @@ class LangChainSettings(BaseSettings):
 # Use existing database connection settings
 from database.connection import settings as db_settings
 
-# Global settings instance - use existing settings with defaults
-class LangChainSettings:
-    def __init__(self):
-        self.openai_api_key = db_settings.openai_api_key
-        self.postgres_url = db_settings.database_url
-        self.redis_host = "localhost"
-        self.redis_port = 6379
-        self.redis_db = 0
-        self.redis_enabled = False  # Disable Redis by default
-        self.redis_url = f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
-        self.openai_model = "gpt-4o"
-        self.embedding_model = "text-embedding-ada-002"
-        self.huggingface_model = "sentence-transformers/all-MiniLM-L6-v2"
-        self.embedding_dimension = 1536
-        self.max_retrieval_docs = 5
-        self.session_timeout = 3600
-        self.cache_ttl = 1800
-        self.vector_collection_name = "scenario_embeddings"
-        self.chunk_size = 1000
-        self.chunk_overlap = 200
-
-settings = LangChainSettings()
+# Initialize settings with database values and environment overrides
+settings = LangChainSettings(
+    openai_api_key=db_settings.openai_api_key,
+    postgres_url=db_settings.database_url,
+    redis_enabled=False  # Disable Redis by default
+)
 
 class LangChainManager:
     """Centralized LangChain component manager"""
@@ -110,10 +94,16 @@ class LangChainManager:
     def embeddings(self):
         """Get or create embeddings instance"""
         if self._embeddings is None:
-            if settings.embedding_model == "openai":
+            # support explicit provider setting, and fall back to legacy uses where embedding_model held the provider
+            provider = getattr(settings, "embedding_provider", None)
+            if provider is None and getattr(settings, "embedding_model", None) == "openai":
+                provider = "openai"
+
+            if provider == "openai":
+                model_name = getattr(settings, "openai_embedding_model", getattr(settings, "embedding_model", None))
                 self._embeddings = OpenAIEmbeddings(
-                    model=settings.openai_embedding_model,
-                    api_key=settings.openai_api_key
+                    model=model_name,
+                    api_key=getattr(settings, "openai_api_key", None)
                 )
             else:
                 self._embeddings = HuggingFaceEmbeddings(
@@ -158,7 +148,7 @@ class LangChainManager:
     
     def create_conversation_memory(self, 
                                  session_id: str,
-                                 memory_type: str = "buffer_window") -> BaseMessage:
+                                 memory_type: str = "buffer_window"):
         """Create conversation memory for a session"""
         if memory_type == "buffer_window":
             return ConversationBufferWindowMemory(

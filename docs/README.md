@@ -401,7 +401,6 @@ ai-agent-education-platform/
 │   │   ├── parse_pdf.py             # PDF processing endpoints
 │   │   ├── simulation.py            # Linear simulation endpoints
 │   │   ├── chat_orchestrator.py     # ChatOrchestrator logic
-│   │   ├── chat_box.py              # Chat interface endpoints
 │   │   └── publishing.py            # Marketplace publishing
 │   ├── agents/                       # AI Agent implementations
 │   │   ├── persona_agent.py         # Persona-specific AI interactions
@@ -430,10 +429,9 @@ ai-agent-education-platform/
 │   ├── app/                          # Next.js app router pages
 │   │   ├── chat-box/                # Interactive chat interface
 │   │   ├── simulation-builder/      # PDF upload and simulation creation
-│   │   ├── marketplace/             # Community scenario discovery
 │   │   ├── dashboard/               # User progress and analytics
-│   │   ├── agent-builder/           # AI agent creation interface
 │   │   ├── login/                   # Authentication pages
+│   │   ├── signup/                  # User registration
 │   │   ├── layout.tsx               # Root layout component
 │   │   ├── page.tsx                 # Home page
 │   │   └── globals.css              # Global styles

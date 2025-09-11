@@ -12,6 +12,15 @@ from datetime import datetime
 import asyncio
 
 # LangChain imports (optional - will gracefully degrade if not available)
+LANGCHAIN_AVAILABLE = False
+langchain_manager = None
+PersonaAgent = None
+persona_agent_manager = None
+grading_agent = None
+summarization_agent = None
+session_manager = None
+scene_memory_manager = None
+
 try:
     from langchain_config import langchain_manager
     from agents.persona_agent import PersonaAgent, persona_agent_manager
@@ -20,9 +29,8 @@ try:
     from services.session_manager import session_manager
     from services.scene_memory import scene_memory_manager
     LANGCHAIN_AVAILABLE = True
-except ImportError:
-    LANGCHAIN_AVAILABLE = False
-    print("LangChain components not available - running in compatibility mode")
+except ImportError as e:
+    print(f"LangChain components not available - running in compatibility mode: {e}")
 
 @dataclass
 class SimulationState:
@@ -82,47 +90,78 @@ class ChatOrchestrator:
     async def initialize_langchain_session(self, user_progress_id: int) -> bool:
         """Initialize LangChain session and agents (optional enhancement)"""
         if not self.langchain_enabled:
+            print("LangChain integration not enabled, skipping session initialization")
             return False
         
         try:
             self.user_progress_id = user_progress_id
+            
+            # Generate session ID (synchronous method)
             self.state.session_id = session_manager.generate_session_id(
                 user_progress_id, 
                 self.scenario.get('id', 0), 
                 self.state.current_scene_index
             )
+            print(f"Generated session ID: {self.state.session_id}")
             
             # Initialize scene memory
             current_scene = self.get_current_scene()
-            if current_scene:
-                scene_data = {
-                    "id": current_scene.get('id'),
-                    "title": current_scene.get('title'),
-                    "description": current_scene.get('description'),
-                    "user_goal": current_scene.get('user_goal'),
-                    "objectives": current_scene.get('objectives', [])
-                }
+            if not current_scene:
+                print("No current scene available for initialization")
+                return False
                 
-                # Get personas for current scene
+            scene_data = {
+                "id": current_scene.get('id'),
+                "title": current_scene.get('title'),
+                "description": current_scene.get('description'),
+                "user_goal": current_scene.get('user_goal'),
+                "objectives": current_scene.get('objectives', [])
+            }
+            
+            # Get personas for current scene with error handling
+            try:
                 personas = await self._get_scene_personas(current_scene.get('id'))
-                
-                # Initialize scene memory
-                await scene_memory_manager.initialize_scene_memory(
+                print(f"Retrieved {len(personas)} personas for scene {current_scene.get('id')}")
+            except Exception as e:
+                print(f"Error retrieving scene personas: {e}")
+                personas = []
+            
+            # Initialize scene memory with error handling
+            try:
+                memory_initialized = await scene_memory_manager.initialize_scene_memory(
                     user_progress_id,
                     current_scene.get('id'),
                     scene_data,
                     personas
                 )
                 
-                self.state.scene_memory_initialized = True
+                if memory_initialized:
+                    self.state.scene_memory_initialized = True
+                    print(f"Scene memory initialized successfully for scene {current_scene.get('id')}")
+                else:
+                    print(f"Failed to initialize scene memory for scene {current_scene.get('id')}")
+                    return False
+                    
+            except Exception as e:
+                print(f"Error initializing scene memory: {e}")
+                return False
             
-            # Create agent sessions
-            await self._create_agent_sessions()
+            # Create agent sessions with error handling
+            try:
+                await self._create_agent_sessions()
+                print(f"Created {len(self.state.agent_sessions)} agent sessions")
+            except Exception as e:
+                print(f"Error creating agent sessions: {e}")
+                # Don't fail completely if agent sessions fail, but log the error
+                pass
             
+            print(f"LangChain session initialization completed successfully for user {user_progress_id}")
             return True
             
         except Exception as e:
-            print(f"Error initializing LangChain session: {e}")
+            print(f"Critical error initializing LangChain session: {e}")
+            # Clean up any partial state
+            await self._cleanup_failed_initialization()
             return False
     
     async def _get_scene_personas(self, scene_id: int) -> List[Any]:
@@ -130,6 +169,7 @@ class ChatOrchestrator:
         if not self.langchain_enabled:
             return []
         
+        db = None
         try:
             from database.connection import get_db
             from database.models import ScenarioPersona, scene_personas
@@ -141,62 +181,121 @@ class ChatOrchestrator:
             
             return personas
         except Exception as e:
-            print(f"Error getting scene personas: {e}")
+            print(f"Error getting scene personas for scene {scene_id}: {e}")
             return []
         finally:
-            if 'db' in locals():
-                db.close()
+            if db is not None:
+                try:
+                    db.close()
+                except Exception as close_error:
+                    print(f"Error closing database connection: {close_error}")
     
+    async def _cleanup_failed_initialization(self):
+        """Clean up any partial state from failed initialization"""
+        try:
+            # Clear any partial state
+            self.state.scene_memory_initialized = False
+            self.state.agent_sessions.clear()
+            self.persona_agents.clear()
+            
+            # If we have a session ID, try to clean it up
+            if hasattr(self.state, 'session_id') and self.state.session_id:
+                try:
+                    await session_manager.expire_session(self.state.session_id)
+                except Exception as e:
+                    print(f"Error expiring session during cleanup: {e}")
+            
+            print("Cleaned up partial initialization state")
+        except Exception as e:
+            print(f"Error during cleanup: {e}")
     async def _create_agent_sessions(self):
         """Create LangChain agent sessions (optional enhancement)"""
         if not self.langchain_enabled:
             return
         
+        created_sessions = []
         try:
             # Create persona agent sessions
             for persona in self.personas:
-                agent_type = "persona"
-                agent_id = persona.get('id')
-                
-                session_id = await session_manager.create_agent_session(
-                    user_progress_id=self.user_progress_id,
-                    agent_type=agent_type,
-                    agent_id=agent_id,
-                    session_config={
-                        "persona_name": persona.get('identity', {}).get('name'),
-                        "persona_role": persona.get('identity', {}).get('role'),
-                        "persona_background": persona.get('identity', {}).get('bio')
-                    }
-                )
-                
-                self.state.agent_sessions[agent_id] = session_id
-                
-                # Create persona agent
-                persona_obj = await self._get_persona_from_db(persona.get('db_id'))
-                if persona_obj:
-                    self.persona_agents[agent_id] = PersonaAgent(persona_obj, session_id)
+                try:
+                    agent_type = "persona"
+                    agent_id = persona.get('id')
+                    
+                    if not agent_id:
+                        print(f"Skipping persona without ID: {persona}")
+                        continue
+                    
+                    session_id = await session_manager.create_agent_session(
+                        user_progress_id=self.user_progress_id,
+                        agent_type=agent_type,
+                        agent_id=agent_id,
+                        session_config={
+                            "persona_name": persona.get('identity', {}).get('name'),
+                            "persona_role": persona.get('identity', {}).get('role'),
+                            "persona_background": persona.get('identity', {}).get('bio')
+                        }
+                    )
+                    
+                    self.state.agent_sessions[agent_id] = session_id
+                    created_sessions.append(session_id)
+                    
+                    # Create persona agent
+                    persona_obj = await self._get_persona_from_db(persona.get('db_id'))
+                    if persona_obj:
+                        self.persona_agents[agent_id] = PersonaAgent(persona_obj, session_id)
+                        print(f"Created persona agent for {agent_id}")
+                    else:
+                        print(f"Could not create persona agent for {agent_id} - persona object not found")
+                        
+                except Exception as e:
+                    print(f"Error creating agent session for persona {persona.get('id', 'unknown')}: {e}")
+                    # Continue with other personas even if one fails
+                    continue
+            
+            print(f"Successfully created {len(created_sessions)} agent sessions")
             
         except Exception as e:
-            print(f"Error creating agent sessions: {e}")
+            print(f"Critical error creating agent sessions: {e}")
+            # Clean up any sessions that were created before the error
+            for session_id in created_sessions:
+                try:
+                    await session_manager.expire_session(session_id)
+                except Exception as cleanup_error:
+                    print(f"Error cleaning up session {session_id}: {cleanup_error}")
+            raise e
     
     async def _get_persona_from_db(self, persona_id: int) -> Optional[Any]:
         """Get persona from database (LangChain helper)"""
         if not self.langchain_enabled:
             return None
         
+        if not persona_id:
+            print("No persona ID provided")
+            return None
+        
+        db = None
         try:
             from database.connection import get_db
             from database.models import ScenarioPersona
             
             db = next(get_db())
             persona = db.query(ScenarioPersona).filter(ScenarioPersona.id == persona_id).first()
+            
+            if persona:
+                print(f"Retrieved persona {persona_id} from database")
+            else:
+                print(f"Persona {persona_id} not found in database")
+                
             return persona
         except Exception as e:
-            print(f"Error getting persona from DB: {e}")
+            print(f"Error getting persona {persona_id} from DB: {e}")
             return None
         finally:
-            if 'db' in locals():
-                db.close()
+            if db is not None:
+                try:
+                    db.close()
+                except Exception as close_error:
+                    print(f"Error closing database connection: {close_error}")
     
     def get_current_scene(self) -> Optional[Dict[str, Any]]:
         """Get current scene data"""
@@ -465,9 +564,11 @@ Image: {scene.get('image_url', 'No image')}
             return 0
         
         scene = self.scenes[self.state.current_scene_index]
-        timeout_turns = scene.get('timeout_turns') or scene.get('max_turns', 15)  # Use timeout_turns first, fallback to max_turns, default 15
+        # Use timeout_turns first, fallback to max_turns, with a reasonable default
+        timeout_turns = scene.get('timeout_turns') or scene.get('max_turns', 15)
+        # Ensure timeout is within reasonable bounds
+        timeout_turns = max(1, min(timeout_turns, 100))  # Between 1 and 100 turns
         return max(0, timeout_turns - self.state.turn_count)
-    
     def should_advance_scene(self) -> bool:
         """Check if scene should advance based on success criteria or timeout"""
         if not self.scenes or self.state.current_scene_index >= len(self.scenes):

@@ -82,7 +82,17 @@ class GradingAgent:
         @tool
         def calculate_overall_score(scene_scores: str) -> str:
             """Calculate overall simulation score from scene scores"""
-            scores = [int(s.strip()) for s in scene_scores.split(',') if s.strip().isdigit()]
+            try:
+                scores = []
+                for s in scene_scores.split(','):
+                    s = s.strip()
+                    if s.isdigit():
+                        scores.append(int(s))
+                    elif s:  # Non-empty, non-digit string
+                        return f"Invalid score format: '{s}' is not a valid number"
+            except Exception as e:
+                return f"Error parsing scores: {str(e)}"
+            
             if scores:
                 avg_score = sum(scores) / len(scores)
                 return f"Overall score: {avg_score:.1f} (average of {len(scores)} scenes)"

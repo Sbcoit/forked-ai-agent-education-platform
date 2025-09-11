@@ -357,7 +357,10 @@ class VectorEmbeddings(Base):
     content_type = Column(String, nullable=False, index=True)  # 'scenario', 'persona', 'conversation', etc.
     content_id = Column(Integer, nullable=False, index=True)  # ID of the original content
     content_hash = Column(String, nullable=False, index=True)  # Hash for deduplication
-    embedding_vector = Column(Vector(1536) if PGVECTOR_AVAILABLE else Text, nullable=False)  # Vector embedding
+    # Store as JSON array for potential client-side processing
+    embedding_vector = Column(JSON, nullable=False)
+    # Or raise an error if vector operations are critical
+    # raise ImportError("pgvector is required for vector embedding functionality")
     embedding_model = Column(String, nullable=False)  # 'openai-ada-002', 'sentence-transformers', etc.
     embedding_dimension = Column(Integer, nullable=False)  # Dimension of the vector
     original_content = Column(Text, nullable=False)  # Original text content

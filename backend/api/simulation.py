@@ -18,6 +18,7 @@ from database.models import (
     Scenario, ScenarioScene, ScenarioPersona, User,
     UserProgress, SceneProgress, ConversationLog
 )
+from utilities.auth import get_current_user
 from database.schemas import (
     SimulationStartRequest, SimulationStartResponse, SimulationScenarioResponse,
     SimulationChatRequest, SimulationChatResponse,
@@ -30,7 +31,9 @@ from .chat_orchestrator import ChatOrchestrator, SimulationState
 
 router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 
-# OpenAI configuration
+# OpenAI configuration - validate API key at module import
+if not settings.openai_api_key or not settings.openai_api_key.strip():
+    raise ValueError("OpenAI API key not configured in settings")
 openai.api_key = settings.openai_api_key
 
 def validate_goal_with_function_calling(
@@ -265,22 +268,17 @@ Call the progress_to_next_scene function with your analysis.
 @router.post("/start", response_model=SimulationStartResponse)
 async def start_simulation(
     request: SimulationStartRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Start a new simulation or resume existing one"""
     # --- PATCH: Always create a new UserProgress and clean up all old progress/logs ---
     # Delete all previous progress and related logs for this user and scenario
-    # Skip user filtering if user_id is None (no authentication yet)
-    if request.user_id is not None:
-        existing_progresses = db.query(UserProgress).filter(
-            UserProgress.user_id == request.user_id,
-            UserProgress.scenario_id == request.scenario_id
-        ).all()
-    else:
-        # For now, just get all progress for this scenario (temporary solution)
-        existing_progresses = db.query(UserProgress).filter(
-            UserProgress.scenario_id == request.scenario_id
-        ).all()
+    # Use the authenticated user's ID
+    existing_progresses = db.query(UserProgress).filter(
+        UserProgress.user_id == current_user.id,
+        UserProgress.scenario_id == request.scenario_id
+    ).all()
     for progress in existing_progresses:
         db.query(SceneProgress).filter(SceneProgress.user_progress_id == progress.id).delete()
         db.query(ConversationLog).filter(ConversationLog.user_progress_id == progress.id).delete()
@@ -353,7 +351,7 @@ async def start_simulation(
         ]
     }
     user_progress = UserProgress(
-        user_id=request.user_id,  # Can be None
+        user_id=current_user.id,  # Use authenticated user
         scenario_id=request.scenario_id,
         current_scene_id=first_scene.id,
         simulation_status="waiting_for_begin",
@@ -975,6 +973,7 @@ async def progress_to_next_scene(
 @router.get("/progress/{user_progress_id}", response_model=UserProgressResponse)
 async def get_user_progress(
     user_progress_id: int,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get detailed user progress for a simulation"""
@@ -985,6 +984,10 @@ async def get_user_progress(
     
     if not user_progress:
         raise HTTPException(status_code=404, detail="User progress not found")
+    
+    # Verify that the user_progress belongs to the current user
+    if user_progress.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied: You can only access your own simulation progress")
     
     return UserProgressResponse(
         id=user_progress.id,
@@ -1059,6 +1062,7 @@ async def get_scene_by_id(
 @router.post("/linear-chat", response_model=SimulationChatResponse)
 async def linear_simulation_chat(
     request: SimulationChatRequest,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Handle orchestrated chat interactions in linear simulation"""
@@ -1079,19 +1083,23 @@ async def linear_simulation_chat(
     timeout_turns = 15  # Default value
     
     try:
-        # Get user progress - handle both old and new request formats
-        if request.user_progress_id:
-            user_progress = db.query(UserProgress).filter(
-                UserProgress.id == request.user_progress_id
-            ).first()
-        else:
-            user_progress = db.query(UserProgress).filter(
-                UserProgress.user_id == request.user_id,
-                UserProgress.scenario_id == request.scenario_id
-            ).first()
+        # Get user progress - user_progress_id is required
+        if not request.user_progress_id:
+            raise HTTPException(
+                status_code=400, 
+                detail="user_progress_id is required"
+            )
+        
+        user_progress = db.query(UserProgress).filter(
+            UserProgress.id == request.user_progress_id
+        ).first()
         
         if not user_progress:
-            raise HTTPException(status_code=404, detail="No active simulation found")
+            raise HTTPException(status_code=404, detail="User progress not found")
+        
+        # Verify that the user_progress belongs to the current user
+        if user_progress.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Access denied: You can only access your own simulation data")
         
         if not user_progress.orchestrator_data:
             raise HTTPException(status_code=400, detail="Simulation not properly initialized")
@@ -1315,7 +1323,7 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                 next_scene_id=next_scene_id,
                 next_scene=next_scene_obj if 'next_scene_obj' in locals() else None,
                 persona_name=persona_name,
-                persona_id=str(persona_id) if persona_id is not None else None,
+                persona_id=str(persona_id) if persona_id is not None else None,  # Convert to str at API boundary
                 turn_count=orchestrator.state.turn_count
             )
         
@@ -1709,7 +1717,7 @@ User's message: {request.message}"""
             scene_completed=scene_completed,
             next_scene_id=next_scene_id,
             persona_name=persona_name,
-            persona_id=str(persona_id) if persona_id is not None else None,
+            persona_id=str(persona_id) if persona_id is not None else None,  # Convert to str at API boundary
             turn_count=orchestrator.state.turn_count
         )
         
@@ -1724,9 +1732,18 @@ User's message: {request.message}"""
 async def get_user_responses(
     user_progress_id: int = Query(...),
     scene_id: int = Query(None),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Fetch all user responses (and scene metadata) for a simulation, optionally filtered by scene."""
+    # First, verify that the user_progress belongs to the current user
+    user_progress = db.query(UserProgress).filter(UserProgress.id == user_progress_id).first()
+    if not user_progress:
+        raise HTTPException(status_code=404, detail="User progress not found")
+    
+    if user_progress.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied: You can only access your own simulation data")
+    
     # Query user messages
     filters = [ConversationLog.user_progress_id == user_progress_id]
     if scene_id:
@@ -1777,15 +1794,20 @@ async def get_user_responses(
 @router.get("/grade")
 async def get_simulation_grading(
     user_progress_id: int = Query(...),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     print(f"[DEBUG] /api/simulation/grade called for user_progress_id={user_progress_id}")
     import openai
     from collections import defaultdict
-    # Fetch user progress
+    
+    # First, verify that the user_progress belongs to the current user
     user_progress = db.query(UserProgress).filter(UserProgress.id == user_progress_id).first()
     if not user_progress:
-        return {"error": "User progress not found."}
+        raise HTTPException(status_code=404, detail="User progress not found")
+    
+    if user_progress.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied: You can only access your own simulation grades")
     scenario_id = user_progress.scenario_id
     # Fetch all scenes for the scenario
     scenes = db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario_id).order_by(ScenarioScene.scene_order).all()

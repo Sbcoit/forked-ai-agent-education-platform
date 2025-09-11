@@ -7,6 +7,8 @@ Enhanced with LangChain integration for improved AI capabilities
 import openai
 import json
 import time
+import threading
+import asyncio
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import os
@@ -28,6 +30,8 @@ class SimulationEngine:
     def __init__(self, enable_langchain: bool = True):
         self.openai_client = openai
         self.openai_client.api_key = settings.openai_api_key
+        if not self.openai_client.api_key:
+            raise ValueError("OpenAI API key not configured in settings")
         self.default_model = "gpt-4o"
         
         # LangChain integration (optional)
@@ -387,7 +391,6 @@ Respond in valid JSON format:
         return "\n".join(formatted_messages)
     
     # ===== LangChain Enhanced Methods =====
-    
     async def generate_persona_response_langchain(
         self,
         persona_data: Dict[str, Any],
@@ -402,7 +405,8 @@ Respond in valid JSON format:
         
         if not self.langchain_enabled or not self.persona_agent:
             # Fallback to original method
-            return self.generate_persona_response(
+            return await asyncio.to_thread(
+                self.generate_persona_response,
                 persona_data, scene_data, user_message, conversation_history, attempt_number
             )
         
@@ -428,7 +432,6 @@ Respond in valid JSON format:
             return self.generate_persona_response(
                 persona_data, scene_data, user_message, conversation_history, attempt_number
             )
-    
     async def validate_goal_achievement_langchain(
         self,
         conversation_history: List[Dict[str, str]],
@@ -441,8 +444,13 @@ Respond in valid JSON format:
         
         if not self.langchain_enabled or not self.grading_agent:
             # Fallback to original method
+            # Create scene_data dict from parameters
+            scene_data = {
+                'user_goal': scene_goal,
+                'description': scene_description
+            }
             return self.validate_goal_achievement(
-                conversation_history, scene_goal, current_attempts, max_attempts
+                scene_data, conversation_history, current_attempts, max_attempts
             )
         
         try:
@@ -485,7 +493,7 @@ Respond in valid JSON format:
             )
         
         try:
-            # Use the enhanced SummarizationAgent
+
             from agents.summarization_agent import summarization_agent
             
             return await summarization_agent.generate_scene_summary_enhanced(
@@ -512,5 +520,27 @@ Respond in valid JSON format:
             self.grading_agent = None
             print("SimulationEngine: LangChain resources cleaned up")
 
-# Global simulation engine instance
-simulation_engine = SimulationEngine() 
+# Module-level variables for lazy singleton pattern
+_simulation_engine = None
+_simulation_engine_lock = threading.Lock()
+
+def get_simulation_engine() -> SimulationEngine:
+    """
+    Get the global SimulationEngine instance using lazy singleton pattern.
+    
+    This function ensures thread-safe creation of the SimulationEngine instance
+    and prevents initialization failures at module import time.
+    
+    Returns:
+        SimulationEngine: The singleton instance of SimulationEngine
+    """
+    global _simulation_engine
+    
+    # Double-checked locking pattern for thread safety
+    if _simulation_engine is None:
+        with _simulation_engine_lock:
+            # Check again inside the lock to prevent race conditions
+            if _simulation_engine is None:
+                _simulation_engine = SimulationEngine()
+    
+    return _simulation_engine

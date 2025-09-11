@@ -15,6 +15,18 @@ import unicodedata
 from database.connection import get_db, settings
 from database.models import Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, scene_personas
 
+# =============================================================================
+# TEMPORARY DISABLE: Image Generation (DALL-E API calls)
+# =============================================================================
+# Image generation has been temporarily disabled to reduce API costs.
+# The original code is preserved in comments around line 770-790.
+# 
+# To re-enable image generation:
+# 1. Uncomment the image generation code block (lines ~770-790)
+# 2. Comment out the temporary "image_urls = [""] * len(scenes)" line
+# 3. Update the debug print statement to show "Generated" vs "Failed"
+# =============================================================================
+
 LLAMAPARSE_API_KEY = settings.llamaparse_api_key
 OPENAI_API_KEY = settings.openai_api_key
 if LLAMAPARSE_API_KEY:
@@ -176,10 +188,9 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
 
 @router.post("/api/parse-pdf/")
 async def parse_pdf(
-    file: UploadFile = File(...), 
+    file: UploadFile = File(...),
     context_files: List[UploadFile] = File(default=[]),
     save_to_db: bool = False,  # Changed to False - don't auto-save
-    # user_id removed - no authentication yet
     db: Session = Depends(get_db)
 ):
     """Main endpoint: Parse PDF and context files, then process with AI"""
@@ -248,6 +259,8 @@ async def parse_pdf(
         scenario_id = None
         if save_to_db:
             print("[DEBUG] Saving AI results to database...")
+            # TODO: Get user_id from authentication context once implemented
+            user_id = 0  # Default user ID for now
             scenario_id = await save_scenario_to_db(
                 ai_result, file, context_files, main_markdown, context_text, user_id, db
             )
@@ -762,23 +775,31 @@ CASE STUDY CONTENT (context files first, then main PDF):
                     scenes = fallback_scenes[:4]
                 
                 if scenes:
-                    print(f"[DEBUG] Processing {len(scenes)} scenes for image generation...")
+                    # TEMPORARILY DISABLED: Image generation to reduce API costs
+                    # TODO: Re-enable when quota issues are resolved
+                    print(f"[DEBUG] Processing {len(scenes)} scenes - IMAGE GENERATION DISABLED (API cost reduction)...")
                     
-                    # Generate images for each scene in parallel
-                    image_tasks = []
-                    scenario_id = ai_result.get('scenario_id') or 0
-                    for scene in scenes:
-                        if isinstance(scene, dict) and "description" in scene and "title" in scene:
-                            task = generate_scene_image(scene["description"], scene["title"], scenario_id)
-                            image_tasks.append(task)
-                        else:
-                            # Create a simple async function that returns empty string
-                            async def empty_task():
-                                return ""
-                            image_tasks.append(empty_task())
+                    # COMMENTED OUT: Original image generation code (preserved for easy restoration)
+                    # print(f"[DEBUG] Processing {len(scenes)} scenes for image generation...")
+                    # 
+                    # # Generate images for each scene in parallel
+                    # image_tasks = []
+                    # scenario_id = ai_result.get('scenario_id') or 0
+                    # for scene in scenes:
+                    #     if isinstance(scene, dict) and "description" in scene and "title" in scene:
+                    #         task = generate_scene_image(scene["description"], scene["title"], scenario_id)
+                    #         image_tasks.append(task)
+                    #     else:
+                    #         # Create a simple async function that returns empty string
+                    #         async def empty_task():
+                    #             return ""
+                    #         image_tasks.append(empty_task())
+                    # 
+                    # # Wait for all image generations to complete
+                    # image_urls = await asyncio.gather(*image_tasks, return_exceptions=True)
                     
-                    # Wait for all image generations to complete
-                    image_urls = await asyncio.gather(*image_tasks, return_exceptions=True)
+                    # TEMPORARY: Use empty image URLs to skip DALL-E API calls
+                    image_urls = [""] * len(scenes)
                     
                     # Combine scenes with their generated images
                     for i, scene in enumerate(scenes):
@@ -793,7 +814,7 @@ CASE STUDY CONTENT (context files first, then main PDF):
                                 "successMetric": scene.get("success_metric", "")
                             }
                             processed_scenes.append(processed_scene)
-                            print(f"[DEBUG] Scene {i+1}: {processed_scene['title']} - Image: {'Generated' if processed_scene['image_url'] else 'Failed'}")
+                            print(f"[DEBUG] Scene {i+1}: {processed_scene['title']} - Image: Disabled (API cost reduction)")
                 
                 final_result = {
                     "title": ai_result.get("title") or title,
@@ -1057,7 +1078,7 @@ async def save_scenario_to_db(
                     title=scene.get("title", ""),
                     description=scene.get("description", ""),
                     user_goal=scene.get("user_goal", ""),
-                    scene_order=i + 1,
+                    scene_order=scene.get("sequence_order", i + 1),  # Use sequence_order from frontend, fallback to loop index
                     estimated_duration=scene.get("estimated_duration", 30),
                     image_url=scene.get("image_url", ""),
                     image_prompt=f"Business scene: {scene.get('title', '')}",

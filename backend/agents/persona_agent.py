@@ -103,6 +103,8 @@ class PersonaAgent:
         @tool
         def get_scene_context(scene_description: str) -> str:
             """Get relevant context about the current scene"""
+            if not scene_description:
+                return "No scene context available"
             # This would retrieve scene-specific context from the vector store
             return f"Scene context: {scene_description}"
         
@@ -233,6 +235,9 @@ class PersonaAgentManager:
         """Clear all agents for a specific session"""
         keys_to_remove = [key for key in self.agents.keys() if key.endswith(f"_{session_id}")]
         for key in keys_to_remove:
+            # Clear agent memory before removing
+            if key in self.agents:
+                self.agents[key].clear_memory()
             del self.agents[key]
     
     def get_agent_count(self) -> int:

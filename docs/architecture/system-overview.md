@@ -166,7 +166,6 @@ backend/
 │   ├── parse_pdf.py           # PDF processing endpoints
 │   ├── simulation.py          # Linear simulation endpoints
 │   ├── publishing.py          # Marketplace publishing endpoints
-│   └── chat_box.py            # Chat interface endpoints
 │
 ├── db_admin/                   # Database administration tools
 │   ├── app.py                  # Flask admin interface

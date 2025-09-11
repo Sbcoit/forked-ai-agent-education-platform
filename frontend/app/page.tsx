@@ -28,10 +28,21 @@ export default function LoginPage() {
       await login(email, password)
       router.push("/dashboard")
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Login failed")
+      setError(error instanceof Error ? error.message : "Login failed. Please try again.")
     } finally {
       setLoading(false)
     }
+  }
+
+  // Clear error when user starts typing
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEmail(e.target.value)
+    if (error) setError("")
+  }
+
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPassword(e.target.value)
+    if (error) setError("")
   }
 
   const handleGoogleLogin = () => {
@@ -96,7 +107,7 @@ export default function LoginPage() {
               type="email"
               placeholder="Enter your email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={handleEmailChange}
               className="bg-black border-gray-600 text-white placeholder-gray-400 focus:border-white"
               required
             />
@@ -109,7 +120,7 @@ export default function LoginPage() {
               type="password"
               placeholder="Enter your password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={handlePasswordChange}
               className="bg-black border-gray-600 text-white placeholder-gray-400 focus:border-white"
               required
             />
@@ -132,7 +143,14 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="text-red-400 text-sm">{error}</div>
+            <div className="bg-red-900/20 border border-red-500/50 rounded-md p-3 mb-4">
+              <div className="flex items-center">
+                <svg className="w-5 h-5 text-red-400 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+                <p className="text-red-400 text-sm font-medium">{error}</p>
+              </div>
+            </div>
           )}
 
           <Button

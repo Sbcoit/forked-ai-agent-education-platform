@@ -1,6 +1,8 @@
 "use client"
 
 import React, { useState, useRef, useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { useAuth } from "@/lib/auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,7 +22,8 @@ import {
   BookOpen,
   User
 } from "lucide-react"
-import { buildApiUrl } from "@/lib/api"
+import { buildApiUrl, apiClient } from "@/lib/api"
+import Sidebar from "@/components/Sidebar"
 
 // Types aligned with backend database schema
 interface Scenario {
@@ -96,7 +99,7 @@ const ScenarioSelector = ({
 
   const fetchScenarios = async () => {
     try {
-      const response = await fetch(buildApiUrl("/api/scenarios/"))
+      const response = await apiClient.apiRequest("/api/scenarios/")
       if (response.ok) {
         const data = await response.json()
         // Filter scenarios that have both personas and scenes
@@ -212,7 +215,7 @@ const ScenarioSelector = ({
                       e.stopPropagation();
                       if (!window.confirm(`Delete scenario '${scenario.title}'? This cannot be undone.`)) return;
                       try {
-                        const res = await fetch(buildApiUrl(`/api/scenarios/${scenario.id}`), { method: 'DELETE' });
+                        const res = await apiClient.apiRequest(`/api/scenarios/${scenario.id}`, { method: 'DELETE' });
                         if (!res.ok) throw new Error('Failed to delete');
                         setScenarios(scenarios => scenarios.filter(s => s.id !== scenario.id));
                         if (selectedScenario === scenario.id) setSelectedScenario(null);
@@ -362,6 +365,10 @@ const TypingIndicator = ({ personaName }: { personaName: string }) => (
 )
 
 export default function LinearSimulationChat() {
+  const router = useRouter()
+  const { user, logout, isLoading: authLoading } = useAuth()
+  
+  // All hooks must be called before any conditional returns
   // Core simulation state
   const [simulationData, setSimulationData] = useState<SimulationData | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -433,6 +440,36 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
+  // Authentication logic - must be after all hooks
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push("/")
+    }
+  }, [user, authLoading, router])
+ 
+  // Show loading while auth is being checked
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
+          <p className="text-black">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // If no user, show redirecting message (navigation handled in useEffect)
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-black">Redirecting...</p>
+        </div>
+      </div>
+    )
+  }
+
   // Start simulation with selected scenario
   const startSimulation = async (scenarioId: number) => {
     setSelectedScenarioId(scenarioId)
@@ -442,25 +479,18 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
     setHasSubmittedForGrading(false)
     
     try {
-      const response = await fetch(buildApiUrl("/api/simulation/start"), {
+      const response = await apiClient.apiRequest("/api/simulation/start", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scenario_id: scenarioId
-          // user_id removed - no authentication yet
         })
       })
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`)
-      }
 
       const data: SimulationData = await response.json()
       setSimulationData(data)
       
       // Try to fetch all scenes for the scenario
-      const scenesRes = await fetch(buildApiUrl(`/api/scenarios/${scenarioId}/full`));
+      const scenesRes = await apiClient.apiRequest(`/api/scenarios/${scenarioId}/full`);
       if (scenesRes.ok) {
         const scenarioDetail = await scenesRes.json();
         console.log("[DEBUG] Scenario detail response:", scenarioDetail);
@@ -545,9 +575,8 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
     }
 
     try {
-      const response = await fetch(buildApiUrl("/api/simulation/linear-chat"), {
+      const response = await apiClient.apiRequest("/api/simulation/linear-chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scenario_id: simulationData.scenario.id,
           user_id: 1,
@@ -730,16 +759,19 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
   // If no simulation is active, show scenario selection
   if (!simulationData) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4">
-        <div className="max-w-6xl mx-auto py-8">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold mb-2">Linear Simulation Experience</h1>
-            <p className="text-gray-600">
-              Select a scenario to begin your interactive simulation with AI personas
-            </p>
+      <div className="min-h-screen bg-gray-50 flex">
+        <Sidebar currentPath="/chat-box" />
+        <div className="flex-1 ml-20 p-4">
+          <div className="max-w-6xl mx-auto py-8">
+            <div className="text-center mb-8">
+              <h1 className="text-3xl font-bold mb-2">Linear Simulation Experience</h1>
+              <p className="text-gray-600">
+                Select a scenario to begin your interactive simulation with AI personas
+              </p>
+            </div>
+            
+            <ScenarioSelector onScenarioSelect={startSimulation} />
           </div>
-          
-          <ScenarioSelector onScenarioSelect={startSimulation} />
         </div>
       </div>
     )
@@ -755,7 +787,7 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
   // Function to fetch grading data after simulation
   const fetchGradingData = async () => {
     if (!simulationData) return;
-    const res = await fetch(buildApiUrl(`/api/simulation/grade?user_progress_id=${simulationData.user_progress_id}`));
+    const res = await apiClient.apiRequest(`/api/simulation/grade?user_progress_id=${simulationData.user_progress_id}`);
     if (res.ok) {
       const data = await res.json();
       setGradingData(data);
@@ -865,9 +897,8 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
     const specialMessage = "SUBMIT_FOR_GRADING";
     
     try {
-      const response = await fetch(buildApiUrl("/api/simulation/linear-chat"), {
+      const response = await apiClient.apiRequest("/api/simulation/linear-chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           user_progress_id: simulationData.user_progress_id,
           scene_id: simulationData.current_scene.id,
@@ -920,7 +951,7 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
             }
           ]);
           // Confirm backend state before unblocking input
-          fetch(buildApiUrl(`/api/simulation/progress/${simulationData.user_progress_id}`))
+          apiClient.apiRequest(`/api/simulation/progress/${simulationData.user_progress_id}`)
             .then(res => res.json())
             .then(progress => {
               if (progress.current_scene_id === data.next_scene.id) {
@@ -1010,36 +1041,38 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
   console.log("  - shouldShowSubmitSystemMessage:", shouldShowSubmitSystemMessage);
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
-        
-        {/* Left Sidebar - Progress & Scene Info */}
-        <div className="lg:col-span-1">
-          {/* In the render, use totalScenes for SceneProgress */}
-          <SceneProgress
-            currentScene={simulationData.current_scene.scene_order}
-            totalScenes={totalScenes}
-            completedScenes={completedScenes}
-          />
+    <div className="min-h-screen bg-gray-50 flex">
+      <Sidebar currentPath="/chat-box" />
+      <div className="flex-1 ml-20 p-4">
+        <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
           
-          <CurrentSceneInfo scene={simulationData.current_scene} turnCount={turnCount} />
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="text-center">
-                <Badge variant="outline" className="text-xs mb-2">
-                  Scenario #{simulationData.scenario.id}
-                </Badge>
-                <p className="text-xs text-gray-500">
-                  Linear Flow Integration Active
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+          {/* Left Sidebar - Progress & Scene Info */}
+          <div className="lg:col-span-1">
+            {/* In the render, use totalScenes for SceneProgress */}
+            <SceneProgress
+              currentScene={simulationData.current_scene.scene_order}
+              totalScenes={totalScenes}
+              completedScenes={completedScenes}
+            />
+            
+            <CurrentSceneInfo scene={simulationData.current_scene} turnCount={turnCount} />
+            
+            <Card>
+              <CardContent className="p-4">
+                <div className="text-center">
+                  <Badge variant="outline" className="text-xs mb-2">
+                    Scenario #{simulationData.scenario.id}
+                  </Badge>
+                  <p className="text-xs text-gray-500">
+                    Linear Flow Integration Active
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-        {/* Main Chat Area */}
-        <div className="lg:col-span-3">
+          {/* Main Chat Area */}
+          <div className="lg:col-span-3">
           <Card className="h-[85vh] flex flex-col">
             <CardHeader className="border-b">
               <div className="flex items-center justify-between">
@@ -1222,6 +1255,7 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
               </div>
             </div>
           </Card>
+          </div>
         </div>
       </div>
       {/* Grading/Feedback Modal - moved inside the return block */}

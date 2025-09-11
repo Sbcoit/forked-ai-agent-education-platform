@@ -16,15 +16,15 @@ from database.connection import get_db, settings
 from database.models import Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, scene_personas
 
 # =============================================================================
-# TEMPORARY DISABLE: Image Generation (DALL-E API calls)
+# IMAGE GENERATION: ENABLED
 # =============================================================================
-# Image generation has been temporarily disabled to reduce API costs.
-# The original code is preserved in comments around line 770-790.
+# Image generation is currently enabled and will generate DALL-E images for each scene.
+# This will consume API credits (~$0.16-0.24 per PDF for 4-6 images).
 # 
-# To re-enable image generation:
-# 1. Uncomment the image generation code block (lines ~770-790)
-# 2. Comment out the temporary "image_urls = [""] * len(scenes)" line
-# 3. Update the debug print statement to show "Generated" vs "Failed"
+# To disable image generation to reduce costs:
+# 1. Comment out the image generation code block (lines ~777-794)
+# 2. Add "image_urls = [""] * len(scenes)" as a temporary replacement
+# 3. Update the debug print statement to show "Disabled (API cost reduction)"
 # =============================================================================
 
 LLAMAPARSE_API_KEY = settings.llamaparse_api_key
@@ -775,31 +775,23 @@ CASE STUDY CONTENT (context files first, then main PDF):
                     scenes = fallback_scenes[:4]
                 
                 if scenes:
-                    # TEMPORARILY DISABLED: Image generation to reduce API costs
-                    # TODO: Re-enable when quota issues are resolved
-                    print(f"[DEBUG] Processing {len(scenes)} scenes - IMAGE GENERATION DISABLED (API cost reduction)...")
+                    print(f"[DEBUG] Processing {len(scenes)} scenes for image generation...")
                     
-                    # COMMENTED OUT: Original image generation code (preserved for easy restoration)
-                    # print(f"[DEBUG] Processing {len(scenes)} scenes for image generation...")
-                    # 
-                    # # Generate images for each scene in parallel
-                    # image_tasks = []
-                    # scenario_id = ai_result.get('scenario_id') or 0
-                    # for scene in scenes:
-                    #     if isinstance(scene, dict) and "description" in scene and "title" in scene:
-                    #         task = generate_scene_image(scene["description"], scene["title"], scenario_id)
-                    #         image_tasks.append(task)
-                    #     else:
-                    #         # Create a simple async function that returns empty string
-                    #         async def empty_task():
-                    #             return ""
-                    #         image_tasks.append(empty_task())
-                    # 
-                    # # Wait for all image generations to complete
-                    # image_urls = await asyncio.gather(*image_tasks, return_exceptions=True)
+                    # Generate images for each scene in parallel
+                    image_tasks = []
+                    scenario_id = ai_result.get('scenario_id') or 0
+                    for scene in scenes:
+                        if isinstance(scene, dict) and "description" in scene and "title" in scene:
+                            task = generate_scene_image(scene["description"], scene["title"], scenario_id)
+                            image_tasks.append(task)
+                        else:
+                            # Create a simple async function that returns empty string
+                            async def empty_task():
+                                return ""
+                            image_tasks.append(empty_task())
                     
-                    # TEMPORARY: Use empty image URLs to skip DALL-E API calls
-                    image_urls = [""] * len(scenes)
+                    # Wait for all image generations to complete
+                    image_urls = await asyncio.gather(*image_tasks, return_exceptions=True)
                     
                     # Combine scenes with their generated images
                     for i, scene in enumerate(scenes):
@@ -814,7 +806,7 @@ CASE STUDY CONTENT (context files first, then main PDF):
                                 "successMetric": scene.get("success_metric", "")
                             }
                             processed_scenes.append(processed_scene)
-                            print(f"[DEBUG] Scene {i+1}: {processed_scene['title']} - Image: Disabled (API cost reduction)")
+                            print(f"[DEBUG] Scene {i+1}: {processed_scene['title']} - Image: {'Generated' if processed_scene['image_url'] else 'Failed'}")
                 
                 final_result = {
                     "title": ai_result.get("title") or title,

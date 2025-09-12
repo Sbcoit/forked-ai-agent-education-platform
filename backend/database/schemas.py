@@ -309,6 +309,7 @@ class UserResponse(BaseModel):
     allow_contact: bool
     is_active: bool
     is_verified: bool
+    provider: str = "password"
     created_at: datetime
     updated_at: datetime
     
@@ -353,6 +354,22 @@ class PasswordReset(BaseModel):
 class PasswordResetConfirm(BaseModel):
     token: str
     new_password: str
+
+# OAuth schemas
+class GoogleOAuthRequest(BaseModel):
+    code: str
+    state: Optional[str] = None
+
+class AccountLinkingRequest(BaseModel):
+    action: str  # "link" or "create_separate"
+    existing_user_id: int
+    google_data: dict
+
+class OAuthUserData(BaseModel):
+    google_id: str
+    email: str
+    full_name: str
+    avatar_url: Optional[str] = None
 
 # --- COLLECTION SCHEMAS ---
 class CollectionCreate(BaseModel):

@@ -8,10 +8,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useAuth } from "@/lib/auth-context"
+import { AccountLinkingDialog } from "@/components/AccountLinkingDialog"
+import { AccountLinkingData } from "@/lib/google-oauth"
 
 export default function SignupPage() {
   const router = useRouter()
-  const { register } = useAuth()
+  const { register, loginWithGoogle, linkGoogleAccount } = useAuth()
   
   const [step, setStep] = useState(1)
   const [id, setId] = useState("")
@@ -24,6 +26,8 @@ export default function SignupPage() {
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [showLinkingDialog, setShowLinkingDialog] = useState(false)
+  const [linkingData, setLinkingData] = useState<AccountLinkingData | null>(null)
 
   const handleInputChange = (field: string, value: string | boolean) => {
     setFormData(prev => ({
@@ -69,9 +73,36 @@ export default function SignupPage() {
     }
   }
 
-  const handleGoogleSignup = () => {
-    // TODO: Implement Google OAuth
-    console.log("Google signup clicked")
+  const handleGoogleSignup = async () => {
+    setLoading(true)
+    setError("")
+    
+    try {
+      await loginWithGoogle()
+      router.push("/dashboard")
+    } catch (error) {
+      if (error instanceof Error && error.message === 'ACCOUNT_LINKING_REQUIRED') {
+        // This will be handled by the OAuth flow
+        console.log('Account linking required')
+      } else {
+        setError(error instanceof Error ? error.message : "Google signup failed. Please try again.")
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleLinkAccount = async (action: 'link' | 'create_separate') => {
+    if (!linkingData) return
+    
+    try {
+      await linkGoogleAccount(action, linkingData.existing_user.id, linkingData.google_data)
+      setShowLinkingDialog(false)
+      setLinkingData(null)
+      router.push("/dashboard")
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Account linking failed. Please try again.")
+    }
   }
 
   // Step 1: ID Input
@@ -268,6 +299,20 @@ export default function SignupPage() {
           </Link>
         </div>
       </div>
+
+      {/* Account Linking Dialog */}
+      {showLinkingDialog && linkingData && (
+        <AccountLinkingDialog
+          isOpen={showLinkingDialog}
+          onClose={() => {
+            setShowLinkingDialog(false)
+            setLinkingData(null)
+          }}
+          linkingData={linkingData}
+          onLinkAccount={handleLinkAccount}
+          isLoading={loading}
+        />
+      )}
     </div>
   )
 }

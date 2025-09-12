@@ -8,16 +8,20 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { useAuth } from "@/lib/auth-context"
+import { AccountLinkingDialog } from "@/components/AccountLinkingDialog"
+import { AccountLinkingData } from "@/lib/google-oauth"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login } = useAuth()
+  const { login, loginWithGoogle, linkGoogleAccount } = useAuth()
   
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [rememberMe, setRememberMe] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [showLinkingDialog, setShowLinkingDialog] = useState(false)
+  const [linkingData, setLinkingData] = useState<AccountLinkingData | null>(null)
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,9 +49,36 @@ export default function LoginPage() {
     if (error) setError("")
   }
 
-  const handleGoogleLogin = () => {
-    // TODO: Implement Google OAuth
-    console.log("Google login clicked")
+  const handleGoogleLogin = async () => {
+    setLoading(true)
+    setError("")
+    
+    try {
+      await loginWithGoogle()
+      router.push("/dashboard")
+    } catch (error) {
+      if (error instanceof Error && error.message === 'ACCOUNT_LINKING_REQUIRED') {
+        // This will be handled by the OAuth flow
+        console.log('Account linking required')
+      } else {
+        setError(error instanceof Error ? error.message : "Google login failed. Please try again.")
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleLinkAccount = async (action: 'link' | 'create_separate') => {
+    if (!linkingData) return
+    
+    try {
+      await linkGoogleAccount(action, linkingData.existing_user.id, linkingData.google_data)
+      setShowLinkingDialog(false)
+      setLinkingData(null)
+      router.push("/dashboard")
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Account linking failed. Please try again.")
+    }
   }
 
   return (
@@ -170,6 +201,20 @@ export default function LoginPage() {
           </Link>
         </div>
       </div>
+
+      {/* Account Linking Dialog */}
+      {showLinkingDialog && linkingData && (
+        <AccountLinkingDialog
+          isOpen={showLinkingDialog}
+          onClose={() => {
+            setShowLinkingDialog(false)
+            setLinkingData(null)
+          }}
+          linkingData={linkingData}
+          onLinkAccount={handleLinkAccount}
+          isLoading={loading}
+        />
+      )}
     </div>
   )
 }

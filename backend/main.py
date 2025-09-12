@@ -23,6 +23,7 @@ from utilities.auth import (
 from api.parse_pdf import router as pdf_router
 from api.simulation import router as simulation_router
 from api.publishing import router as publishing_router
+from api.oauth import router as oauth_router
 
 # Import startup check
 from startup_check import run_startup_checks, auto_setup_if_needed
@@ -78,6 +79,7 @@ app.add_middleware(
 app.include_router(pdf_router, tags=["PDF Processing"])
 app.include_router(simulation_router, tags=["Simulation"])
 app.include_router(publishing_router, tags=["Publishing"])
+app.include_router(oauth_router, tags=["OAuth"])
 
 # Create database tables
 Base.metadata.create_all(bind=engine)

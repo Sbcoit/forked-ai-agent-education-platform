@@ -18,6 +18,9 @@ passlib[bcrypt]==1.7.4
 bcrypt>=3.2.0,<4.0.0
 python-jose[cryptography]==3.5.0
 python-multipart==0.0.20
+# OAuth dependencies
+authlib==1.3.0
+httpx>=0.28.1
 
 # AI Services
 openai>=1.97.1

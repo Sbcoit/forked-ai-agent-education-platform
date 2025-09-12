@@ -30,10 +30,14 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     full_name = Column(String)
     username = Column(String, unique=True, index=True)
-    password_hash = Column(String)
+    password_hash = Column(String, nullable=True)  # Make nullable for OAuth users
     bio = Column(Text, nullable=True)
     avatar_url = Column(String, nullable=True)
     role = Column(String, default="user")  # admin, teacher, student, user
+    
+    # OAuth fields
+    google_id = Column(String, unique=True, nullable=True, index=True)
+    provider = Column(String, default="password")  # password, google
     
     # Community stats
     published_scenarios = Column(Integer, default=0)
@@ -62,6 +66,8 @@ class User(Base):
         Index('idx_users_username', 'username'),
         Index('idx_users_role', 'role'),
         Index('idx_users_created_at', 'created_at'),
+        Index('idx_users_google_id', 'google_id'),
+        Index('idx_users_provider', 'provider'),
     )
 
 class Scenario(Base):

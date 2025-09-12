@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     llamaparse_api_key: str | None = None
     gemini_api_key: str | None = None
     
+    # Google OAuth settings
+    google_client_id: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    google_client_secret: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+    
     class Config:
         env_file = project_root / ".env"  # Look for .env in project root
 

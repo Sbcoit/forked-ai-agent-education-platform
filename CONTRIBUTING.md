@@ -13,6 +13,7 @@ It's people like you that make this project a great tool for educators and stude
 - [Coding Guidelines](#coding-guidelines)
 - [Commit Messages](#commit-messages)
 - [Pull Request Process](#pull-request-process)
+- [Automated Code Review](#automated-code-review)
 - [Community](#community)
 
 ## 📜 Code of Conduct
@@ -254,16 +255,98 @@ test(scenarios): add unit tests for scenario creation
    - Reference related issues (`Fixes #123`)
    - Screenshots for UI changes
 
-3. **Review Process**
-   - Maintainers will review your PR
+3. **Automated Code Review with CodeRabbit**
+   - **CodeRabbit** will automatically review your PR for:
+     - Code quality and best practices
+     - Security vulnerabilities
+     - Performance issues
+     - Documentation completeness
+     - Style consistency
+   - CodeRabbit provides detailed feedback and suggestions
+   - Address CodeRabbit's recommendations when relevant
+   - The AI review is configured for our tech stack (Python, TypeScript, React, FastAPI)
+
+4. **Human Review Process**
+   - Maintainers will review your PR after CodeRabbit
    - Address any requested changes
    - Keep the conversation constructive
    - Be patient - reviews take time!
 
-4. **After Approval**
+5. **After Approval**
    - Maintainer will merge your PR
    - Your changes will be included in the next release
    - Thank you for contributing! 🎉
+
+## 🤖 Automated Code Review
+
+This project uses **CodeRabbit** for automated code review on all pull requests. CodeRabbit is an AI-powered code review tool that provides comprehensive feedback on your code changes.
+
+### What CodeRabbit Reviews
+
+CodeRabbit automatically analyzes your PR for:
+
+**🔒 Security**
+- Potential security vulnerabilities
+- Authentication and authorization issues
+- Data privacy concerns
+- Input validation problems
+
+**⚡ Performance**
+- Code efficiency and optimization opportunities
+- Memory usage patterns
+- Database query optimization
+- API response time improvements
+
+**🏗️ Architecture & Best Practices**
+- Code organization and structure
+- Design pattern adherence
+- SOLID principles compliance
+- Dependency management
+
+**📝 Code Quality**
+- Code readability and maintainability
+- Error handling completeness
+- Type safety (TypeScript/Python)
+- Documentation coverage
+
+**🎯 Project-Specific Focus**
+- Database migration safety (Alembic)
+- AI agent architecture patterns
+- API endpoint design consistency
+- Frontend component reusability
+
+### CodeRabbit Configuration
+
+The CodeRabbit configuration is defined in `.coderabbit.yaml` and includes:
+
+- **Language-specific settings** for Python, TypeScript, and JavaScript
+- **Project domain awareness** for AI/ML education platforms
+- **Technology stack focus** on FastAPI, React, PostgreSQL, LangChain
+- **Custom review prompts** for database, API, and frontend changes
+
+### Understanding CodeRabbit Feedback
+
+When CodeRabbit reviews your PR, you'll see:
+
+1. **📊 Summary**: High-level overview of the changes
+2. **🔍 Detailed Analysis**: Line-by-line feedback and suggestions
+3. **💡 Improvement Suggestions**: Specific recommendations for better code
+4. **⚠️ Potential Issues**: Warnings about bugs or security concerns
+5. **✅ Positive Feedback**: Recognition of good practices
+
+### Responding to CodeRabbit
+
+- **Read all feedback** carefully before responding
+- **Address security and performance concerns** as high priority
+- **Consider suggestions** for code quality improvements
+- **Ask questions** if feedback is unclear
+- **Thank CodeRabbit** for helpful suggestions! 😊
+
+### CodeRabbit vs Human Review
+
+- **CodeRabbit**: Catches technical issues, style problems, and common mistakes
+- **Human Reviewers**: Focus on business logic, user experience, and project direction
+- **Both are valuable**: CodeRabbit handles the technical details, humans handle the big picture
 
 ## 🌟 Recognition
 

@@ -1,0 +1,139 @@
+# CodeRabbit Configuration for AI Agent Education Platform
+# This file configures CodeRabbit's behavior for code reviews
+
+# Global settings
+review:
+  # Enable comprehensive code reviews
+  comprehensive: true
+  
+  # Focus on these areas during reviews
+  focus:
+    - "security"
+    - "performance"
+    - "maintainability"
+    - "best-practices"
+    - "accessibility"
+  
+  # Review settings
+  settings:
+    # Enable detailed feedback
+    detailed: true
+    
+    # Include suggestions for improvements
+    suggestions: true
+    
+    # Check for potential bugs
+    bugs: true
+    
+    # Review documentation
+    documentation: true
+    
+    # Check code style and formatting
+    style: true
+
+# Language-specific settings
+languages:
+  python:
+    # Enable type checking suggestions
+    type_checking: true
+    
+    # Check for Python best practices
+    best_practices: true
+    
+    # Review imports and dependencies
+    imports: true
+    
+    # Check for security vulnerabilities
+    security: true
+    
+  typescript:
+    # Enable TypeScript-specific checks
+    strict_mode: true
+    
+    # Review component patterns
+    patterns: true
+    
+    # Check for React best practices
+    react: true
+    
+    # Review accessibility
+    accessibility: true
+    
+  javascript:
+    # Enable modern JavaScript features review
+    modern_features: true
+    
+    # Check for performance issues
+    performance: true
+
+# File patterns to include/exclude
+files:
+  include:
+    - "backend/**/*.py"
+    - "frontend/**/*.{ts,tsx,js,jsx}"
+    - "docs/**/*.md"
+    - "*.{yml,yaml,json}"
+    - "requirements.txt"
+    - "package.json"
+    - "*.md"
+  
+  exclude:
+    - "**/node_modules/**"
+    - "**/__pycache__/**"
+    - "**/venv/**"
+    - "**/.git/**"
+    - "**/dist/**"
+    - "**/build/**"
+    - "**/*.min.js"
+    - "**/*.min.css"
+
+# Project-specific settings
+project:
+  # This is an AI/ML education platform
+  domain: "ai-education"
+  
+  # Key technologies used
+  technologies:
+    - "python"
+    - "fastapi"
+    - "postgresql"
+    - "react"
+    - "typescript"
+    - "tailwind"
+    - "langchain"
+    - "openai"
+  
+  # Focus areas for this project
+  focus_areas:
+    - "database-migrations"
+    - "api-design"
+    - "ai-agent-architecture"
+    - "user-authentication"
+    - "data-security"
+    - "performance-optimization"
+
+# Custom review prompts
+prompts:
+  # Custom prompts for specific file types
+  database:
+    - "Review database schema changes for migration safety"
+    - "Check for potential data integrity issues"
+    - "Ensure proper indexing for performance"
+  
+  api:
+    - "Review API endpoint design and security"
+    - "Check for proper error handling"
+    - "Ensure consistent response formats"
+  
+  frontend:
+    - "Review component reusability and performance"
+    - "Check for accessibility compliance"
+    - "Ensure responsive design principles"
+
+# Notification settings
+notifications:
+  # Only notify on significant issues
+  threshold: "medium"
+  
+  # Include summary in comments
+  summary: true

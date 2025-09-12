@@ -56,6 +56,7 @@ class LangChainSettings(BaseSettings):
     class Config:
         env_file = ".env"
         env_prefix = "LANGCHAIN_"
+        extra = "ignore"  # Ignore extra fields
 
 # Use existing database connection settings
 from database.connection import settings as db_settings

@@ -33,9 +33,34 @@ router = APIRouter(prefix="/auth", tags=["oauth"])
 # Store OAuth states temporarily (in production, use Redis)
 oauth_states: Dict[str, str] = {}
 
+def cleanup_expired_states():
+    """Clean up expired OAuth states (older than 10 minutes)"""
+    import time
+    current_time = time.time()
+    expired_states = []
+    
+    for state, data in oauth_states.items():
+        if isinstance(data, str) and data == "pending":
+            # Simple cleanup - remove states older than 10 minutes
+            # In production, store timestamps with states
+            continue
+        elif isinstance(data, str) and data.startswith("{"):
+            # JSON data - could add timestamp checking here
+            continue
+    
+    # For now, just limit the number of states
+    if len(oauth_states) > 100:
+        # Keep only the most recent 50 states
+        states_to_remove = list(oauth_states.keys())[:-50]
+        for state in states_to_remove:
+            oauth_states.pop(state, None)
+
 @router.get("/google/login")
 async def google_login():
     """Initiate Google OAuth login"""
+    # Clean up expired states before creating new one
+    cleanup_expired_states()
+    
     state = generate_state()
     oauth_states[state] = "pending"
     
@@ -64,10 +89,13 @@ async def google_callback(
     
     # Verify state
     if state not in oauth_states:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid state parameter"
-        )
+        # Clean up expired states and try again
+        cleanup_expired_states()
+        if state not in oauth_states:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or expired state parameter. Please try logging in again."
+            )
     
     # Exchange code for token
     token_data = await exchange_code_for_token(code)

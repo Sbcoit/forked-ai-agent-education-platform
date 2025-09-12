@@ -282,6 +282,54 @@ DALLE_API_KEY=your_dalle_api_key_here
 4. The system will automatically create default scenarios
 5. The .env file is located at the project root and is read by all components
 
+## 🔐 Google OAuth Setup
+
+The platform supports Google OAuth for user authentication. Follow these steps to get your Google OAuth credentials:
+
+### 1. Google Cloud Console Setup
+
+1. **Go to Google Cloud Console**: https://console.cloud.google.com/
+2. **Create a new project** or select an existing one
+3. **Enable Google+ API**:
+   - Navigate to "APIs & Services" > "Library"
+   - Search for "Google+ API" and enable it
+4. **Create OAuth 2.0 credentials**:
+   - Go to "APIs & Services" > "Credentials"
+   - Click "Create Credentials" > "OAuth 2.0 Client IDs"
+   - Choose "Web application"
+   - Add authorized redirect URIs:
+     - `http://localhost:3000/auth/google/callback` (for development)
+     - `https://yourdomain.com/auth/google/callback` (for production)
+
+### 2. Get Your Credentials
+
+After creating the OAuth 2.0 Client ID, you'll get:
+- **Client ID**: Something like `123456789-abcdefg.apps.googleusercontent.com`
+- **Client Secret**: Something like `GOCSPX-abcdefghijklmnop`
+
+### 3. Configure Your Application
+
+Set these environment variables when starting your backend:
+
+```bash
+GOOGLE_CLIENT_ID="your_actual_client_id_here"
+GOOGLE_CLIENT_SECRET="your_actual_client_secret_here"
+GOOGLE_REDIRECT_URI="your_authorized_redirect_uri"
+```
+
+**Important**: Make sure your Google Cloud Console redirect URI is set to:
+- `http://localhost:3000/auth/google/callback` (for development)
+
+### 4. Testing
+
+Once configured:
+1. Start your backend and frontend
+2. Go to `http://localhost:3000`
+3. Click "Login with Google"
+4. Complete the OAuth flow
+5. You should be redirected to the dashboard
+
+
 ## 📚 API Documentation
 
 Once the backend is running, visit:

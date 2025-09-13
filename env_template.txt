@@ -29,7 +29,7 @@ GOOGLE_CLIENT_SECRET=REPLACE_WITH_YOUR_GOOGLE_CLIENT_SECRET
 GOOGLE_REDIRECT_URI=http://localhost:3000/auth/google/callback
 
 # LlamaParse Configuration
-LLAMAPARSE=<your_llamaparse_url_or_key>
+LLAMAPARSE_API_KEY=<your_llamaparse_api_key>
 
 # Frontend Configuration
 FRONTEND_BASE_URL=<your_frontend_base_url>

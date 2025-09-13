@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from typing import Dict, Any
 import json
 import time
+import asyncio
+from contextlib import asynccontextmanager
 
 from database.connection import get_db
 from database.models import User
@@ -30,10 +32,41 @@ from utilities.oauth import (
     create_user_login_response
 )
 
-router = APIRouter(prefix="/auth", tags=["oauth"])
-
 # Store OAuth states temporarily (in production, use Redis)
 oauth_states: Dict[str, Dict[str, Any]] = {}
+
+# Background cleanup task
+cleanup_task = None
+
+async def periodic_cleanup():
+    """Periodic cleanup task that runs every 5 minutes"""
+    while True:
+        try:
+            await asyncio.sleep(300)  # 5 minutes
+            cleanup_expired_states()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[ERROR] Periodic cleanup failed: {e}")
+
+@asynccontextmanager
+async def lifespan(app):
+    """FastAPI lifespan handler for startup and shutdown"""
+    global cleanup_task
+    # Startup
+    cleanup_task = asyncio.create_task(periodic_cleanup())
+    print("[INFO] Started OAuth state cleanup task")
+    yield
+    # Shutdown
+    if cleanup_task:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+        print("[INFO] Stopped OAuth state cleanup task")
+
+router = APIRouter(prefix="/auth", tags=["oauth"])
 
 def cleanup_expired_states():
     """Clean up expired OAuth states (older than 10 minutes)"""

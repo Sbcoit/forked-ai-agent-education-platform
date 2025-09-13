@@ -85,17 +85,17 @@ def upgrade() -> None:
     if 'conversation_logs' in existing_tables:
         op.create_index('idx_conversation_logs_user_progress', 'conversation_logs', ['user_progress_id'])
     
-    # Index for session_memory by user
-    if 'session_memory' in existing_tables:
-        op.create_index('idx_session_memory_user_progress', 'session_memory', ['user_progress_id'])
+    # Index for session_memory by user (already created in add_langchain_integration migration)
+    # if 'session_memory' in existing_tables:
+    #     op.create_index('idx_session_memory_user_progress', 'session_memory', ['user_progress_id'])
     
-    # Index for conversation_summaries by user
-    if 'conversation_summaries' in existing_tables:
-        op.create_index('idx_conversation_summaries_user_progress', 'conversation_summaries', ['user_progress_id'])
+    # Index for conversation_summaries by user (already created in add_langchain_integration migration)
+    # if 'conversation_summaries' in existing_tables:
+    #     op.create_index('idx_conversation_summaries_user_progress', 'conversation_summaries', ['user_progress_id'])
     
-    # Index for agent_sessions by user
-    if 'agent_sessions' in existing_tables:
-        op.create_index('idx_agent_sessions_user_progress', 'agent_sessions', ['user_progress_id'])
+    # Index for agent_sessions by user (already created in add_langchain_integration migration)
+    # if 'agent_sessions' in existing_tables:
+    #     op.create_index('idx_agent_sessions_user_progress', 'agent_sessions', ['user_progress_id'])
     
     # Step 4: Add documentation (PostgreSQL only)
     if bind.dialect.name == 'postgresql':

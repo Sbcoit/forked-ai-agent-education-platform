@@ -32,7 +32,7 @@ export default function Sidebar({ currentPath = "/dashboard" }: SidebarProps) {
           <Home className="h-6 w-6 text-white" />
         </Link>
         <Link 
-          href="/simulation-builder" 
+          href="/chat-box" 
           className={`p-3 rounded-lg transition-colors ${
             currentPath === "/simulation-builder" 
               ? "bg-gray-700" 
@@ -42,7 +42,7 @@ export default function Sidebar({ currentPath = "/dashboard" }: SidebarProps) {
           <Monitor className="h-6 w-6 text-white" />
         </Link>
         <Link 
-          href="/chat-box" 
+          href="/cohort" 
           className={`p-3 rounded-lg transition-colors ${
             currentPath === "/chat-box" 
               ? "bg-gray-700" 

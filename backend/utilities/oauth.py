@@ -123,10 +123,19 @@ def create_oauth_user(db: Session, google_data: Dict[str, Any]) -> User:
         email_parts = email.split("@")
         base_email = email_parts[0]
         domain = email_parts[1]
+        
+        # Query all existing emails that match the pattern to avoid per-iteration DB queries
+        existing_emails = db.query(User.email).filter(
+            User.email.like(f"{base_email}+google%@{domain}")
+        ).all()
+        existing_email_set = {email_tuple[0] for email_tuple in existing_emails}
+        
+        # Find the next available suffix
         email_counter = 1
-        while db.query(User).filter(User.email == email).first():
-            email = f"{base_email}+google{email_counter}@{domain}"
+        while f"{base_email}+google{email_counter}@{domain}" in existing_email_set:
             email_counter += 1
+        
+        email = f"{base_email}+google{email_counter}@{domain}"
     
     user = User(
         email=email,

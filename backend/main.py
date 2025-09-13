@@ -23,7 +23,7 @@ from utilities.auth import (
 from api.parse_pdf import router as pdf_router
 from api.simulation import router as simulation_router
 from api.publishing import router as publishing_router
-from api.oauth import router as oauth_router
+from api.oauth import router as oauth_router, lifespan as oauth_lifespan
 
 # Import startup check
 from startup_check import run_startup_checks, auto_setup_if_needed
@@ -35,7 +35,8 @@ from services.session_manager import session_manager
 app = FastAPI(
     title="AI Agent Education Platform",
     description="Transform business case studies into immersive AI-powered educational simulations",
-    version="2.0.0"
+    version="2.0.0",
+    lifespan=oauth_lifespan
 )
 
 @app.get("/health")
@@ -107,15 +108,6 @@ async def root():
         "status": "active"
     }
 
-@app.get("/health")
-async def health_check():
-    """Detailed health check"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow(),
-        "database": "connected",
-        "api_version": "2.0.0"
-    }
 
 @app.get("/api/scenarios/")
 async def get_scenarios(
@@ -274,7 +266,7 @@ async def test_login(user: UserLogin, db: Session = Depends(get_db)):
             # Always return generic error to prevent user enumeration
             return {"error": "Authentication failed", "status": "error"}
         
-        return {"success": True, "user_id": db_user.id, "email": db_user.email}
+        return {"success": True, "user": {"id": "redacted"}}
     except Exception as e:
         # Log the actual error server-side but return generic error to client
         print(f"[ERROR] Test login failed: {str(e)}")

@@ -49,7 +49,8 @@ def validate_goal_with_function_calling(
     max_attempts: int,
     db: Session = None,
     user_progress_id: int = None,
-    current_scene_id: int = None
+    current_scene_id: int = None,
+    perform_db_progression: bool = False
 ) -> dict:
     """
     Use OpenAI function calling to validate if user has achieved the scene goal

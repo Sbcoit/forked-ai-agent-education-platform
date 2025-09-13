@@ -6,7 +6,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from sqlalchemy.orm import Session
 import httpx
 import openai
-from typing import List
+from typing import List, Optional
 from PyPDF2 import PdfReader
 from datetime import datetime
 import string
@@ -189,7 +189,7 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
 @router.post("/api/parse-pdf/")
 async def parse_pdf(
     file: UploadFile = File(...),
-    context_files: List[UploadFile] = File(None),
+    context_files: Optional[List[UploadFile]] = File(None),
     save_to_db: bool = False,  # Changed to False - don't auto-save
     db: Session = Depends(get_db)
 ):

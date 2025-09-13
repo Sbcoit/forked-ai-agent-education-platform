@@ -163,7 +163,15 @@ export class GoogleOAuth {
         throw new Error(errorMessage)
       }
 
-      return await response.json()
+      const data = await response.json()
+      
+      // Store the access token if present (for successful account linking)
+      if (data.access_token) {
+        localStorage.setItem('auth_token', data.access_token)
+        console.log('Google OAuth token stored successfully after account linking')
+      }
+      
+      return data
     } catch (error) {
       console.error('Error linking account:', error)
       throw error
@@ -210,7 +218,15 @@ export async function handleOAuthCallback(): Promise<AccountLinkingData | any> {
       throw new Error(errorData.detail || 'OAuth callback failed')
     }
 
-    return await response.json()
+    const data = await response.json()
+    
+    // Store the access token if present (for successful login)
+    if (data.access_token) {
+      localStorage.setItem('auth_token', data.access_token)
+      console.log('Google OAuth token stored successfully')
+    }
+    
+    return data
   } catch (error) {
     console.error('Error handling OAuth callback:', error)
     throw error

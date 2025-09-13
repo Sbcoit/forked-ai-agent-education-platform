@@ -55,6 +55,12 @@ export default function GoogleCallbackPage() {
 
         const result = await response.json()
 
+        // Store the access token if present (for successful login)
+        if (result.access_token) {
+          localStorage.setItem('auth_token', result.access_token)
+          console.log('Google OAuth token stored successfully in callback page')
+        }
+
         // Send success data to parent window
         if (window.opener) {
           window.opener.postMessage({

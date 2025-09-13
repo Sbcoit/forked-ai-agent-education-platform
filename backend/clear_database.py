@@ -75,7 +75,11 @@ def clear_database():
                     logger.info(f"Dropping table: {table_name}")
                     # Use properly quoted table names to handle mixed-case or reserved identifiers
                     quoted_table_name = engine.dialect.identifier_preparer.quote(table_name)
-                    drop_stmt = text(f"DROP TABLE IF EXISTS {quoted_table_name} CASCADE")
+                    # Only use CASCADE for PostgreSQL, other databases don't support it
+                    if engine.dialect.name == 'postgresql':
+                        drop_stmt = text(f"DROP TABLE IF EXISTS {quoted_table_name} CASCADE")
+                    else:
+                        drop_stmt = text(f"DROP TABLE IF EXISTS {quoted_table_name}")
                     conn.execute(drop_stmt)
                 
                 # Commit the transaction

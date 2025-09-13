@@ -101,8 +101,8 @@ async def save_scenario_draft(
             db.flush()
             
             # Store existing scene and persona IDs for cleanup
-            existing_scene_ids = db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario.id).scalars().all()
-            existing_persona_ids = db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario.id).scalars().all()
+            existing_scene_ids = [id for (id,) in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario.id).all()]
+            existing_persona_ids = [id for (id,) in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario.id).all()]
             print(f"[DEBUG] Found {len(existing_scene_ids)} existing scenes and {len(existing_persona_ids)} existing personas to potentially clean up")
         
         # Handle create case: no scenario_id provided
@@ -601,9 +601,9 @@ async def delete_scenario(
         )
 
     # Get all related IDs first
-    scene_ids = db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario_id).scalars().all()
-    persona_ids = db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario_id).scalars().all()
-    user_progress_ids = db.query(UserProgress.id).filter(UserProgress.scenario_id == scenario_id).scalars().all()
+    scene_ids = [id for (id,) in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario_id).all()]
+    persona_ids = [id for (id,) in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario_id).all()]
+    user_progress_ids = [id for (id,) in db.query(UserProgress.id).filter(UserProgress.scenario_id == scenario_id).all()]
 
     # Delete conversation logs first (they reference multiple tables)
     # Use OR condition to delete all related logs in one query

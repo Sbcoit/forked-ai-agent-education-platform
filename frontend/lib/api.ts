@@ -182,6 +182,38 @@ export const apiClient = {
     removeAuthToken()
   },
 
+  // Clear all cached data
+  clearAllCache: (): void => {
+    if (typeof window !== 'undefined') {
+      // Clear localStorage
+      const itemsToClear = [
+        'auth_token',
+        'user_data',
+        'session_data',
+        'oauth_state',
+        'google_oauth_data',
+        'chatboxScenario', // From simulation builder
+        'sidebar_state' // From sidebar component
+      ]
+      
+      itemsToClear.forEach(item => {
+        localStorage.removeItem(item)
+      })
+      
+      // Clear sessionStorage
+      sessionStorage.clear()
+      
+      // Clear any cookies (if any)
+      document.cookie.split(";").forEach(cookie => {
+        const eqPos = cookie.indexOf("=")
+        const name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie
+        document.cookie = `${name.trim()}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`
+      })
+      
+      console.log('All cache cleared successfully')
+    }
+  },
+
   getCurrentUser: async (): Promise<User | null> => {
     try {
       const response = await apiRequest('/users/me')

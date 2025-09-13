@@ -13,6 +13,7 @@ interface AuthContextType {
   register: (data: RegisterData) => Promise<void>
   loginWithGoogle: () => Promise<AccountLinkingData | any>
   linkGoogleAccount: (action: 'link' | 'create_separate', existingUserId: number, googleData: any, state: string) => Promise<void>
+  clearCache: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -25,7 +26,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        // Check if we have a token
+        // Clear all cached data on page refresh/load
+        console.log('Clearing all cache on page refresh...')
+        apiClient.clearAllCache()
+        
+        // Check if we have a token (this will be null after clearing)
         if (apiClient.isAuthenticated()) {
           const currentUser = await apiClient.getCurrentUser()
           if (currentUser) {
@@ -119,6 +124,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const clearCache = () => {
+    console.log('Manually clearing all cache...')
+    apiClient.clearAllCache()
+    setUser(null)
+  }
+
   const isAuthenticated = !!user
 
   return (
@@ -130,7 +141,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout, 
       register, 
       loginWithGoogle, 
-      linkGoogleAccount 
+      linkGoogleAccount,
+      clearCache
     }}>
       {children}
     </AuthContext.Provider>

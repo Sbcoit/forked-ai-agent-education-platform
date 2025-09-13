@@ -1,0 +1,35 @@
+# Copy this to .env and fill in your values
+
+# Database Configuration - PostgreSQL (primary database)
+# For development: postgresql://username:password@localhost:5432/ai_agent_platform
+# For production: postgresql://username:password@hostname:5432/ai_agent_platform?sslmode=require
+# For SQLite (development only): sqlite:///./ai_agent_platform.db
+DATABASE_URL=postgresql://username:password@localhost:5432/ai_agent_platform
+
+# AI Service API Keys - Replace with your actual API keys
+OPENAI_API_KEY=REPLACE_WITH_YOUR_OPENAI_API_KEY_HERE
+ANTHROPIC_API_KEY=REPLACE_WITH_YOUR_ANTHROPIC_API_KEY_HERE
+
+# Redis Configuration (optional)
+REDIS_URL=redis://localhost:6379
+
+# Security - Change this to a strong random key
+SECRET_KEY=your_super_secret_key_here_change_in_production
+
+# Environment
+ENVIRONMENT=development
+
+# CORS Origins (comma-separated) - Add your frontend URLs
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+
+# Google OAuth Configuration
+# Get these from Google Cloud Console: https://console.cloud.google.com/
+GOOGLE_CLIENT_ID=REPLACE_WITH_YOUR_GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET=REPLACE_WITH_YOUR_GOOGLE_CLIENT_SECRET
+GOOGLE_REDIRECT_URI=http://localhost:3000/auth/google/callback
+
+# LlamaParse Configuration
+LLAMAPARSE=<your_llamaparse_url_or_key>
+
+# Frontend Configuration
+FRONTEND_BASE_URL=<your_frontend_base_url>

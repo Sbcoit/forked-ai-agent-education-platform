@@ -78,15 +78,18 @@ export default function SignupPage() {
     setError("")
     
     try {
-      await loginWithGoogle()
-      router.push("/dashboard")
-    } catch (error) {
-      if (error instanceof Error && error.message === 'ACCOUNT_LINKING_REQUIRED') {
-        // This will be handled by the OAuth flow
-        console.log('Account linking required')
+      const result = await loginWithGoogle()
+      
+      if (result.action === 'link_required') {
+        // Show account linking dialog
+        setLinkingData(result)
+        setShowLinkingDialog(true)
       } else {
-        setError(error instanceof Error ? error.message : "Google signup failed. Please try again.")
+        // Direct login success
+        router.push("/dashboard")
       }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Google signup failed. Please try again.")
     } finally {
       setLoading(false)
     }
@@ -96,7 +99,7 @@ export default function SignupPage() {
     if (!linkingData) return
     
     try {
-      await linkGoogleAccount(action, linkingData.existing_user.id, linkingData.google_data)
+      await linkGoogleAccount(action, linkingData.existing_user.id, linkingData.google_data, linkingData.state)
       setShowLinkingDialog(false)
       setLinkingData(null)
       router.push("/dashboard")

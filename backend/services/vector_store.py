@@ -219,7 +219,7 @@ class VectorStoreService:
         try:
             db = next(db_gen)
             
-            # Store as JSON in metadata field
+            # Store as JSON in embedding_vector field (fallback when pgvector not available)
             embedding_data = {
                 "embedding": embedding_vector,
                 "content": content,
@@ -302,17 +302,19 @@ class VectorStoreService:
             db = next(db_gen)
             
             # Use pgvector similarity search
+            # Convert embedding vector to proper format for pgvector
+            embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
             results = db.execute(
                 text("""
                     SELECT content_hash, original_content, content_metadata, 
-                           1 - (embedding_vector <=> :query_embedding) as similarity_score
+                           1 - (embedding_vector <=> :query_embedding::vector) as similarity_score
                     FROM vector_embeddings 
                     WHERE content_type = :collection_name
-                    ORDER BY embedding_vector <=> :query_embedding
+                    ORDER BY embedding_vector <=> :query_embedding::vector
                     LIMIT :k
                 """),
                 {
-                    "query_embedding": query_embedding,
+                    "query_embedding": embedding_str,
                     "collection_name": collection_name,
                     "k": k
                 }
@@ -364,10 +366,26 @@ class VectorStoreService:
             # Calculate similarities
             similarities = []
             for item in embeddings_data:
-                if item.content_metadata and "embedding" in item.content_metadata:
+                # Try to get embedding from embedding_vector field first (fallback storage)
+                stored_embedding = None
+                if item.embedding_vector:
+                    try:
+                        # If it's a JSON string, parse it
+                        if isinstance(item.embedding_vector, str):
+                            embedding_data = json.loads(item.embedding_vector)
+                            stored_embedding = embedding_data.get("embedding")
+                        else:
+                            # If it's already a list, use it directly
+                            stored_embedding = item.embedding_vector
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                
+                # Fallback to content_metadata if embedding_vector doesn't have the data
+                if not stored_embedding and item.content_metadata and "embedding" in item.content_metadata:
                     stored_embedding = item.content_metadata["embedding"]
+                
+                if stored_embedding:
                     similarity = self._cosine_similarity(query_embedding, stored_embedding)
-                    
                     if similarity >= score_threshold:
                         similarities.append({
                             "document_id": item.content_hash,

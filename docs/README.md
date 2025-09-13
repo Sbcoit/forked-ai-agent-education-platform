@@ -172,13 +172,13 @@ uvicorn main:app --reload
 #### 🔧 **Manual Setup (Alternative)**
 
 ```bash
-# 1. Create and activate virtual environment (REQUIRED)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# 2. Clone and setup
+# 1. Clone and setup
 git clone <repository-url>
 cd ai-agent-education-platform
+
+# 2. Create and activate virtual environment (REQUIRED)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # 3. Install dependencies
 pip install -r requirements.txt
@@ -230,8 +230,10 @@ cp env_template.txt .env
 # LLAMAPARSE_API_KEY=your_llamaparse_api_key
 # DATABASE_URL=sqlite:///./backend/ai_agent_platform.db
 
-# Initialize database (tables created automatically on first run)
-python -c "from database.models import Base; from database.connection import engine; Base.metadata.create_all(bind=engine)"
+# Initialize database using Alembic migrations
+cd backend/database
+alembic upgrade head
+cd ..
 
 # Start the backend server
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload

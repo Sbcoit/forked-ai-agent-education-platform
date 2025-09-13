@@ -9,7 +9,7 @@ from langchain.tools import BaseTool
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.schema import BaseMessage
 from langchain.callbacks.base import BaseCallbackHandler
-from langchain.schema.output import LLMResult
+from langchain_core.outputs.llm_result import LLMResult
 import json
 from datetime import datetime
 
@@ -34,7 +34,7 @@ class GradingCallbackHandler(BaseCallbackHandler):
         if self.start_time:
             processing_time = (datetime.utcnow() - self.start_time).total_seconds()
             self.grading_metadata["processing_time"] = processing_time
-            self.grading_metadata["timestamp"] = datetime.utcnow()
+            self.grading_metadata["timestamp"] = datetime.utcnow().isoformat() + "Z"
 
 class GradingAgent:
     """LangChain-based grading agent for scene and overall simulation evaluation"""

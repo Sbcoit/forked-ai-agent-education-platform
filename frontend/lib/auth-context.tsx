@@ -9,10 +9,10 @@ interface AuthContextType {
   isLoading: boolean
   isAuthenticated: boolean
   login: (email: string, password: string) => Promise<void>
-  logout: () => void
+  logout: () => Promise<void>
   register: (data: RegisterData) => Promise<void>
-  loginWithGoogle: () => Promise<void>
-  linkGoogleAccount: (action: 'link' | 'create_separate', existingUserId: number, googleData: any) => Promise<void>
+  loginWithGoogle: () => Promise<AccountLinkingData | any>
+  linkGoogleAccount: (action: 'link' | 'create_separate', existingUserId: number, googleData: any, state: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -90,11 +90,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await googleOAuth.openAuthWindow()
       
       if (result.action === 'link_required') {
-        // Handle account linking - this will be handled by the component
-        throw new Error('ACCOUNT_LINKING_REQUIRED')
+        // Return the linking data instead of throwing an error
+        return result
       } else {
         // Direct login success
         setUser(result.user)
+        return result
       }
     } catch (error) {
       console.error('Google login failed:', error)
@@ -104,11 +105,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const linkGoogleAccount = async (action: 'link' | 'create_separate', existingUserId: number, googleData: any) => {
+  const linkGoogleAccount = async (action: 'link' | 'create_separate', existingUserId: number, googleData: any, state: string) => {
     setIsLoading(true)
     try {
       const googleOAuth = GoogleOAuth.getInstance()
-      const result = await googleOAuth.linkAccount(action, existingUserId, googleData)
+      const result = await googleOAuth.linkAccount(action, existingUserId, googleData, state)
       setUser(result.user)
     } catch (error) {
       console.error('Account linking failed:', error)

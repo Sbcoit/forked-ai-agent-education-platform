@@ -1296,7 +1296,7 @@ console.log(chatResponse.message);
 ## 📞 Support
 
 For API support and questions:
-- **Documentation:** [GitHub Repository](https://github.com/HendrikKrack/ai-agent-education-platform)
+- **Documentation:** [GitHub Repository](https://github.com/amybihag/forked-ai-agent-education-platform)
 - **Issues:** Create an issue on GitHub
 - **API Testing:** Use the interactive docs at `/docs`
 

@@ -474,7 +474,6 @@ sequenceDiagram
 - **Vector Database** - Embedding storage for content similarity and intelligent search
 
 ### DevOps & Infrastructure
-- **Docker** - Containerization for consistent development and deployment
 - **GitHub Actions** - CI/CD pipeline with automated testing and deployment
 - **Pytest** - Comprehensive testing framework with fixtures and mocking
 - **Black & Flake8** - Code formatting and linting for maintainable Python code
@@ -582,7 +581,7 @@ sequenceDiagram
 ## Deployment Architecture
 
 ### Development Environment
-- **Local Development** - Docker Compose setup with hot reloading and debugging
+- **Local Development** - Direct setup with virtual environments and local services
 - **AI Service Mocking** - Local mocks for OpenAI and LlamaParse during development
 - **Test Database** - Isolated PostgreSQL instance with test data and migrations
 - **Development Tools** - Integrated debugging, profiling, and testing tools

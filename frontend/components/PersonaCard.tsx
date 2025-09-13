@@ -217,7 +217,7 @@ export default function PersonaCard({
         {/* Right: Traits (read-only) */}
         <div className="flex flex-col justify-center min-w-[220px]">
           {traitLabels.map(({ key, label }) => {
-            const traitValue = traits[key as keyof typeof traits] || 5;
+            const traitValue = traits[key as keyof typeof traits] ?? 5;
             console.log(`[DEBUG] PersonaCard Display: Showing trait ${key} for ${persona.name}: ${traitValue}`);
             return (
               <div key={key} className="flex items-center mb-1.5">
@@ -294,7 +294,7 @@ export default function PersonaCard({
           <span className="block text-xl font-bold text-gray-800 mb-2">Personality</span>
           <div className="space-y-2">
             {traitLabels.map(({ key, label }) => {
-              const sliderValue = editMode ? (editFields.traits[key] || 5) : (traits[key] || 5);
+              const sliderValue = editMode ? (editFields.traits[key] ?? 5) : (traits[key] ?? 5);
               const displayValue = editMode ? editFields.traits[key] : traits[key];
               
               // Debug log for first render

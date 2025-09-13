@@ -13,7 +13,7 @@ import sqlalchemy as sa
 revision = '40439b022f4a'
 down_revision = '0cd3fc754e7a'
 branch_labels = None
-depends_on = None
+depends_on = 'add_langchain_integration_001'
 
 
 def upgrade() -> None:
@@ -63,32 +63,46 @@ def upgrade() -> None:
     # Step 3: Add performance indexes for user data separation
     print("Adding indexes for user data separation...")
     
+    # Get current bind and inspector to check table existence
+    bind = op.get_bind()
+    from sqlalchemy import inspect
+    inspector = inspect(bind)
+    existing_tables = inspector.get_table_names()
+    
     # Index for user_progress queries by user_id
-    op.create_index('idx_user_progress_user_id', 'user_progress', ['user_id'])
+    if 'user_progress' in existing_tables:
+        op.create_index('idx_user_progress_user_id', 'user_progress', ['user_id'])
     
     # Composite index for user + scenario queries
-    op.create_index('idx_user_progress_user_scenario', 'user_progress', ['user_id', 'scenario_id'])
+    if 'user_progress' in existing_tables:
+        op.create_index('idx_user_progress_user_scenario', 'user_progress', ['user_id', 'scenario_id'])
     
     # Index for scene_progress by user (through user_progress)
-    op.create_index('idx_scene_progress_user_progress', 'scene_progress', ['user_progress_id'])
+    if 'scene_progress' in existing_tables:
+        op.create_index('idx_scene_progress_user_progress', 'scene_progress', ['user_progress_id'])
     
     # Index for conversation_logs by user (through user_progress)
-    op.create_index('idx_conversation_logs_user_progress', 'conversation_logs', ['user_progress_id'])
+    if 'conversation_logs' in existing_tables:
+        op.create_index('idx_conversation_logs_user_progress', 'conversation_logs', ['user_progress_id'])
     
     # Index for session_memory by user
-    op.create_index('idx_session_memory_user_progress', 'session_memory', ['user_progress_id'])
+    if 'session_memory' in existing_tables:
+        op.create_index('idx_session_memory_user_progress', 'session_memory', ['user_progress_id'])
     
     # Index for conversation_summaries by user
-    op.create_index('idx_conversation_summaries_user_progress', 'conversation_summaries', ['user_progress_id'])
+    if 'conversation_summaries' in existing_tables:
+        op.create_index('idx_conversation_summaries_user_progress', 'conversation_summaries', ['user_progress_id'])
     
     # Index for agent_sessions by user
-    op.create_index('idx_agent_sessions_user_progress', 'agent_sessions', ['user_progress_id'])
+    if 'agent_sessions' in existing_tables:
+        op.create_index('idx_agent_sessions_user_progress', 'agent_sessions', ['user_progress_id'])
     
-    # Step 4: Add documentation
-    op.execute(sa.text("""
-        COMMENT ON COLUMN user_progress.user_id IS 
-        'User ID - REQUIRED for data separation and account isolation. All simulations must be tied to user accounts.'
-    """))
+    # Step 4: Add documentation (PostgreSQL only)
+    if bind.dialect.name == 'postgresql':
+        op.execute(sa.text("""
+            COMMENT ON COLUMN user_progress.user_id IS 
+            'User ID - REQUIRED for data separation and account isolation. All simulations must be tied to user accounts.'
+        """))
     
     print("✅ User data separation enforced successfully!")
     print("✅ All simulations now require user accounts")

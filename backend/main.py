@@ -8,7 +8,7 @@ import uvicorn
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from database.connection import get_db, engine
+from database.connection import get_db, engine, settings
 from database.models import Base, User, Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, ScenarioReview
 from database.schemas import (
     ScenarioCreate, UserRegister, UserLogin, UserLoginResponse, 
@@ -37,6 +37,11 @@ app = FastAPI(
     description="Transform business case studies into immersive AI-powered educational simulations",
     version="2.0.0"
 )
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring and load balancers"""
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 @app.on_event("startup")
 async def startup_event():
@@ -81,8 +86,12 @@ app.include_router(simulation_router, tags=["Simulation"])
 app.include_router(publishing_router, tags=["Publishing"])
 app.include_router(oauth_router, tags=["OAuth"])
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+# Create database tables (development only)
+if settings.environment != "production":
+    Base.metadata.create_all(bind=engine)
+    print("✅ Database tables created (development mode)")
+else:
+    print("⚠️  Skipping create_all in production - use Alembic migrations")
 
 # Mount static files for serving images
 static_dir = Path("static")
@@ -251,15 +260,25 @@ async def get_current_user_profile(current_user: User = Depends(get_current_user
 
 @app.post("/test-login")
 async def test_login(user: UserLogin, db: Session = Depends(get_db)):
-    """Test endpoint to debug login issues"""
+    """Test endpoint to debug login issues (development only)"""
+    # Only allow in development environment
+    if settings.environment == "production":
+        raise HTTPException(
+            status_code=404,
+            detail="Not found"
+        )
+    
     try:
         db_user = authenticate_user(db, user.email, user.password)
         if not db_user:
-            return {"error": "Authentication failed", "status": "invalid_credentials"}
+            # Always return generic error to prevent user enumeration
+            return {"error": "Authentication failed", "status": "error"}
         
         return {"success": True, "user_id": db_user.id, "email": db_user.email}
     except Exception as e:
-        return {"error": str(e), "status": "exception"}
+        # Log the actual error server-side but return generic error to client
+        print(f"[ERROR] Test login failed: {str(e)}")
+        return {"error": "Authentication failed", "status": "error"}
 
 @app.put("/users/me", response_model=UserResponse)
 async def update_current_user(

@@ -31,10 +31,15 @@ from .chat_orchestrator import ChatOrchestrator, SimulationState
 
 router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 
-# OpenAI configuration - validate API key at module import
-if not settings.openai_api_key or not settings.openai_api_key.strip():
-    raise ValueError("OpenAI API key not configured in settings")
-openai.api_key = settings.openai_api_key
+# OpenAI configuration - defer validation to request time
+def _ensure_openai_configured():
+    """Ensure OpenAI is configured, raise error if not"""
+    if not settings.openai_api_key or not settings.openai_api_key.strip():
+        raise HTTPException(
+            status_code=503,
+            detail="OpenAI API key not configured. Please contact administrator."
+        )
+    openai.api_key = settings.openai_api_key
 
 def validate_goal_with_function_calling(
     conversation_history: str,
@@ -452,6 +457,9 @@ async def chat_with_persona(
 ):
     """Send message to AI persona and get response"""
     
+    # Ensure OpenAI is configured
+    _ensure_openai_configured()
+    
     start_time = time.time()
     
     # Get user progress and validate
@@ -643,6 +651,9 @@ async def validate_scene_goal(
     db: Session = Depends(get_db)
 ):
     """Check if user has achieved the scene goal"""
+    
+    # Ensure OpenAI is configured
+    _ensure_openai_configured()
     
     # Get user progress and scene
     user_progress = db.query(UserProgress).filter(
@@ -1066,6 +1077,10 @@ async def linear_simulation_chat(
     db: Session = Depends(get_db)
 ):
     """Handle orchestrated chat interactions in linear simulation"""
+    
+    # Ensure OpenAI is configured
+    _ensure_openai_configured()
+    
     def _safe_scene_id():
         # Use the correct scene ID from the current scene if available
         if 'correct_scene_id' in locals():
@@ -1524,42 +1539,22 @@ User's message: {request.message}"""
                 max_attempts = current_scene.get('max_attempts', 5)
                 print(f"[DEBUG] Current attempts: {current_attempts}/{max_attempts}")
                 
-                # Use AI function calling to validate goal
-                try:
-                    validation_result = validate_goal_with_function_calling(
-                        conversation_history=conversation_text,
-                        scene_goal=scene_goal,
-                        scene_description=scene_description,
-                        current_attempts=current_attempts,
-                        max_attempts=max_attempts,
-                        db=db,
-                        user_progress_id=user_progress.id,
-                        current_scene_id=scene_id_to_use
-                    )
-                    
-                    print(f"[DEBUG] Goal validation result: {validation_result}")
-                except Exception as e:
-                    print(f"[ERROR] Goal validation failed: {str(e)}")
-                    # Fallback to simple validation
+                # --- CRITICAL FIX: Check for timeout turns FIRST ---
+                if orchestrator.state.turn_count >= timeout_turns:
+                    print(f"[DEBUG] TIMEOUT REACHED: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns} - FORCING SCENE PROGRESSION")
+                    # Force scene progression due to timeout
+                    scene_completed = True
+                    # Initialize validation_result for timeout case
                     validation_result = {
                         "goal_achieved": False,
                         "confidence_score": 0.0,
-                        "reasoning": f"Error during validation: {str(e)}",
+                        "reasoning": "Timeout reached - forced progression",
                         "next_action": "continue",
                         "hint_message": None,
                         "next_scene_id": None,
                         "next_scene_title": None,
                         "simulation_complete": False
                     }
-                
-                # Handle the validation result
-                print(f"[DEBUG] ABOUT TO RUN GOAL VALIDATION: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
-                
-                # --- CRITICAL FIX: Check for timeout turns FIRST ---
-                if orchestrator.state.turn_count >= timeout_turns:
-                    print(f"[DEBUG] TIMEOUT REACHED: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns} - FORCING SCENE PROGRESSION")
-                    # Force scene progression due to timeout
-                    scene_completed = True
                     
                     # Find next scene
                     if orchestrator.state.current_scene_index + 1 < len(orchestrator.scenario.get('scenes', [])):
@@ -1630,7 +1625,41 @@ User's message: {request.message}"""
                             scene_progress.completed_at = datetime.utcnow()
                             user_progress.forced_progressions += 1
                 
-                elif validation_result.get("next_scene_id") or validation_result.get("simulation_complete"):
+                else:
+                    # Only run validation if timeout is not reached
+                    # Use AI function calling to validate goal
+                    try:
+                        validation_result = validate_goal_with_function_calling(
+                            conversation_history=conversation_text,
+                            scene_goal=scene_goal,
+                            scene_description=scene_description,
+                            current_attempts=current_attempts,
+                            max_attempts=max_attempts,
+                            db=db,
+                            user_progress_id=user_progress.id,
+                            current_scene_id=scene_id_to_use,
+                            perform_db_progression=False
+                        )
+                        
+                        print(f"[DEBUG] Goal validation result: {validation_result}")
+                    except Exception as e:
+                        print(f"[ERROR] Goal validation failed: {str(e)}")
+                        # Fallback to simple validation
+                        validation_result = {
+                            "goal_achieved": False,
+                            "confidence_score": 0.0,
+                            "reasoning": f"Error during validation: {str(e)}",
+                            "next_action": "continue",
+                            "hint_message": None,
+                            "next_scene_id": None,
+                            "next_scene_title": None,
+                            "simulation_complete": False
+                        }
+                    
+                    # Handle the validation result
+                    print(f"[DEBUG] ABOUT TO RUN GOAL VALIDATION: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
+                
+                if validation_result.get("next_scene_id") or validation_result.get("simulation_complete"):
                     # Only allow progression if turn limit is reached
                     if orchestrator.state.turn_count < timeout_turns:
                         print(f"[DEBUG] LLM wants to progress, but turn limit not reached: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")

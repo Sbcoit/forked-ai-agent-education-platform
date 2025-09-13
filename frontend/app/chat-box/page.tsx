@@ -89,17 +89,24 @@ const ScenarioSelector = ({
 }: { 
   onScenarioSelect: (scenarioId: number) => void 
 }) => {
+  const { user, isLoading: authLoading } = useAuth()
   const [scenarios, setScenarios] = useState<Scenario[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedScenario, setSelectedScenario] = useState<number | null>(null)
 
   useEffect(() => {
-    fetchScenarios()
-  }, [])
+    // Only fetch scenarios when user is authenticated
+    if (!authLoading && user) {
+      fetchScenarios()
+    } else if (!authLoading && !user) {
+      // User is not authenticated, stop loading
+      setLoading(false)
+    }
+  }, [user, authLoading])
 
   const fetchScenarios = async () => {
     try {
-      const response = await apiClient.apiRequest("/api/scenarios/")
+      const response = await apiClient.apiRequest("/api/scenarios/", {}, true) // silentAuthError = true
       if (response.ok) {
         const data = await response.json()
         // Filter scenarios that have both personas and scenes
@@ -116,9 +123,15 @@ const ScenarioSelector = ({
           )
           setSelectedScenario(mostRecent.id)
         }
+      } else if (response.status === 401) {
+        // User is not authenticated, show empty state
+        setScenarios([])
       }
     } catch (error) {
-      console.error("Failed to fetch scenarios:", error)
+      // Only log the error, don't show it to the user
+      console.log("Failed to fetch scenarios:", error)
+      // Set empty scenarios array to show "No Scenarios Available" message
+      setScenarios([])
     } finally {
       setLoading(false)
     }

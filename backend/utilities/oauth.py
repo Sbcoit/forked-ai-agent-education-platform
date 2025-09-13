@@ -41,7 +41,8 @@ def get_google_auth_url(state: str) -> str:
         "prompt": "select_account"
     }
     
-    query_string = "&".join([f"{k}={v}" for k, v in params.items()])
+    from urllib.parse import urlencode
+    query_string = urlencode(params)
     return f"{GOOGLE_AUTH_URL}?{query_string}"
 
 async def exchange_code_for_token(code: str) -> Optional[Dict[str, Any]]:
@@ -54,7 +55,7 @@ async def exchange_code_for_token(code: str) -> Optional[Dict[str, Any]]:
         "redirect_uri": GOOGLE_REDIRECT_URI,
     }
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             response = await client.post(GOOGLE_TOKEN_URL, data=data)
             response.raise_for_status()
@@ -67,7 +68,7 @@ async def get_google_user_info(access_token: str) -> Optional[Dict[str, Any]]:
     """Get user information from Google using access token"""
     headers = {"Authorization": f"Bearer {access_token}"}
     
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         try:
             response = await client.get(GOOGLE_USER_INFO_URL, headers=headers)
             response.raise_for_status()
@@ -84,6 +85,25 @@ def find_existing_user_by_google_id(db: Session, google_id: str) -> Optional[Use
     """Find existing user by Google ID"""
     return db.query(User).filter(User.google_id == google_id).first()
 
+def find_oauth_user_by_original_email(db: Session, original_email: str) -> Optional[User]:
+    """Find OAuth user by their original email (before +google suffix)"""
+    # First try exact match
+    user = db.query(User).filter(User.email == original_email).first()
+    if user:
+        return user
+    
+    # If not found, try to find OAuth user with modified email
+    email_parts = original_email.split("@")
+    base_email = email_parts[0]
+    domain = email_parts[1]
+    
+    # Look for users with email pattern: base_email+google*@domain
+    pattern = f"{base_email}+google%@{domain}"
+    return db.query(User).filter(
+        User.email.like(pattern),
+        User.provider == "google"
+    ).first()
+
 def create_oauth_user(db: Session, google_data: Dict[str, Any]) -> User:
     """Create a new user from Google OAuth data"""
     # Generate username from email
@@ -96,13 +116,25 @@ def create_oauth_user(db: Session, google_data: Dict[str, Any]) -> User:
         username = f"{original_username}{counter}"
         counter += 1
     
+    # Handle email conflicts by creating a unique email for OAuth users
+    email = google_data["email"]
+    if db.query(User).filter(User.email == email).first():
+        # Create a unique email by appending a suffix
+        email_parts = email.split("@")
+        base_email = email_parts[0]
+        domain = email_parts[1]
+        email_counter = 1
+        while db.query(User).filter(User.email == email).first():
+            email = f"{base_email}+google{email_counter}@{domain}"
+            email_counter += 1
+    
     user = User(
-        email=google_data["email"],
+        email=email,
         full_name=google_data.get("name", ""),
         username=username,
         password_hash=None,  # OAuth users don't have passwords
         avatar_url=google_data.get("picture"),
-        google_id=google_data["id"],
+        google_id=google_data.get("sub") or google_data.get("id"),
         provider="google",
         is_verified=True,  # Google accounts are considered verified
     )
@@ -114,7 +146,7 @@ def create_oauth_user(db: Session, google_data: Dict[str, Any]) -> User:
 
 def link_google_to_existing_user(db: Session, user: User, google_data: Dict[str, Any]) -> User:
     """Link Google OAuth to existing user account"""
-    user.google_id = google_data["id"]
+    user.google_id = google_data.get("sub") or google_data.get("id")
     user.provider = "google"  # Update provider to google
     
     # Update profile data from Google if not already set

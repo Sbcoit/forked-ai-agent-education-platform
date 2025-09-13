@@ -72,7 +72,7 @@ class ChatOrchestrator:
         self.state = SimulationState()
         
         # Build agent lookup for easy access
-        self.agents = {agent['id']: agent for agent in self.personas}
+        self.agents = {str(agent['id']): agent for agent in self.personas}
         
         # LangChain integration (optional)
         self.langchain_enabled = enable_langchain and LANGCHAIN_AVAILABLE
@@ -236,13 +236,13 @@ class ChatOrchestrator:
                         }
                     )
                     
-                    self.state.agent_sessions[agent_id] = session_id
+                    self.state.agent_sessions[str(agent_id)] = session_id
                     created_sessions.append(session_id)
                     
                     # Create persona agent
                     persona_obj = await self._get_persona_from_db(persona.get('db_id'))
                     if persona_obj:
-                        self.persona_agents[agent_id] = PersonaAgent(persona_obj, session_id)
+                        self.persona_agents[str(agent_id)] = PersonaAgent(persona_obj, session_id)
                         print(f"Created persona agent for {agent_id}")
                     else:
                         print(f"Could not create persona agent for {agent_id} - persona object not found")
@@ -313,10 +313,10 @@ class ChatOrchestrator:
         
         try:
             # Get persona agent
-            if persona_id not in self.persona_agents:
+            if str(persona_id) not in self.persona_agents:
                 return "I'm sorry, I'm not available right now. Please try again."
             
-            persona_agent = self.persona_agents[persona_id]
+            persona_agent = self.persona_agents[str(persona_id)]
             
             # Get scene context
             scene_context = await scene_memory_manager.get_scene_context(
@@ -433,8 +433,8 @@ class ChatOrchestrator:
             # List active agents for this scene
             active_agent_ids = current_scene.get('agent_ids', [])
             for agent_id in active_agent_ids:
-                if agent_id in self.agents:
-                    agent = self.agents[agent_id]
+                if str(agent_id) in self.agents:
+                    agent = self.agents[str(agent_id)]
                     name = agent['identity']['name']
                     role = agent['identity']['role']
                     intro += f"• @{agent_id}: {name} ({role})\n"
@@ -627,8 +627,8 @@ Image: {scene.get('image_url', 'No image')}
         # List active agents for this scene
         active_agent_ids = scene.get('agent_ids', [])
         for agent_id in active_agent_ids:
-            if agent_id in self.agents:
-                agent = self.agents[agent_id]
+            if str(agent_id) in self.agents:
+                agent = self.agents[str(agent_id)]
                 name = agent['identity']['name']
                 role = agent['identity']['role']
                 intro += f"• @{agent_id}: {name} ({role})\n"

@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '0cd3fc754e7a'
-down_revision = 'add_langchain_integration'
+down_revision = 'add_langchain_integration_001'
 branch_labels = None
 depends_on = None
 
@@ -60,8 +60,10 @@ def upgrade() -> None:
                     existing_type=sa.Integer(),
                     nullable=False)
     
-    # Add a comment to document the constraint
-    op.execute(sa.text("COMMENT ON COLUMN user_progress.user_id IS 'User ID - required to ensure simulations are constrained to user accounts'"))
+    # Add a comment to document the constraint (PostgreSQL only)
+    bind = op.get_bind()
+    if bind.dialect.name == 'postgresql':
+        op.execute(sa.text("COMMENT ON COLUMN user_progress.user_id IS 'User ID - required to ensure simulations are constrained to user accounts'"))
 
 
 def downgrade() -> None:
@@ -70,8 +72,10 @@ def downgrade() -> None:
     
     This downgrade allows anonymous simulations again, which may be a security concern.
     """
-    # Remove the comment
-    op.execute(sa.text("COMMENT ON COLUMN user_progress.user_id IS NULL"))
+    # Remove the comment (PostgreSQL only)
+    bind = op.get_bind()
+    if bind.dialect.name == 'postgresql':
+        op.execute(sa.text("COMMENT ON COLUMN user_progress.user_id IS NULL"))
     
     # Revert user_id to nullable in user_progress table
     op.alter_column('user_progress', 'user_id',

@@ -73,8 +73,9 @@ def clear_database():
                 # Drop all tables with CASCADE to handle foreign key constraints
                 for table_name in table_names:
                     logger.info(f"Dropping table: {table_name}")
-                    # Use raw SQL with CASCADE to handle foreign key dependencies
-                    drop_stmt = text(f"DROP TABLE IF EXISTS {table_name} CASCADE")
+                    # Use properly quoted table names to handle mixed-case or reserved identifiers
+                    quoted_table_name = engine.dialect.identifier_preparer.quote(table_name)
+                    drop_stmt = text(f"DROP TABLE IF EXISTS {quoted_table_name} CASCADE")
                     conn.execute(drop_stmt)
                 
                 # Commit the transaction
@@ -93,14 +94,31 @@ def clear_database():
         
         # Verify tables were created
         with engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT table_name 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_type = 'BASE TABLE'
-                ORDER BY table_name
-            """))
-            tables = [row[0] for row in result.fetchall()]
+            dialect_name = engine.dialect.name
+            if dialect_name == 'postgresql':
+                result = conn.execute(text("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_type = 'BASE TABLE'
+                    ORDER BY table_name
+                """))
+                tables = [row[0] for row in result.fetchall()]
+            elif dialect_name == 'sqlite':
+                result = conn.execute(text("""
+                    SELECT name 
+                    FROM sqlite_master 
+                    WHERE type = 'table' 
+                    AND name NOT LIKE 'sqlite_%'
+                    ORDER BY name
+                """))
+                tables = [row[0] for row in result.fetchall()]
+            else:
+                # Fallback to SQLAlchemy Inspector
+                from sqlalchemy import inspect
+                inspector = inspect(engine)
+                tables = inspector.get_table_names()
+            
             logger.info(f"✅ Verified {len(tables)} tables created: {', '.join(tables)}")
         
         logger.info("\n" + "="*60)

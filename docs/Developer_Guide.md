@@ -244,19 +244,19 @@ npm install
 Create `.env` file in frontend directory:
 
 ```env
-REACT_APP_API_URL=http://localhost:8000
-REACT_APP_ENVIRONMENT=development
-REACT_APP_VERSION=2.0.0
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_ENVIRONMENT=development
+NEXT_PUBLIC_VERSION=2.0.0
 ```
 
 #### 3. Run Frontend Server
 ```bash
 # Development mode
-npm start
+npm run dev
 
 # Production build
 npm run build
-npm run serve
+npm start
 ```
 
 ---
@@ -928,67 +928,6 @@ class ApiService {
 
 ### Development Deployment
 
-#### 1. Local Docker Setup
-```dockerfile
-# Dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
-  backend:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql://user:password@db:5432/crewai_platform
-    depends_on:
-      - db
-    volumes:
-      - .:/app
-
-  db:
-    image: postgres:15
-    environment:
-      - POSTGRES_USER=user
-      - POSTGRES_PASSWORD=password
-      - POSTGRES_DB=crewai_platform
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-
-volumes:
-  postgres_data:
-```
-
-#### 2. Run with Docker
-```bash
-# Build and run
-docker-compose up --build
-
-# Run in background
-docker-compose up -d
-
-# View logs
-docker-compose logs -f backend
-
-# Stop services
-docker-compose down
-```
-
 ### Production Deployment
 
 #### 1. Environment Setup
@@ -1207,7 +1146,6 @@ def get_db_stats():
 ### Tools
 - [Postman Collection](./postman_collection.json)
 - [VS Code Extensions](./vscode_extensions.json)
-- [Docker Compose Files](./docker/)
 
 ### Community
 - [Discord Server](https://discord.gg/crewai)

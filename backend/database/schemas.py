@@ -1,6 +1,6 @@
 # Enhanced Pydantic Schemas for CrewAI Agent Builder Platform
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, conint
+from typing import List, Optional, Dict, Any, Literal
 from datetime import datetime
 
 # --- SCENARIO SCHEMAS ---
@@ -53,15 +53,18 @@ class ScenarioUpdate(BaseModel):
 
 # --- PDF-TO-SCENARIO PUBLISHING SCHEMAS ---
 
+# Define trait type with validation
+Trait = conint(ge=0, le=10)
+
 class PersonalityTraits(BaseModel):
-    analytical: Optional[int] = None  # 0-10 scale
-    creative: Optional[int] = None    # 0-10 scale
-    assertive: Optional[int] = None   # 0-10 scale
-    collaborative: Optional[int] = None  # 0-10 scale
-    detail_oriented: Optional[int] = None  # 0-10 scale
-    risk_taking: Optional[int] = None  # 0-10 scale
-    empathetic: Optional[int] = None   # 0-10 scale
-    decisive: Optional[int] = None     # 0-10 scale
+    analytical: Optional[Trait] = None  # 0-10 scale
+    creative: Optional[Trait] = None    # 0-10 scale
+    assertive: Optional[Trait] = None   # 0-10 scale
+    collaborative: Optional[Trait] = None  # 0-10 scale
+    detail_oriented: Optional[Trait] = None  # 0-10 scale
+    risk_taking: Optional[Trait] = None  # 0-10 scale
+    empathetic: Optional[Trait] = None   # 0-10 scale
+    decisive: Optional[Trait] = None     # 0-10 scale
 
 class ScenarioPersonaCreate(BaseModel):
     name: str
@@ -360,16 +363,17 @@ class GoogleOAuthRequest(BaseModel):
     code: str
     state: Optional[str] = None
 
-class AccountLinkingRequest(BaseModel):
-    action: str  # "link" or "create_separate"
-    existing_user_id: int
-    google_data: dict
-
 class OAuthUserData(BaseModel):
     google_id: str
     email: str
     full_name: str
     avatar_url: Optional[str] = None
+
+class AccountLinkingRequest(BaseModel):
+    action: Literal["link", "create_separate"]
+    existing_user_id: Optional[int] = None  # Required when action == "link"
+    google_data: OAuthUserData
+    state: str  # OAuth state for verification
 
 # --- COLLECTION SCHEMAS ---
 class CollectionCreate(BaseModel):
@@ -444,7 +448,7 @@ class SimulationChatResponse(BaseModel):
     scene_completed: Optional[bool] = None
     next_scene_id: Optional[int] = None
     next_scene: Optional[Dict[str, Any]] = None  # Full next scene object for frontend
-    persona_id: Optional[str] = None  # Persona ID for @mentions (converted from int at API boundary)
+    persona_id: Optional[int] = None  # Persona ID for @mentions
     
     class Config:
         from_attributes = True

@@ -202,13 +202,13 @@ uvicorn main:app --reload
 **Or step-by-step manual setup:**
 
 ```bash
-# 1. Create and activate virtual environment (REQUIRED)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# 2. Clone and navigate to project
+# 1. Clone and navigate to project
 git clone <repository-url>
 cd ai-agent-education-platform
+
+# 2. Create and activate virtual environment (REQUIRED)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # 3. Install dependencies
 pip install -r requirements.txt

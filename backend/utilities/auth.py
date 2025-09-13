@@ -20,6 +20,12 @@ SECRET_KEY = settings.secret_key
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
+# Validate SECRET_KEY
+if not SECRET_KEY or not SECRET_KEY.strip():
+    raise RuntimeError("SECRET_KEY is required and cannot be empty. Please set it in your environment variables.")
+if len(SECRET_KEY) < 32:
+    raise RuntimeError("SECRET_KEY must be at least 32 characters long for security.")
+
 # Security scheme
 security = HTTPBearer()
 

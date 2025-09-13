@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 from pgvector.sqlalchemy import Vector
 
 # revision identifiers, used by Alembic.
-revision = 'add_langchain_integration'
+revision = 'add_langchain_integration_001'
 down_revision = 'adc1f7ccb40c'
 branch_labels = None
 depends_on = None
@@ -25,7 +25,7 @@ def upgrade():
     
     # Create vector_embeddings table
     op.create_table('vector_embeddings',
-        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column('content_type', sa.String(), nullable=False),
         sa.Column('content_id', sa.Integer(), nullable=False),
         sa.Column('content_hash', sa.String(), nullable=False),
@@ -37,8 +37,7 @@ def upgrade():
         sa.Column('similarity_threshold', sa.Float(), nullable=True),
         sa.Column('is_active', sa.Boolean(), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
-        sa.PrimaryKeyConstraint('id')
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True)
     )
     
     # Create indexes for vector_embeddings
@@ -53,7 +52,7 @@ def upgrade():
     
     # Create session_memory table
     op.create_table('session_memory',
-        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column('session_id', sa.String(), nullable=False),
         sa.Column('user_progress_id', sa.Integer(), nullable=False),
         sa.Column('scene_id', sa.Integer(), nullable=True),
@@ -70,8 +69,7 @@ def upgrade():
         sa.ForeignKeyConstraint(['parent_memory_id'], ['session_memory.id'], ),
         sa.ForeignKeyConstraint(['related_persona_id'], ['scenario_personas.id'], ),
         sa.ForeignKeyConstraint(['scene_id'], ['scenario_scenes.id'], ),
-        sa.ForeignKeyConstraint(['user_progress_id'], ['user_progress.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.ForeignKeyConstraint(['user_progress_id'], ['user_progress.id'], )
     )
     
     # Create indexes for session_memory
@@ -84,7 +82,7 @@ def upgrade():
     
     # Create conversation_summaries table
     op.create_table('conversation_summaries',
-        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column('user_progress_id', sa.Integer(), nullable=False),
         sa.Column('scene_id', sa.Integer(), nullable=True),
         sa.Column('summary_type', sa.String(), nullable=False),
@@ -101,8 +99,7 @@ def upgrade():
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
         sa.ForeignKeyConstraint(['scene_id'], ['scenario_scenes.id'], ),
-        sa.ForeignKeyConstraint(['user_progress_id'], ['user_progress.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.ForeignKeyConstraint(['user_progress_id'], ['user_progress.id'], )
     )
     
     # Create indexes for conversation_summaries
@@ -114,7 +111,7 @@ def upgrade():
     
     # Create agent_sessions table
     op.create_table('agent_sessions',
-        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
         sa.Column('session_id', sa.String(), nullable=False),
         sa.Column('user_progress_id', sa.Integer(), nullable=False),
         sa.Column('agent_type', sa.String(), nullable=False),
@@ -131,8 +128,7 @@ def upgrade():
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
-        sa.ForeignKeyConstraint(['user_progress_id'], ['user_progress.id'], ),
-        sa.PrimaryKeyConstraint('id')
+        sa.ForeignKeyConstraint(['user_progress_id'], ['user_progress.id'], )
     )
     
     # Create indexes for agent_sessions

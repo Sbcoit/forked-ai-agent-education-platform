@@ -50,45 +50,60 @@ class SceneMemoryManager:
         
         try:
             with self._lock:
-                # Initialize scene context
-                self.scene_contexts[scene_key] = {
-                    "scene_id": scene_id,
-                    "user_progress_id": user_progress_id,
-                    "scene_data": scene_data,
-                    "personas": [{"id": p.id, "name": p.name, "role": p.role} for p in personas],
-                    "conversation_history": [],
-                    "shared_insights": [],
-                    "learning_moments": [],
-                    "created_at": datetime.utcnow(),
-                    "last_updated": datetime.utcnow()
-                }
+                # Check if memory already exists
+                if scene_key in self.scene_contexts:
+                    return True
                 
-                # Initialize shared context
-                self.shared_contexts[shared_key] = {
-                    "scene_id": scene_id,
-                    "user_progress_id": user_progress_id,
-                    "shared_knowledge": {},
-                    "collective_insights": [],
-                    "scene_progress": {},
-                    "created_at": datetime.utcnow(),
-                    "last_updated": datetime.utcnow()
-                }
+                # Load existing memory from database first
+                try:
+                    await self._load_scene_memory(user_progress_id, scene_id)
+                except Exception as e:
+                    print(f"Error loading scene memory for user_progress_id={user_progress_id}, scene_id={scene_id}: {e}")
+                    # Continue with initialization of new memory structure
+                    # This ensures the system doesn't fail completely if DB load fails
                 
-                # Initialize persona memories
-                for persona in personas:
-                    persona_key = self.get_persona_key(user_progress_id, scene_id, persona.id)
-                    self.persona_memories[persona_key] = {
-                        "persona_id": persona.id,
-                        "persona_name": persona.name,
-                        "persona_role": persona.role,
+                # If still not in memory after loading, initialize new
+                if scene_key not in self.scene_contexts:
+                    self.scene_contexts[scene_key] = {
                         "scene_id": scene_id,
                         "user_progress_id": user_progress_id,
-                        "personal_memory": [],
-                        "interactions": [],
-                        "insights": [],
+                        "scene_data": scene_data,
+                        "personas": [{"id": p.id, "name": p.name, "role": p.role} for p in personas],
+                        "conversation_history": [],
+                        "shared_insights": [],
+                        "learning_moments": [],
                         "created_at": datetime.utcnow(),
                         "last_updated": datetime.utcnow()
                     }
+                
+                # Initialize shared context if not exists
+                if shared_key not in self.shared_contexts:
+                    self.shared_contexts[shared_key] = {
+                        "scene_id": scene_id,
+                        "user_progress_id": user_progress_id,
+                        "shared_knowledge": {},
+                        "collective_insights": [],
+                        "scene_progress": {},
+                        "created_at": datetime.utcnow(),
+                        "last_updated": datetime.utcnow()
+                    }
+                
+                # Initialize persona memories if not exists
+                for persona in personas:
+                    persona_key = self.get_persona_key(user_progress_id, scene_id, persona.id)
+                    if persona_key not in self.persona_memories:
+                        self.persona_memories[persona_key] = {
+                            "persona_id": persona.id,
+                            "persona_name": persona.name,
+                            "persona_role": persona.role,
+                            "scene_id": scene_id,
+                            "user_progress_id": user_progress_id,
+                            "personal_memory": [],
+                            "interactions": [],
+                            "insights": [],
+                            "created_at": datetime.utcnow(),
+                            "last_updated": datetime.utcnow()
+                        }
             
             # Store in database
             await self._persist_scene_memory(user_progress_id, scene_id, scene_data, personas)

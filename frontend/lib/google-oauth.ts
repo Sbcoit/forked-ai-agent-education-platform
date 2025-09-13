@@ -79,28 +79,43 @@ export class GoogleOAuth {
         throw new Error('Failed to open OAuth window. Please allow popups.')
       }
 
-      // Wait for the window to close or receive message
+      // Wait for messages from the popup
       return new Promise((resolve, reject) => {
-        const checkClosed = setInterval(() => {
-          if (this.authWindow?.closed) {
-            clearInterval(checkClosed)
-            reject(new Error('OAuth window was closed'))
+        // Set a timeout to prevent hanging
+        const timeout = setTimeout(() => {
+          window.removeEventListener('message', messageHandler)
+          try {
+            this.authWindow?.close()
+          } catch (e) {
+            // Ignore COOP errors when closing window
+            console.log('Window close blocked by COOP policy')
           }
-        }, 1000)
+          reject(new Error('OAuth timeout - please try again'))
+        }, 300000) // 5 minutes timeout
 
         // Listen for messages from the popup
         const messageHandler = (event: MessageEvent) => {
           if (event.origin !== window.location.origin) return
 
           if (event.data.type === 'GOOGLE_OAUTH_SUCCESS') {
-            clearInterval(checkClosed)
+            clearTimeout(timeout)
             window.removeEventListener('message', messageHandler)
-            this.authWindow?.close()
+            try {
+              this.authWindow?.close()
+            } catch (e) {
+              // Ignore COOP errors when closing window
+              console.log('Window close blocked by COOP policy')
+            }
             resolve(event.data.data)
           } else if (event.data.type === 'GOOGLE_OAUTH_ERROR') {
-            clearInterval(checkClosed)
+            clearTimeout(timeout)
             window.removeEventListener('message', messageHandler)
-            this.authWindow?.close()
+            try {
+              this.authWindow?.close()
+            } catch (e) {
+              // Ignore COOP errors when closing window
+              console.log('Window close blocked by COOP policy')
+            }
             reject(new Error(event.data.error))
           }
         }
@@ -113,7 +128,7 @@ export class GoogleOAuth {
     }
   }
 
-  async linkAccount(action: 'link' | 'create_separate', existingUserId: number, googleData: OAuthUserData): Promise<any> {
+  async linkAccount(action: 'link' | 'create_separate', existingUserId: number, googleData: OAuthUserData, state: string): Promise<any> {
     try {
       const response = await fetch(`${API_BASE_URL}/auth/google/link`, {
         method: 'POST',
@@ -124,12 +139,28 @@ export class GoogleOAuth {
           action,
           existing_user_id: existingUserId,
           google_data: googleData,
+          state,
         }),
       })
 
       if (!response.ok) {
         const errorData = await response.json()
-        throw new Error(errorData.detail || 'Failed to link account')
+        console.error('Link account error response:', errorData)
+        
+        // Handle different error formats
+        let errorMessage = 'Failed to link account'
+        if (errorData.detail) {
+          if (Array.isArray(errorData.detail)) {
+            // Pydantic validation errors
+            errorMessage = errorData.detail.map((err: any) => err.msg || err.message || err).join(', ')
+          } else if (typeof errorData.detail === 'string') {
+            errorMessage = errorData.detail
+          } else {
+            errorMessage = JSON.stringify(errorData.detail)
+          }
+        }
+        
+        throw new Error(errorMessage)
       }
 
       return await response.json()

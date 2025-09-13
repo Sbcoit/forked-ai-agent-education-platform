@@ -105,7 +105,7 @@ const removeAuthToken = (): void => {
 }
 
 // Helper function to make authenticated API requests
-const apiRequest = async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
+const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAuthError: boolean = false): Promise<Response> => {
   const token = getAuthToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -127,7 +127,11 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}): Promise<
       
       // Handle specific authentication errors
       if (response.status === 401) {
-        throw new Error(errorData.detail || "Invalid email or password. Please check your credentials and try again.")
+        if (silentAuthError) {
+          // Return the response without throwing for silent auth errors
+          return response
+        }
+        throw new Error(errorData.detail || "Authentication failed. Please log in again.")
       }
       
       // Handle other HTTP errors
@@ -161,7 +165,9 @@ export const apiClient = {
   },
 
   register: async (data: RegisterData): Promise<{ user: User; access_token: string }> => {
-    console.log('[DEBUG] API register called with data:', data)
+    // Log sanitized data (without password)
+    const sanitizedData = { ...data, password: '[REDACTED]' }
+    console.log('[DEBUG] API register called with data:', sanitizedData)
     const response = await apiRequest('/users/register', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -289,7 +295,7 @@ export const apiClient = {
   },
 
   // Generic authenticated request method
-  apiRequest: async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
-    return apiRequest(endpoint, options)
+  apiRequest: async (endpoint: string, options: RequestInit = {}, silentAuthError: boolean = false): Promise<Response> => {
+    return apiRequest(endpoint, options, silentAuthError)
   },
 } 

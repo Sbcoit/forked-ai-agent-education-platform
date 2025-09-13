@@ -128,12 +128,6 @@ The AI Agent Education Platform is built using modern, industry-standard technol
 - **Benefits**: Team collaboration, change tracking, rollback capability
 - **Integration**: GitHub integration for CI/CD
 
-### Docker (Optional)
-- **Containerization**: Application containerization
-- **Features**: Consistent environments, easy deployment, scalability
-- **Benefits**: Development consistency, production deployment, isolation
-- **Usage**: Development environments, production deployment
-
 ### Pytest
 - **Testing**: Comprehensive testing framework
 - **Features**: Fixtures, parametrization, coverage reporting

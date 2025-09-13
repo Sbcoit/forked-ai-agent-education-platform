@@ -566,14 +566,14 @@ class SessionManager:
                 asyncio.create_task(cleanup_task())
                 print("✅ Session cleanup task started successfully")
             else:
-                # If no event loop is running, we need to run it
-                loop.run_until_complete(cleanup_task())
+                # If no event loop is running, schedule it to run later
+                print("⚠️  No event loop running, cleanup task will be started when event loop is available")
         except RuntimeError:
-            # No event loop exists, create one
-            asyncio.run(cleanup_task())
+            # No event loop exists, schedule it to run later
+            print("⚠️  No event loop exists, cleanup task will be started when event loop is available")
         except Exception as e:
             print(f"❌ Error starting cleanup task: {e}")
-            raise e
+            # Don't raise the exception to avoid blocking startup
 
 # Global session manager instance
 session_manager = SessionManager()

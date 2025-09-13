@@ -16,7 +16,7 @@ from datetime import datetime
 
 from langchain_config import langchain_manager, settings
 from database.models import ScenarioPersona, ConversationLog
-from database.connection import get_db
+from database.connection import get_db, SessionLocal
 
 class PersonaCallbackHandler(BaseCallbackHandler):
     """Callback handler for persona interactions"""
@@ -41,8 +41,8 @@ class PersonaCallbackHandler(BaseCallbackHandler):
     
     def _log_conversation(self, response_text: str, processing_time: float):
         """Log conversation to database"""
+        db = SessionLocal()
         try:
-            db = next(get_db())
             conversation_log = ConversationLog(
                 user_progress_id=self.user_progress_id,
                 scene_id=self.scene_id,
@@ -59,6 +59,8 @@ class PersonaCallbackHandler(BaseCallbackHandler):
             db.commit()
         except Exception as e:
             print(f"Error logging conversation: {e}")
+        finally:
+            db.close()
 
 class PersonaAgent:
     """LangChain-based persona agent with context awareness and memory"""

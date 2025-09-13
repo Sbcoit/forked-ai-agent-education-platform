@@ -23,12 +23,28 @@ class Settings(BaseSettings):
     # Google OAuth settings
     google_client_id: str = os.getenv("GOOGLE_CLIENT_ID", "")
     google_client_secret: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
-    google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:3000/auth/google/callback")
+    google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "")
     
     class Config:
         env_file = project_root / ".env"  # Look for .env in project root
 
 settings = Settings()
+
+# Validate environment settings
+def _validate_environment():
+    """Validate environment settings for production"""
+    if settings.environment == "production":
+        if not settings.google_client_id or not settings.google_client_id.strip():
+            raise RuntimeError("GOOGLE_CLIENT_ID is required in production environment")
+        if not settings.google_client_secret or not settings.google_client_secret.strip():
+            raise RuntimeError("GOOGLE_CLIENT_SECRET is required in production environment")
+        if not settings.google_redirect_uri or not settings.google_redirect_uri.strip():
+            raise RuntimeError("GOOGLE_REDIRECT_URI is required in production environment")
+        if "localhost" in settings.google_redirect_uri:
+            raise RuntimeError("GOOGLE_REDIRECT_URI cannot use localhost in production environment")
+
+# Run validation
+_validate_environment()
 
 # Print loaded settings for debugging (remove in production)
 print(f"🔗 Database URL: {settings.database_url.split('@')[0]}@...")

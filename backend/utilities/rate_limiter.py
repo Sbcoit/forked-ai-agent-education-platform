@@ -6,7 +6,7 @@ Provides IP-based rate limiting for anonymous operations using in-memory storage
 import time
 import threading
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import Request, HTTPException
 from pydantic import BaseModel
 from collections import defaultdict, deque
@@ -137,7 +137,7 @@ class RateLimiter:
                 oldest_timestamp = timestamps[0] if timestamps else current_time
                 retry_after = int(config.window_seconds - (current_time - oldest_timestamp))
                 retry_after = max(1, retry_after)  # At least 1 second
-                reset_time = datetime.now() + timedelta(seconds=retry_after)
+                reset_time = datetime.now(timezone.utc) + timedelta(seconds=retry_after)
                 
                 return RateLimitResult(
                     allowed=False,
@@ -153,9 +153,9 @@ class RateLimiter:
             # Calculate reset time (when the oldest request will expire)
             if timestamps:
                 oldest_timestamp = timestamps[0]
-                reset_time = datetime.fromtimestamp(oldest_timestamp + config.window_seconds)
+                reset_time = datetime.fromtimestamp(oldest_timestamp + config.window_seconds, tz=timezone.utc)
             else:
-                reset_time = datetime.now() + timedelta(seconds=config.window_seconds)
+                reset_time = datetime.now(timezone.utc) + timedelta(seconds=config.window_seconds)
             
             return RateLimitResult(
                 allowed=True,

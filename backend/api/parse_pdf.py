@@ -189,12 +189,19 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
 @router.post("/api/parse-pdf/")
 async def parse_pdf(
     file: UploadFile = File(...),
-    context_files: List[UploadFile] = File(default=[]),
+    context_files: List[UploadFile] = File(None),
     save_to_db: bool = False,  # Changed to False - don't auto-save
     db: Session = Depends(get_db)
 ):
     """Main endpoint: Parse PDF and context files, then process with AI"""
     print("[DEBUG] /api/parse-pdf/ endpoint hit")
+    
+    # Normalize context_files to empty list if None
+    if context_files is None:
+        context_files = []
+    elif not isinstance(context_files, list):
+        # If FastAPI passes a single UploadFile, wrap it in a list
+        context_files = [context_files]
     if not LLAMAPARSE_API_KEY:
         raise HTTPException(status_code=500, detail="LlamaParse API key not configured.")
     # Support PDF, TXT, and other text-based files for the main file

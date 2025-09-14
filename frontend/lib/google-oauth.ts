@@ -1,5 +1,21 @@
 // Google OAuth utility functions
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+function getApiBaseUrl(): string {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL
+  if (!apiUrl) {
+    // Check if we're in production
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('NEXT_PUBLIC_API_URL environment variable is required in production')
+    }
+    // Only allow localhost fallback in development
+    return 'http://localhost:8000'
+  }
+  return apiUrl
+}
+
+const API_BASE_URL = getApiBaseUrl()
+
+// Configuration constants
+const OAUTH_TIMEOUT_MS = 60000 // 1 minute timeout for better UX
 
 export interface GoogleOAuthResponse {
   auth_url: string
@@ -91,7 +107,7 @@ export class GoogleOAuth {
             console.log('Window close blocked by COOP policy')
           }
           reject(new Error('OAuth timeout - please try again'))
-        }, 300000) // 5 minutes timeout
+        }, OAUTH_TIMEOUT_MS)
 
         // Listen for messages from the popup
         const messageHandler = (event: MessageEvent) => {
@@ -168,7 +184,7 @@ export class GoogleOAuth {
       // Store the access token if present (for successful account linking)
       if (data.access_token) {
         localStorage.setItem('auth_token', data.access_token)
-        console.log('Google OAuth token stored successfully after account linking')
+        // Token stored successfully - no need to log sensitive information
       }
       
       return data
@@ -206,7 +222,12 @@ export async function handleOAuthCallback(): Promise<AccountLinkingData | any> {
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/auth/google/callback?code=${code}&state=${state}`, {
+    // Build URL with properly encoded parameters
+    const params = new URLSearchParams({
+      code: code,
+      state: state
+    })
+    const response = await fetch(`${API_BASE_URL}/auth/google/callback?${params.toString()}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -223,7 +244,7 @@ export async function handleOAuthCallback(): Promise<AccountLinkingData | any> {
     // Store the access token if present (for successful login)
     if (data.access_token) {
       localStorage.setItem('auth_token', data.access_token)
-      console.log('Google OAuth token stored successfully')
+      // Token stored successfully - no need to log sensitive information
     }
     
     return data

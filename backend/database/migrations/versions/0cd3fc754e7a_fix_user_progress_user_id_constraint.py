@@ -1,7 +1,7 @@
 """fix_user_progress_user_id_constraint
 
 Revision ID: 0cd3fc754e7a
-Revises: add_langchain_integration
+Revises: add_langchain_integration_001
 Create Date: 2025-09-11 01:10:20.158458
 
 """

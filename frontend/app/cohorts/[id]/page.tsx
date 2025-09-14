@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter, useParams } from "next/navigation"
+import { notFound } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -83,7 +84,12 @@ export default function CohortDetail() {
   ]
 
   // Find the cohort based on the URL parameter
-  const cohortData = allCohorts.find(cohort => cohort.id === params.id) || allCohorts[0]
+  const cohortData = allCohorts.find(cohort => cohort.id === params.id)
+  
+  // If no cohort found, return 404
+  if (!cohortData) {
+    notFound()
+  }
 
   // Mock student data - different for each cohort
   const getStudentsForCohort = (cohortId: string) => {
@@ -271,9 +277,26 @@ export default function CohortDetail() {
     router.push("/")
   }
 
-  const handleCopyInviteLink = () => {
-    // In real app, this would copy the actual invite link
-    navigator.clipboard.writeText(`https://yourapp.com/cohorts/${cohortData.id}/join`)
+  const handleCopyInviteLink = async () => {
+    try {
+      // Get base URL from environment variable or use current origin as fallback
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || window.location.origin
+      const inviteUrl = `${baseUrl}/cohorts/${cohortData.id}/join`
+      
+      await navigator.clipboard.writeText(inviteUrl)
+      
+      // Show success feedback (you could use a toast library here)
+      console.log('Invite link copied to clipboard!')
+    } catch (error) {
+      console.error('Failed to copy invite link:', error)
+      // Fallback for browsers that don't support clipboard API
+      const textArea = document.createElement('textarea')
+      textArea.value = `${process.env.NEXT_PUBLIC_BASE_URL || window.location.origin}/cohorts/${cohortData.id}/join`
+      document.body.appendChild(textArea)
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
+    }
   }
 
   const filteredStudents = students.filter(student => {

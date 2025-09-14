@@ -322,6 +322,10 @@ GOOGLE_REDIRECT_URI="your_authorized_redirect_uri"
 **Important**: Make sure your Google Cloud Console redirect URI is set to:
 - `http://localhost:3000/auth/google/callback` (for development)
 
+### 🔒 Security Note
+
+**Never commit OAuth credentials to version control!** Always use environment variables or a secure secrets management system for production deployments. The `.env` file should be excluded from version control (it's already in `.gitignore`). For production, consider using services like AWS Secrets Manager, Azure Key Vault, or similar secure credential storage solutions.
+
 ### 4. Testing
 
 Once configured:

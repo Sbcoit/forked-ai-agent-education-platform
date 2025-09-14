@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 import json
 import asyncio
 import threading
+import logging
+import os
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc, or_
 
@@ -16,6 +18,9 @@ from database.connection import get_db
 from database.models import UserProgress, ScenarioScene, ScenarioPersona, ConversationLog
 from database.models import SessionMemory, VectorEmbeddings
 from services.session_manager import session_manager
+
+# Logger for scene memory operations
+logger = logging.getLogger(__name__)
 
 class SceneMemoryManager:
     """Manages scene-level shared memory and context"""
@@ -58,9 +63,18 @@ class SceneMemoryManager:
                 try:
                     await self._load_scene_memory(user_progress_id, scene_id)
                 except Exception as e:
-                    print(f"Error loading scene memory for user_progress_id={user_progress_id}, scene_id={scene_id}: {e}")
-                    # Continue with initialization of new memory structure
-                    # This ensures the system doesn't fail completely if DB load fails
+                    # Check if we're in production environment
+                    is_production = os.getenv('ENV') == 'production' or not getattr(settings, 'DEBUG', True)
+                    
+                    if is_production:
+                        # In production, log error and re-raise to ensure proper alerting
+                        logger.error(f"Failed to load scene memory for user_progress_id={user_progress_id}, scene_id={scene_id}: {e}")
+                        raise
+                    else:
+                        # In development, log at debug level and continue
+                        logger.debug(f"Error loading scene memory for user_progress_id={user_progress_id}, scene_id={scene_id}: {e}")
+                        # Continue with initialization of new memory structure
+                        # This ensures the system doesn't fail completely if DB load fails
                 
                 # If still not in memory after loading, initialize new
                 if scene_key not in self.scene_contexts:

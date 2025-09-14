@@ -7,6 +7,7 @@ from typing import List, Optional
 import uvicorn
 from datetime import datetime, timedelta
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from database.connection import get_db, engine, settings
 from database.models import Base, User, Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, ScenarioReview
@@ -24,6 +25,7 @@ from api.parse_pdf import router as pdf_router
 from api.simulation import router as simulation_router
 from api.publishing import router as publishing_router
 from api.oauth import router as oauth_router, lifespan as oauth_lifespan
+from services.session_manager import session_manager_lifespan
 
 # Import startup check
 from startup_check import run_startup_checks, auto_setup_if_needed
@@ -31,12 +33,22 @@ from startup_check import run_startup_checks, auto_setup_if_needed
 # Import session manager for cleanup task
 from services.session_manager import session_manager
 
+# Combined lifespan manager for all background tasks
+@asynccontextmanager
+async def combined_lifespan(app):
+    """Combined lifespan manager for OAuth and session cleanup tasks"""
+    # Start OAuth cleanup task
+    async with oauth_lifespan(app):
+        # Start session manager cleanup task
+        async with session_manager_lifespan(app):
+            yield
+
 # Create FastAPI app
 app = FastAPI(
     title="AI Agent Education Platform",
     description="Transform business case studies into immersive AI-powered educational simulations",
     version="2.0.0",
-    lifespan=oauth_lifespan
+    lifespan=combined_lifespan
 )
 
 @app.get("/health")

@@ -39,9 +39,18 @@ export default function GoogleCallbackPage() {
           return
         }
 
-        // Call the backend callback endpoint
+        // Validate state parameter (should be alphanumeric and reasonable length)
+        if (!state || !/^[a-zA-Z0-9_-]{10,100}$/.test(state)) {
+          throw new Error('Invalid OAuth state parameter')
+        }
+
+        // Call the backend callback endpoint with properly encoded parameters
         const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-        const response = await fetch(`${API_BASE_URL}/auth/google/callback?code=${code}&state=${state}`, {
+        const params = new URLSearchParams({
+          code: code,
+          state: state
+        })
+        const response = await fetch(`${API_BASE_URL}/auth/google/callback?${params.toString()}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',

@@ -472,7 +472,7 @@ Respond in valid JSON format:
             print(f"SimulationEngine: LangChain goal validation failed: {e}")
             # Fallback to original method
             return self.validate_goal_achievement(
-                scene_data, conversation_history, scene_goal, current_attempts, max_attempts
+                scene_data, conversation_history, current_attempts, max_attempts
             )
     
     async def generate_scene_summary_langchain(

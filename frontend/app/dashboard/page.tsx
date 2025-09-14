@@ -26,92 +26,78 @@ export default function Dashboard() {
   const router = useRouter()
   const { user, logout, isLoading: authLoading } = useAuth()
   
-  // Mock simulation data - replace with real data from API
-  const [simulations] = useState([
-    {
-      id: 1,
-      title: "Marketing Strategy Case Study: Digital Transformation",
-      status: "Active",
-      statusColor: "bg-green-100 text-green-800",
-      date: "Dec 8",
-      students: 24
-    },
-    {
-      id: 2,
-      title: "Financial Analysis: Tech Startup Valuation",
-      status: "Active",
-      statusColor: "bg-green-100 text-green-800",
-      date: "Dec 5",
-      students: 18
-    },
-    {
-      id: 3,
-      title: "Operations Management: Supply Chain Crisis",
-      status: "Draft",
-      statusColor: "bg-yellow-100 text-yellow-800",
-      date: "Dec 3",
-      students: 0
-    },
-    {
-      id: 4,
-      title: "Strategic Planning: Market Entry Analysis",
-      status: "Active",
-      statusColor: "bg-green-100 text-green-800",
-      date: "Nov 28",
-      students: 32
-    },
-    {
-      id: 5,
-      title: "Leadership Challenge: Team Restructuring",
-      status: "Active",
-      statusColor: "bg-green-100 text-green-800",
-      date: "Nov 25",
-      students: 15
-    },
-    {
-      id: 6,
-      title: "Data Analytics: Customer Segmentation",
-      status: "Draft",
-      statusColor: "bg-yellow-100 text-yellow-800",
-      date: "Nov 22",
-      students: 28
-    }
-  ])
-
-  // Mock cohort data - replace with real data from API
-  const [cohorts] = useState([
-    {
-      id: "CH-A7B3K9X2",
-      title: "Business Strategy Fall 2024",
-      status: "Active",
-      students: 24,
-      simulations: 3
-    },
-    {
-      id: "CH-M4N8P105",
-      title: "Financial Management 401",
-      status: "Active",
-      students: 18,
-      simulations: 2
-    },
-    {
-      id: "CH-R9S2T6W1",
-      title: "Marketing Analytics Lab",
-      status: "Draft",
-      students: 0,
-      simulations: 0
-    },
-    {
-      id: "CH-E5F7H3J9",
-      title: "Operations Management Spring 2024",
-      status: "Archived",
-      students: 32,
-      simulations: 4
-    }
-  ])
+  // Real data from API
+  const [simulations, setSimulations] = useState<any[]>([])
+  const [cohorts, setCohorts] = useState<any[]>([])
+  const [simulationsLoading, setSimulationsLoading] = useState(true)
+  const [cohortsLoading, setCohortsLoading] = useState(true)
+  const [simulationsError, setSimulationsError] = useState<string | null>(null)
+  const [cohortsError, setCohortsError] = useState<string | null>(null)
   
   const [activeFilter, setActiveFilter] = useState("All")
   const [showWhatsNew, setShowWhatsNew] = useState(true)
+
+  // Fetch data from API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch simulations
+        setSimulationsLoading(true)
+        setSimulationsError(null)
+        const simulationsData = await apiClient.getSimulations()
+        setSimulations(simulationsData)
+      } catch (error) {
+        console.error('Failed to fetch simulations:', error)
+        setSimulationsError('Failed to load simulations')
+        // Fallback to empty array
+        setSimulations([])
+      } finally {
+        setSimulationsLoading(false)
+      }
+
+      try {
+        // Fetch cohorts (placeholder - no API endpoint yet)
+        setCohortsLoading(true)
+        setCohortsError(null)
+        // TODO: Replace with real API call when endpoint is available
+        // const cohortsData = await apiClient.getCohorts()
+        setCohorts([])
+      } catch (error) {
+        console.error('Failed to fetch cohorts:', error)
+        setCohortsError('Failed to load cohorts')
+        setCohorts([])
+      } finally {
+        setCohortsLoading(false)
+      }
+    }
+
+    if (user && !authLoading) {
+      fetchData()
+    }
+  }, [user, authLoading])
+
+  // Refresh function
+  const refreshData = async () => {
+    try {
+      setSimulationsLoading(true)
+      setCohortsLoading(true)
+      setSimulationsError(null)
+      setCohortsError(null)
+      
+      const simulationsData = await apiClient.getSimulations()
+      setSimulations(simulationsData)
+      
+      // TODO: Replace with real API call when endpoint is available
+      setCohorts([])
+    } catch (error) {
+      console.error('Failed to refresh data:', error)
+      setSimulationsError('Failed to refresh data')
+      setCohortsError('Failed to refresh data')
+    } finally {
+      setSimulationsLoading(false)
+      setCohortsLoading(false)
+    }
+  }
 
   // Calculate stats from actual data
   const activeCohorts = cohorts.filter(cohort => cohort.status === "Active").length
@@ -300,11 +286,36 @@ export default function Dashboard() {
               ))}
             </div>
             
+            {/* Loading State */}
+            {simulationsLoading && (
+              <div className="text-center py-8">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600"></div>
+                </div>
+                <p className="text-gray-500 text-base">Loading simulations...</p>
+              </div>
+            )}
+
+            {/* Error State */}
+            {simulationsError && !simulationsLoading && (
+              <div className="text-center py-8">
+                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <X className="h-8 w-8 text-red-500" />
+                </div>
+                <p className="text-red-500 text-base mb-2">Failed to load simulations</p>
+                <p className="text-gray-400 text-sm mb-4">{simulationsError}</p>
+                <Button onClick={refreshData} variant="outline" size="sm">
+                  Try Again
+                </Button>
+              </div>
+            )}
+
             {/* Simulations Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {simulations
-                .filter(sim => activeFilter === "All" || sim.status === activeFilter)
-                .map((simulation) => (
+            {!simulationsLoading && !simulationsError && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {simulations
+                  .filter(sim => activeFilter === "All" || sim.status === activeFilter)
+                  .map((simulation) => (
                   <Card key={simulation.id} className="bg-white border border-gray-200 hover:shadow-lg transition-shadow cursor-pointer">
                     <CardHeader className="pb-3">
                       <div className="flex items-start justify-between">
@@ -330,26 +341,27 @@ export default function Dashboard() {
                     </CardContent>
                   </Card>
                 ))}
-            </div>
-            
-            {/* Show message if no simulations match filter */}
-            {simulations.filter(sim => activeFilter === "All" || sim.status === activeFilter).length === 0 && (
-              <div className="text-center py-8">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                  <Package className="h-8 w-8 text-gray-400" />
-                </div>
-                <p className="text-gray-500 text-base mb-2">No {activeFilter.toLowerCase()} simulations</p>
-                <p className="text-gray-400 text-sm mb-4">
-                  {activeFilter === "All" 
-                    ? "Create your first simulation to get started" 
-                    : `No simulations with status "${activeFilter}" found`}
-                </p>
-                <Link href="/simulation-builder">
-                  <Button className="bg-black text-white hover:bg-gray-800 text-sm">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Create Simulation
-                  </Button>
-                </Link>
+                
+                {/* Show message if no simulations match filter */}
+                {simulations.filter(sim => activeFilter === "All" || sim.status === activeFilter).length === 0 && (
+                  <div className="text-center py-8 col-span-full">
+                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                      <Package className="h-8 w-8 text-gray-400" />
+                    </div>
+                    <p className="text-gray-500 text-base mb-2">No {activeFilter.toLowerCase()} simulations</p>
+                    <p className="text-gray-400 text-sm mb-4">
+                      {activeFilter === "All" 
+                        ? "Create your first simulation to get started" 
+                        : `No simulations with status "${activeFilter}" found`}
+                    </p>
+                    <Link href="/simulation-builder">
+                      <Button className="bg-black text-white hover:bg-gray-800 text-sm">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create Simulation
+                      </Button>
+                    </Link>
+                  </div>
+                )}
               </div>
             )}
           </div>

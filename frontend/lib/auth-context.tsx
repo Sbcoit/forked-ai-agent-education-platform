@@ -4,6 +4,23 @@ import React, { createContext, useContext, ReactNode, useEffect } from 'react'
 import { apiClient, User, LoginCredentials, RegisterData } from './api'
 import { GoogleOAuth, AccountLinkingData } from './google-oauth'
 
+// Define proper types for Google OAuth responses
+export interface GoogleOAuthSuccessData {
+  user: User
+  access_token?: string
+  message?: string
+}
+
+export interface AuthError {
+  error: string
+  message?: string
+}
+
+export type GoogleOAuthResult = AccountLinkingData | GoogleOAuthSuccessData
+
+// Configuration constants
+export const INACTIVITY_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes in milliseconds
+
 interface AuthContextType {
   user: User | null
   isLoading: boolean
@@ -11,8 +28,8 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   register: (data: RegisterData) => Promise<void>
-  loginWithGoogle: () => Promise<AccountLinkingData | any>
-  linkGoogleAccount: (action: 'link' | 'create_separate', existingUserId: number, googleData: any, state: string) => Promise<void>
+  loginWithGoogle: () => Promise<GoogleOAuthResult>
+  linkGoogleAccount: (action: 'link' | 'create_separate', existingUserId: number, googleData: AccountLinkingData['google_data'], state: string) => Promise<void>
   clearCache: () => void
 }
 
@@ -41,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     
     const timeSinceActivity = Date.now() - parseInt(lastActivity)
-    const inactivityThreshold = 10 * 60 * 1000 // 10 minutes in milliseconds
+    const inactivityThreshold = INACTIVITY_THRESHOLD_MS
     
     console.log(`Time since last activity: ${Math.round(timeSinceActivity / 1000)} seconds (${Math.round(timeSinceActivity / 60000)} minutes)`)
     
@@ -136,20 +153,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (): Promise<GoogleOAuthResult> => {
     setIsLoading(true)
     try {
       const googleOAuth = GoogleOAuth.getInstance()
       const result = await googleOAuth.openAuthWindow()
       
-      if (result.action === 'link_required') {
+      if ('action' in result && result.action === 'link_required') {
         // Return the linking data instead of throwing an error
-        return result
-      } else {
+        return result as AccountLinkingData
+      } else if ('user' in result) {
         // Direct login success
-        setUser(result.user)
+        const successResult = result as GoogleOAuthSuccessData
+        setUser(successResult.user)
         updateLastActivity() // Update activity on successful Google login
-        return result
+        return successResult
+      } else {
+        // Fallback for unexpected result structure
+        throw new Error('Unexpected OAuth result structure')
       }
     } catch (error) {
       console.error('Google login failed:', error)
@@ -159,7 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const linkGoogleAccount = async (action: 'link' | 'create_separate', existingUserId: number, googleData: any, state: string) => {
+  const linkGoogleAccount = async (action: 'link' | 'create_separate', existingUserId: number, googleData: AccountLinkingData['google_data'], state: string) => {
     setIsLoading(true)
     try {
       const googleOAuth = GoogleOAuth.getInstance()
@@ -187,15 +208,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return
 
+    let lastActivityTime = 0
+    const THROTTLE_MS = 1000 // Throttle activity updates to once per second
+
     const handleUserActivity = () => {
-      updateLastActivity()
+      const now = Date.now()
+      if (now - lastActivityTime > THROTTLE_MS) {
+        updateLastActivity()
+        lastActivityTime = now
+      }
     }
 
-    // Track various user activities
-    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click']
+    // Use fewer, more focused events with passive listeners for better performance
+    const events = ['pointerdown', 'touchstart', 'keydown']
     
     events.forEach(event => {
-      document.addEventListener(event, handleUserActivity, true)
+      document.addEventListener(event, handleUserActivity, { passive: true })
     })
 
     // Periodic inactivity check every minute
@@ -207,7 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       events.forEach(event => {
-        document.removeEventListener(event, handleUserActivity, true)
+        document.removeEventListener(event, handleUserActivity)
       })
       clearInterval(inactivityCheckInterval)
     }

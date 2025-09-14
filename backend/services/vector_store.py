@@ -302,8 +302,16 @@ class VectorStoreService:
             db = next(db_gen)
             
             # Use pgvector similarity search
-            # Convert embedding vector to proper format for pgvector
-            embedding_str = "[" + ",".join(map(str, query_embedding)) + "]"
+            # Validate and convert embedding to proper format
+            if not isinstance(query_embedding, (list, tuple, np.ndarray)):
+                raise ValueError("query_embedding must be a list, tuple, or numpy array")
+            
+            # Convert to list of floats and validate
+            embedding_list = [float(x) for x in query_embedding]
+            
+            # Ensure pgvector extension is registered
+            from pgvector.sqlalchemy import Vector
+            
             results = db.execute(
                 text("""
                     SELECT content_hash, original_content, content_metadata, 
@@ -314,7 +322,7 @@ class VectorStoreService:
                     LIMIT :k
                 """),
                 {
-                    "query_embedding": embedding_str,
+                    "query_embedding": embedding_list,
                     "collection_name": collection_name,
                     "k": k
                 }

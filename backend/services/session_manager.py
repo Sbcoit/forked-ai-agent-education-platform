@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 import json
 import hashlib
 import asyncio
+import logging
+from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
 
@@ -17,6 +19,9 @@ from database.models import UserProgress, ScenarioScene, ScenarioPersona
 from database.models import (
     SessionMemory, ConversationSummaries, AgentSessions, CacheEntries, VectorEmbeddings
 )
+
+# Logger for session manager operations
+logger = logging.getLogger(__name__)
 
 # Create aliases for easier usage
 AgentSession = AgentSessions
@@ -558,21 +563,22 @@ class SessionManager:
             db.close()
     
     def start_cleanup_task(self):
-        """Start the background cleanup task"""
+        """Start the background cleanup task (deprecated - use lifespan manager instead)"""
+        logger.warning("start_cleanup_task() is deprecated. Use session_manager_lifespan() instead.")
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # If we're already in an event loop, create the task
                 asyncio.create_task(cleanup_task())
-                print("✅ Session cleanup task started successfully")
+                logger.info("Session cleanup task started successfully")
             else:
                 # If no event loop is running, schedule it to run later
-                print("⚠️  No event loop running, cleanup task will be started when event loop is available")
+                logger.warning("No event loop running, cleanup task will be started when event loop is available")
         except RuntimeError:
             # No event loop exists, schedule it to run later
-            print("⚠️  No event loop exists, cleanup task will be started when event loop is available")
+            logger.warning("No event loop exists, cleanup task will be started when event loop is available")
         except Exception as e:
-            print(f"❌ Error starting cleanup task: {e}")
+            logger.error(f"Error starting cleanup task: {e}")
             # Don't raise the exception to avoid blocking startup
 
 # Global session manager instance
@@ -585,11 +591,31 @@ async def cleanup_task():
         try:
             cleaned = await session_manager.cleanup_expired_sessions()
             if cleaned > 0:
-                print(f"Cleaned up {cleaned} expired sessions and cache entries")
+                logger.info(f"Cleaned up {cleaned} expired sessions and cache entries")
         except Exception as e:
-            print(f"Error in cleanup task: {e}")
+            logger.error(f"Error in cleanup task: {e}")
         
         # Run cleanup every 5 minutes
         await asyncio.sleep(300)
 
-# Cleanup task will be started when needed
+# FastAPI lifespan manager for session cleanup
+@asynccontextmanager
+async def session_manager_lifespan(app):
+    """FastAPI lifespan handler for session manager startup and shutdown"""
+    global cleanup_task_handle
+    # Startup
+    cleanup_task_handle = asyncio.create_task(cleanup_task())
+    logger.info("Started session cleanup task")
+    yield
+    # Shutdown
+    if cleanup_task_handle:
+        cleanup_task_handle.cancel()
+        try:
+            await cleanup_task_handle
+        except asyncio.CancelledError:
+            logger.info("Session cleanup task cancelled successfully")
+        except Exception as e:
+            logger.error(f"Error during cleanup task shutdown: {e}")
+
+# Global variable to hold the cleanup task handle
+cleanup_task_handle = None

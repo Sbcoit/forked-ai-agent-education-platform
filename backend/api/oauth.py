@@ -4,10 +4,13 @@ Google OAuth API endpoints
 from fastapi import APIRouter, HTTPException, Depends, status, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import json
 import time
 import asyncio
+import logging
+import os
+import threading
 from contextlib import asynccontextmanager
 
 from database.connection import get_db
@@ -32,11 +35,125 @@ from utilities.oauth import (
     create_user_login_response
 )
 
-# Store OAuth states temporarily (in production, use Redis)
+# Logger for OAuth operations
+logger = logging.getLogger(__name__)
+
+class OAuthStateStore:
+    """Persistent OAuth state storage with Redis or database fallback"""
+    
+    def __init__(self):
+        self.redis_client = None
+        self.fallback_to_memory = True
+        self._init_redis()
+    
+    def _init_redis(self):
+        """Initialize Redis client if available"""
+        try:
+            import redis
+            redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+            self.redis_client = redis.from_url(redis_url, decode_responses=True)
+            # Test connection
+            self.redis_client.ping()
+            self.fallback_to_memory = False
+            logger.info("OAuth state store initialized with Redis")
+        except Exception as e:
+            logger.warning(f"Redis not available, falling back to in-memory storage: {e}")
+            self.redis_client = None
+            self.fallback_to_memory = True
+    
+    def set_state(self, state: str, data: Dict[str, Any], ttl: int = 600) -> bool:
+        """Store OAuth state with TTL (default 10 minutes)"""
+        try:
+            if self.redis_client and not self.fallback_to_memory:
+                self.redis_client.setex(state, ttl, json.dumps(data))
+                return True
+            else:
+                # Fallback to in-memory storage
+                data['created_at'] = time.time()
+                with oauth_states_lock:
+                    oauth_states[state] = data
+                return True
+        except Exception as e:
+            logger.error(f"Failed to store OAuth state: {e}")
+            return False
+    
+    def get_state(self, state: str) -> Optional[Dict[str, Any]]:
+        """Retrieve OAuth state data"""
+        try:
+            if self.redis_client and not self.fallback_to_memory:
+                data_str = self.redis_client.get(state)
+                if data_str:
+                    return json.loads(data_str)
+                return None
+            else:
+                # Fallback to in-memory storage
+                with oauth_states_lock:
+                    return oauth_states.get(state)
+        except Exception as e:
+            logger.error(f"Failed to retrieve OAuth state: {e}")
+            return None
+    
+    def delete_state(self, state: str) -> bool:
+        """Delete OAuth state"""
+        try:
+            if self.redis_client and not self.fallback_to_memory:
+                self.redis_client.delete(state)
+                return True
+            else:
+                # Fallback to in-memory storage
+                with oauth_states_lock:
+                    oauth_states.pop(state, None)
+                return True
+        except Exception as e:
+            logger.error(f"Failed to delete OAuth state: {e}")
+            return False
+
+# Initialize OAuth state store
+oauth_state_store = OAuthStateStore()
+
+# Fallback in-memory storage (used when Redis is not available)
 oauth_states: Dict[str, Dict[str, Any]] = {}
+
+# Lock for thread-safe access to oauth_states
+oauth_states_lock = threading.Lock()
 
 # Background cleanup task
 cleanup_task = None
+
+def validate_oauth_state(state: str) -> Dict[str, Any]:
+    """Validate OAuth state and return state data if valid"""
+    if not state:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or missing OAuth state"
+        )
+    
+    # Get state data from store
+    state_data = oauth_state_store.get_state(state)
+    if not state_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or missing OAuth state"
+        )
+    
+    # Check if state is still valid (not expired) - only for in-memory fallback
+    if oauth_state_store.fallback_to_memory:
+        if not isinstance(state_data, dict) or "created_at" not in state_data:
+            # Invalid or malformed state data - treat as expired
+            oauth_state_store.delete_state(state)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OAuth state has expired or is invalid. Please try again."
+            )
+        
+        if time.time() - state_data["created_at"] > 600:  # 10 minutes
+            oauth_state_store.delete_state(state)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="OAuth state has expired. Please try again."
+            )
+    
+    return state_data
 
 async def periodic_cleanup():
     """Periodic cleanup task that runs every 5 minutes"""
@@ -70,36 +187,44 @@ router = APIRouter(prefix="/auth", tags=["oauth"])
 
 def cleanup_expired_states():
     """Clean up expired OAuth states (older than 10 minutes)"""
-    current_time = time.time()
-    expired_states = []
-    
-    for state, data in oauth_states.items():
-        if isinstance(data, dict) and "created_at" in data:
-            # Check if state is older than 10 minutes (600 seconds)
-            if current_time - data["created_at"] > 600:
-                expired_states.append(state)
-    
-    # Remove expired states
-    for state in expired_states:
-        oauth_states.pop(state, None)
-    
-    # Fallback: limit the number of states to 50 most recent
-    if len(oauth_states) > 50:
-        # Sort by created_at and keep only the 50 most recent
-        # Handle both dict and string values safely
-        def get_created_at(item):
-            value = item[1]
-            if isinstance(value, dict):
-                return value.get("created_at", 0)
-            else:
-                return 0
+    # For Redis, TTL is handled automatically
+    # For in-memory fallback, clean up expired states
+    if oauth_state_store.fallback_to_memory:
+        current_time = time.time()
+        expired_states = []
         
-        sorted_states = sorted(oauth_states.items(), 
-                             key=get_created_at, 
-                             reverse=True)
-        oauth_states.clear()
-        for state, data in sorted_states[:50]:
-            oauth_states[state] = data
+        # Create a snapshot to avoid race conditions
+        with oauth_states_lock:
+            states_snapshot = list(oauth_states.items())
+        
+        for state, data in states_snapshot:
+            if isinstance(data, dict) and "created_at" in data:
+                # Check if state is older than 10 minutes (600 seconds)
+                if current_time - data["created_at"] > 600:
+                    expired_states.append(state)
+        
+        # Remove expired states
+        for state in expired_states:
+            oauth_state_store.delete_state(state)
+        
+        # Fallback: limit the number of states to 50 most recent
+        with oauth_states_lock:
+            if len(oauth_states) > 50:
+                # Sort by created_at and keep only the 50 most recent
+                # Handle both dict and string values safely
+                def get_created_at(item):
+                    value = item[1]
+                    if isinstance(value, dict):
+                        return value.get("created_at", 0)
+                    else:
+                        return 0
+                
+                sorted_states = sorted(oauth_states.items(), 
+                                     key=get_created_at, 
+                                     reverse=True)
+                oauth_states.clear()
+                for state, data in sorted_states[:50]:
+                    oauth_states[state] = data
 
 @router.get("/google/login")
 async def google_login():
@@ -108,10 +233,10 @@ async def google_login():
     cleanup_expired_states()
     
     state = generate_state()
-    oauth_states[state] = {
+    oauth_state_store.set_state(state, {
         "status": "pending",
         "created_at": time.time()
-    }
+    })
     
     auth_url = get_google_auth_url(state)
     return {"auth_url": auth_url, "state": state}
@@ -146,15 +271,8 @@ async def google_callback(
                 detail="Invalid or expired state parameter. Please try logging in again."
             )
     
-    # Check if state is still valid (not expired)
-    state_data = oauth_states[state]
-    if isinstance(state_data, dict) and "created_at" in state_data:
-        if time.time() - state_data["created_at"] > 600:  # 10 minutes
-            oauth_states.pop(state, None)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="State has expired. Please try logging in again."
-            )
+    # Validate OAuth state
+    state_data = validate_oauth_state(state)
     
     # Exchange code for token
     token_data = await exchange_code_for_token(code)
@@ -176,7 +294,7 @@ async def google_callback(
     existing_google_user = find_existing_user_by_google_id(db, user_info["id"])
     if existing_google_user:
         # User already linked, return login response
-        oauth_states.pop(state, None)  # Clean up state
+        oauth_state_store.delete_state(state)  # Clean up state
         return create_user_login_response(existing_google_user)
     
     # Check if user exists with this email (including OAuth users with modified emails)
@@ -186,7 +304,7 @@ async def google_callback(
         # Check if the existing user is already an OAuth user
         if existing_email_user.provider == "google":
             # User already has a Google account, just log them in
-            oauth_states.pop(state, None)  # Clean up state
+            oauth_state_store.delete_state(state)  # Clean up state
             return create_user_login_response(existing_email_user)
         else:
             # Account linking scenario for non-OAuth users
@@ -199,25 +317,26 @@ async def google_callback(
                 "id": user_info.get("sub") or user_info.get("id")
             }
             
-            existing_state = oauth_states.get(state, {})
+            existing_state = oauth_state_store.get_state(state) or {}
             if isinstance(existing_state, dict):
-                oauth_states[state].update({
+                existing_state.update({
                     "status": "link_required",
                     "intent": "link",
                     "google_data": sanitized_google_data,
                     "existing_user_id": existing_email_user.id,
                     "link_required": True
                 })
+                oauth_state_store.set_state(state, existing_state)
             else:
                 # If existing state is not a dict, create new one with metadata
-                oauth_states[state] = {
+                oauth_state_store.set_state(state, {
                     "status": "link_required",
                     "intent": "link",
                     "created_at": time.time(),
                     "google_data": sanitized_google_data,
                     "existing_user_id": existing_email_user.id,
                     "link_required": True
-                }
+                })
             
             return {
                 "action": "link_required",
@@ -251,28 +370,7 @@ async def link_google_account(
     """Link Google account to existing user or create separate account"""
     
     # Validate OAuth state
-    if not request.state or request.state not in oauth_states:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or missing OAuth state"
-        )
-    
-    # Check if state is still valid (not expired)
-    state_data = oauth_states.get(request.state)
-    if not state_data or not isinstance(state_data, dict) or "created_at" not in state_data:
-        # Invalid or malformed state data - treat as expired
-        oauth_states.pop(request.state, None)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OAuth state has expired or is invalid. Please try again."
-        )
-    
-    if time.time() - state_data["created_at"] > 600:  # 10 minutes
-        oauth_states.pop(request.state, None)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OAuth state has expired. Please try again."
-        )
+    state_data = validate_oauth_state(request.state)
     
     # Get existing user
     existing_user = db.query(User).filter(User.id == request.existing_user_id).first()
@@ -293,7 +391,7 @@ async def link_google_account(
         }
         # Link Google account to existing user
         linked_user = link_google_to_existing_user(db, existing_user, google_user_data)
-        oauth_states.pop(request.state, None)  # Clean up state
+        oauth_state_store.delete_state(request.state)  # Clean up state
         return create_user_login_response(linked_user)
     
     elif request.action == "create_separate":
@@ -307,7 +405,7 @@ async def link_google_account(
         }
         # Create separate account with Google OAuth
         new_user = create_oauth_user(db, google_user_data)
-        oauth_states.pop(request.state, None)  # Clean up state
+        oauth_state_store.delete_state(request.state)  # Clean up state
         return create_user_login_response(new_user)
     
     else:
@@ -319,13 +417,13 @@ async def link_google_account(
 @router.get("/google/status/{state}")
 async def get_oauth_status(state: str):
     """Get OAuth status for a given state"""
-    if state not in oauth_states:
+    state_data = oauth_state_store.get_state(state)
+    if not state_data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="OAuth state not found or expired"
         )
     
-    state_data = oauth_states[state]
     if isinstance(state_data, dict):
         link_required = state_data.get("link_required", False)
         if state_data.get("status") == "pending":

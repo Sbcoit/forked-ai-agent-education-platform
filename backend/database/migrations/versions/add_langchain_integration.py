@@ -1,6 +1,6 @@
 """Add LangChain integration tables
 
-Revision ID: add_langchain_integration
+Revision ID: add_langchain_integration_001
 Revises: adc1f7ccb40c
 Create Date: 2024-01-15 10:00:00.000000
 

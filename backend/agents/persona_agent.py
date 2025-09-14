@@ -41,8 +41,9 @@ class PersonaCallbackHandler(BaseCallbackHandler):
     
     def _log_conversation(self, response_text: str, processing_time: float):
         """Log conversation to database"""
-        db = SessionLocal()
+        db = None
         try:
+            db = SessionLocal()
             conversation_log = ConversationLog(
                 user_progress_id=self.user_progress_id,
                 scene_id=self.scene_id,
@@ -59,8 +60,10 @@ class PersonaCallbackHandler(BaseCallbackHandler):
             db.commit()
         except Exception as e:
             print(f"Error logging conversation: {e}")
+            raise
         finally:
-            db.close()
+            if db is not None:
+                db.close()
 
 class PersonaAgent:
     """LangChain-based persona agent with context awareness and memory"""

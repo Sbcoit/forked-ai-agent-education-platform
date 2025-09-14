@@ -493,7 +493,14 @@ export default function Cohorts() {
                           >
                             Not selected
                           </button>
-                          {["2025", "2026", "2027", "2028", "2029", "2030"].map((year) => (
+                          {(() => {
+                            const currentYear = new Date().getFullYear()
+                            const years = []
+                            for (let i = 0; i <= 5; i++) {
+                              years.push((currentYear + i).toString())
+                            }
+                            return years
+                          })().map((year) => (
                             <button
                               key={year}
                               type="button"
@@ -522,16 +529,33 @@ export default function Cohorts() {
                       Maximum Students
                     </label>
                     <input
-                      type="text"
+                      type="number"
+                      min="1"
+                      max="1000"
+                      step="1"
+                      maxLength={4}
                       value={formData.maxStudents}
                       onChange={(e) => {
-                        const value = e.target.value
-                        // Only allow numbers and empty string
-                        if (value === '' || /^\d+$/.test(value)) {
+                        const value = e.target.value.trim()
+                        
+                        // Allow empty string
+                        if (value === '') {
+                          handleInputChange("maxStudents", value)
+                          return
+                        }
+                        
+                        // Parse and validate the number
+                        const numValue = parseInt(value, 10)
+                        
+                        // Check for valid number, no leading zeros (unless exactly "0"), and within range
+                        if (!isNaN(numValue) && 
+                            (value === "0" || !value.startsWith("0")) && 
+                            numValue >= 1 && 
+                            numValue <= 1000) {
                           handleInputChange("maxStudents", value)
                         }
                       }}
-                      placeholder="Leave empty for unlimited"
+                      placeholder="Enter maximum number of students (1-1000)"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
                     />
                   </div>

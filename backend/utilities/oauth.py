@@ -93,14 +93,23 @@ def find_oauth_user_by_original_email(db: Session, original_email: str) -> Optio
         return user
     
     # If not found, try to find OAuth user with modified email
-    email_parts = original_email.split("@")
-    base_email = email_parts[0]
-    domain = email_parts[1]
+    # Split email robustly with rsplit to handle multiple @ symbols
+    email_parts = original_email.rsplit('@', 1)
+    if len(email_parts) != 2:
+        return None
     
-    # Look for users with email pattern: base_email+google*@domain
-    pattern = f"{base_email}+google%@{domain}"
+    base_email, domain = email_parts
+    
+    # Escape special regex characters in base_email and domain
+    import re
+    escaped_base = re.escape(base_email)
+    escaped_domain = re.escape(domain)
+    
+    # Create precise regex pattern: base_email+google followed by one or more digits
+    pattern = f"^{escaped_base}\\+google\\d+@{escaped_domain}$"
+    
     return db.query(User).filter(
-        User.email.like(pattern),
+        User.email.op('~')(pattern),
         User.provider == "google"
     ).first()
 

@@ -1,0 +1,592 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import Link from "next/link"
+import { useRouter, useParams } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { 
+  ArrowLeft,
+  Copy,
+  Users,
+  Settings,
+  Search,
+  Filter,
+  CheckCircle,
+  BookOpen,
+  Clock,
+  MoreVertical,
+  ChevronDown,
+  Plus
+} from "lucide-react"
+import Sidebar from "@/components/Sidebar"
+import { useAuth } from "@/lib/auth-context"
+
+export default function CohortDetail() {
+  const router = useRouter()
+  const params = useParams()
+  const { user, logout, isLoading: authLoading } = useAuth()
+  
+  const [activeTab, setActiveTab] = useState("Students")
+  
+  // Mock cohort data - in real app, this would be fetched based on the ID
+  const allCohorts = [
+    {
+      id: "CH-A7B3K9X2",
+      title: "Business Strategy Fall 2024",
+      description: "Advanced strategic planning and competitive analysis for senior business students.",
+      status: "Active",
+      statusColor: "bg-green-100 text-green-800",
+      createdDate: "Dec 1",
+      totalStudents: 24,
+      activeStudents: 22,
+      simulations: 2,
+      avgCompletion: 87
+    },
+    {
+      id: "CH-M4N8P105",
+      title: "Financial Management 401",
+      description: "Corporate finance, investment analysis, and risk management for advanced students.",
+      status: "Active",
+      statusColor: "bg-green-100 text-green-800",
+      createdDate: "Nov 28",
+      totalStudents: 18,
+      activeStudents: 16,
+      simulations: 2,
+      avgCompletion: 92
+    },
+    {
+      id: "CH-R9S2T6W1",
+      title: "Marketing Analytics Lab",
+      description: "Data-driven marketing decision making with real client case studies.",
+      status: "Draft",
+      statusColor: "bg-yellow-100 text-yellow-800",
+      createdDate: "Dec 8",
+      totalStudents: 0,
+      activeStudents: 0,
+      simulations: 0,
+      avgCompletion: 0
+    },
+    {
+      id: "CH-E5F7H3J9",
+      title: "Operations Management Spring 2024",
+      description: "Supply chain optimization and process improvement simulations.",
+      status: "Draft",
+      statusColor: "bg-yellow-100 text-yellow-800",
+      createdDate: "Oct 15",
+      totalStudents: 32,
+      activeStudents: 28,
+      simulations: 4,
+      avgCompletion: 78
+    }
+  ]
+
+  // Find the cohort based on the URL parameter
+  const cohortData = allCohorts.find(cohort => cohort.id === params.id) || allCohorts[0]
+
+  // Mock student data - different for each cohort
+  const getStudentsForCohort = (cohortId: string) => {
+    const studentData = {
+      "CH-A7B3K9X2": [
+        {
+          id: 1,
+          name: "Emma Johnson",
+          email: "emma.johnson@university.edu",
+          initials: "EJ",
+          completed: 3,
+          pending: 1,
+          status: "Active",
+          statusColor: "bg-black text-white",
+          joinedDate: "Dec 1"
+        },
+        {
+          id: 2,
+          name: "Michael Chen",
+          email: "m.chen@university.edu",
+          initials: "MC",
+          completed: 2,
+          pending: 2,
+          status: "Active",
+          statusColor: "bg-black text-white",
+          joinedDate: "Dec 1"
+        },
+        {
+          id: 3,
+          name: "Sarah Williams",
+          email: "sarah.w@university.edu",
+          initials: "SW",
+          completed: 0,
+          pending: 0,
+          status: "Pending",
+          statusColor: "bg-gray-100 text-gray-800",
+          joinedDate: "Dec 3"
+        }
+      ],
+      "CH-M4N8P105": [
+        {
+          id: 4,
+          name: "David Rodriguez",
+          email: "d.rodriguez@university.edu",
+          initials: "DR",
+          completed: 2,
+          pending: 0,
+          status: "Active",
+          statusColor: "bg-black text-white",
+          joinedDate: "Nov 28"
+        },
+        {
+          id: 5,
+          name: "Lisa Park",
+          email: "l.park@university.edu",
+          initials: "LP",
+          completed: 1,
+          pending: 1,
+          status: "Active",
+          statusColor: "bg-black text-white",
+          joinedDate: "Nov 30"
+        }
+      ],
+      "CH-R9S2T6W1": [],
+      "CH-E5F7H3J9": [
+        {
+          id: 6,
+          name: "Alex Thompson",
+          email: "a.thompson@university.edu",
+          initials: "AT",
+          completed: 4,
+          pending: 0,
+          status: "Active",
+          statusColor: "bg-black text-white",
+          joinedDate: "Oct 15"
+        }
+      ]
+    }
+    return studentData[cohortId as keyof typeof studentData] || []
+  }
+
+  // Mock simulation data - different for each cohort
+  const getSimulationsForCohort = (cohortId: string) => {
+    const simulationData = {
+      "CH-A7B3K9X2": [
+        {
+          id: 1,
+          title: "Marketing Strategy Case Study",
+          assignedDate: "Dec 1",
+          dueDate: "Dec 15",
+          status: "Active",
+          statusColor: "bg-green-100 text-green-800",
+          completed: 18,
+          total: 24
+        },
+        {
+          id: 2,
+          title: "Financial Analysis Challenge",
+          assignedDate: "Nov 28",
+          dueDate: "Dec 12",
+          status: "Active",
+          statusColor: "bg-green-100 text-green-800",
+          completed: 22,
+          total: 24
+        }
+      ],
+      "CH-M4N8P105": [
+        {
+          id: 3,
+          title: "Investment Portfolio Analysis",
+          assignedDate: "Nov 28",
+          dueDate: "Dec 10",
+          status: "Active",
+          statusColor: "bg-green-100 text-green-800",
+          completed: 16,
+          total: 18
+        }
+      ],
+      "CH-R9S2T6W1": [],
+      "CH-E5F7H3J9": [
+        {
+          id: 4,
+          title: "Supply Chain Optimization",
+          assignedDate: "Oct 15",
+          dueDate: "Nov 15",
+          status: "Active",
+          statusColor: "bg-green-100 text-green-800",
+          completed: 28,
+          total: 32
+        },
+        {
+          id: 5,
+          title: "Process Improvement Workshop",
+          assignedDate: "Oct 20",
+          dueDate: "Nov 20",
+          status: "Active",
+          statusColor: "bg-green-100 text-green-800",
+          completed: 30,
+          total: 32
+        }
+      ]
+    }
+    return simulationData[cohortId as keyof typeof simulationData] || []
+  }
+
+  const students = getStudentsForCohort(params.id as string)
+  const simulations = getSimulationsForCohort(params.id as string)
+
+  const [searchTerm, setSearchTerm] = useState("")
+  const [studentFilter, setStudentFilter] = useState("All Students")
+  const [showStudentFilterDropdown, setShowStudentFilterDropdown] = useState(false)
+
+  // Handle redirect when user is not authenticated
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push("/")
+    }
+  }, [user, authLoading, router])
+
+  // Show loading while auth is being checked
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
+          <p className="text-black">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // If no user, show redirecting message
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-black">Redirecting...</p>
+        </div>
+      </div>
+    )
+  }
+
+  const handleLogout = () => {
+    logout()
+    router.push("/")
+  }
+
+  const handleCopyInviteLink = () => {
+    // In real app, this would copy the actual invite link
+    navigator.clipboard.writeText(`https://yourapp.com/cohorts/${cohortData.id}/join`)
+  }
+
+  const filteredStudents = students.filter(student => {
+    const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         student.email.toLowerCase().includes(searchTerm.toLowerCase())
+    
+    if (studentFilter === "All Students") {
+      return matchesSearch
+    } else if (studentFilter === "Active") {
+      return student.status === "Active" && matchesSearch
+    } else if (studentFilter === "Pending") {
+      return student.status === "Pending" && matchesSearch
+    }
+    return matchesSearch
+  })
+
+  return (
+    <div className="min-h-screen bg-white">
+      {/* Fixed Sidebar */}
+      <Sidebar currentPath="/cohorts" />
+
+      {/* Main Content with left margin for sidebar */}
+      <div className="ml-20 bg-white">
+        {/* Main Content Area */}
+        <div className="p-6">
+          {/* Back Navigation */}
+          <div className="mb-6">
+            <Link 
+              href="/cohorts" 
+              className="inline-flex items-center text-sm text-gray-600 hover:text-black transition-colors"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Cohorts
+            </Link>
+          </div>
+
+          {/* Cohort Header */}
+          <div className="mb-8">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <h2 className="text-2xl font-bold text-black mb-2">{cohortData.title}</h2>
+                <p className="text-gray-600 mb-4">{cohortData.description}</p>
+                
+                <div className="flex items-center space-x-4">
+                  <Badge className={`text-xs ${cohortData.statusColor}`}>
+                    ID: {cohortData.id}
+                  </Badge>
+                  <Badge className={`text-xs ${cohortData.statusColor}`}>
+                    {cohortData.status}
+                  </Badge>
+                  <span className="text-sm text-gray-600">Created {cohortData.createdDate}</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center space-x-3">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={handleCopyInviteLink}
+                  className="border-gray-300 text-gray-700 hover:bg-gray-50"
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy Invite Link
+                </Button>
+                <Button 
+                  size="sm"
+                  className="bg-black text-white hover:bg-gray-800"
+                >
+                  <Users className="h-4 w-4 mr-2" />
+                  Invite Students
+                </Button>
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  className="text-gray-600 hover:text-black"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Statistics Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <div className="p-3 bg-blue-100 rounded-lg">
+                    <Users className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm text-gray-600">Total Students</p>
+                    <p className="text-2xl font-bold text-gray-900">{cohortData.totalStudents}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <div className="p-3 bg-green-100 rounded-lg">
+                    <CheckCircle className="h-6 w-6 text-green-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm text-gray-600">Active Students</p>
+                    <p className="text-2xl font-bold text-gray-900">{cohortData.activeStudents}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <div className="p-3 bg-purple-100 rounded-lg">
+                    <BookOpen className="h-6 w-6 text-purple-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm text-gray-600">Simulations</p>
+                    <p className="text-2xl font-bold text-gray-900">{cohortData.simulations}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-white border border-gray-200">
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  <div className="p-3 bg-orange-100 rounded-lg">
+                    <Clock className="h-6 w-6 text-orange-600" />
+                  </div>
+                  <div className="ml-4">
+                    <p className="text-sm text-gray-600">Avg. Completion</p>
+                    <p className="text-2xl font-bold text-gray-900">{cohortData.avgCompletion}%</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Tabs */}
+          <div className="mb-6">
+            <div className="flex space-x-2 border-b border-gray-200">
+              {["Students", "Simulations", "Analytics", "Settings"].map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                    activeTab === tab
+                      ? "border-black text-black"
+                      : "border-transparent text-gray-600 hover:text-black"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Tab Content */}
+          {activeTab === "Students" && (
+            <div>
+              {/* Search and Filter */}
+              <div className="flex items-center space-x-4 mb-6">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search students..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
+                  />
+                </div>
+                
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowStudentFilterDropdown(!showStudentFilterDropdown)}
+                    className="px-3 py-2 pr-4 border border-gray-200 rounded-lg bg-gray-50 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent cursor-pointer transition-colors whitespace-nowrap flex items-center justify-between"
+                  >
+                    <span className="text-gray-700">{studentFilter}</span>
+                    <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${showStudentFilterDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  
+                  {showStudentFilterDropdown && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-32 overflow-y-auto">
+                      {["All Students", "Active", "Pending"].map((filter) => (
+                        <button
+                          key={filter}
+                          type="button"
+                          onClick={() => {
+                            setStudentFilter(filter)
+                            setShowStudentFilterDropdown(false)
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none text-sm text-gray-700"
+                        >
+                          {filter}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Students List */}
+              <div className="space-y-4">
+                {filteredStudents.map((student) => (
+                  <Card key={student.id} className="bg-white border border-gray-200">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                            <span className="text-sm font-medium text-gray-700">{student.initials}</span>
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-900">{student.name}</h3>
+                            <p className="text-sm text-gray-600">{student.email}</p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-4">
+                          <div className="text-sm text-gray-700">
+                            <div>Completed: {student.completed}</div>
+                            <div>Pending: {student.pending}</div>
+                          </div>
+                          
+                          <Badge className={`text-xs ${student.statusColor}`}>
+                            {student.status}
+                          </Badge>
+                          
+                          <span className="text-sm text-gray-700">
+                            Joined {student.joinedDate}
+                          </span>
+                          
+                          <Button variant="ghost" size="sm" className="text-gray-400 hover:text-gray-600 p-1">
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "Simulations" && (
+            <div>
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-bold text-black">Assigned Simulations</h3>
+                <Button className="bg-black text-white hover:bg-gray-800 text-sm">
+                  <BookOpen className="h-4 w-4 mr-2" />
+                  Assign Simulation
+                </Button>
+              </div>
+
+              {/* Simulations List */}
+              <div className="space-y-4">
+                {simulations.map((simulation) => {
+                  const completionPercentage = (simulation.completed / simulation.total) * 100
+                  
+                  return (
+                    <Card key={simulation.id} className="bg-white border border-gray-200">
+                      <CardContent className="p-6">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <h4 className="font-semibold text-gray-900 mb-2">{simulation.title}</h4>
+                            <div className="flex items-center space-x-4 mb-3">
+                              <span className="text-sm text-gray-600">Assigned {simulation.assignedDate}</span>
+                              <span className="text-sm text-gray-600">Due {simulation.dueDate}</span>
+                              <Badge className={`text-xs ${simulation.statusColor}`}>
+                                {simulation.status}
+                              </Badge>
+                            </div>
+                          </div>
+                          
+                          <div className="text-right">
+                            <div className="text-sm text-gray-600 mb-2">
+                              {simulation.completed}/{simulation.total} completed
+                            </div>
+                            <div className="w-32 bg-gray-200 rounded-full h-2">
+                              <div 
+                                className="bg-gray-800 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${completionPercentage}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "Analytics" && (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Analytics content will be displayed here</p>
+            </div>
+          )}
+
+          {activeTab === "Settings" && (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Settings content will be displayed here</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -3,8 +3,8 @@
 import Link from "next/link"
 import { 
   Home, 
-  Monitor, 
-  MessageSquare
+  FileText, 
+  Users
 } from "lucide-react"
 
 interface SidebarProps {
@@ -34,22 +34,22 @@ export default function Sidebar({ currentPath = "/dashboard" }: SidebarProps) {
         <Link 
           href="/chat-box" 
           className={`p-3 rounded-lg transition-colors ${
-            currentPath === "/simulation-builder" 
-              ? "bg-gray-700" 
-              : "hover:bg-gray-800"
-          }`}
-        >
-          <Monitor className="h-6 w-6 text-white" />
-        </Link>
-        <Link 
-          href="/cohort" 
-          className={`p-3 rounded-lg transition-colors ${
             currentPath === "/chat-box" 
               ? "bg-gray-700" 
               : "hover:bg-gray-800"
           }`}
         >
-          <MessageSquare className="h-6 w-6 text-white" />
+          <FileText className="h-6 w-6 text-white" />
+        </Link>
+        <Link 
+          href="/cohorts" 
+          className={`p-3 rounded-lg transition-colors ${
+            currentPath === "/cohorts" 
+              ? "bg-gray-700" 
+              : "hover:bg-gray-800"
+          }`}
+        >
+          <Users className="h-6 w-6 text-white" />
         </Link>
       </nav>
 

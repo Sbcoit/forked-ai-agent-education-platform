@@ -1369,6 +1369,50 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                 orchestrator.state.turn_count = orchestrator.state.turn_count + 1 if hasattr(orchestrator.state, 'turn_count') else 1
                 print(f"[DEBUG] AFTER INCREMENT: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
             print(f"[DEBUG] ABOUT TO CHECK TURN LIMIT: turn_count={orchestrator.state.turn_count}, timeout_turns={timeout_turns}")
+            
+            # Build comprehensive conversation context and memory FIRST (before any system prompts)
+            scene_id_to_use = request.scene_id if request.scene_id is not None else user_progress.current_scene_id
+            
+            # Get ALL conversation messages for this scene (not just recent ones)
+            all_messages = db.query(ConversationLog).filter(
+                and_(
+                    ConversationLog.user_progress_id == user_progress.id,
+                    ConversationLog.scene_id == scene_id_to_use
+                )
+            ).order_by(ConversationLog.message_order).all()
+            
+            # Build comprehensive conversation history in proper format for AI model
+            conversation_context = []
+            agent_memory_summary = []
+            
+            for msg in all_messages:
+                role = "user" if msg.message_type == "user" else "assistant"
+                conversation_context.append({
+                    "role": role,
+                    "content": msg.message_content
+                })
+                
+                # Build agent memory summary for system prompt
+                if msg.message_type in ["ai_persona", "orchestrator"] and msg.sender_name:
+                    agent_memory_summary.append(f"{msg.sender_name}: {msg.message_content}")
+            
+            # Add the current user message
+            conversation_context.append({
+                "role": "user",
+                "content": request.message
+            })
+            
+            # Create comprehensive memory context for system prompt (SCENE-ISOLATED)
+            memory_context = ""
+            if agent_memory_summary:
+                memory_context = f"\n\nPREVIOUS AGENT RESPONSES IN THIS SCENE (Scene ID: {scene_id_to_use}):\n" + "\n".join(agent_memory_summary[-10:])  # Last 10 agent responses from THIS SCENE ONLY
+            
+            # Also create text version for debugging
+            conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in conversation_context])
+            print(f"[DEBUG] Scene {scene_id_to_use} - Conversation history: {conversation_text[:500]}...")
+            print(f"[DEBUG] Scene {scene_id_to_use} - Agent memory summary: {len(agent_memory_summary)} responses")
+            print(f"[DEBUG] Scene {scene_id_to_use} - Memory context length: {len(memory_context)} characters")
+            
             # --- PATCH: Always generate persona response, even on last turn ---
             # All persona mention handling, OpenAI calls, and goal validation logic must be below this line, not inside any else or after any return
             # Check if user is addressing a specific persona with @mention
@@ -1430,7 +1474,19 @@ SCENARIO CONTEXT: {orchestrator.scenario.get('description', '')}
 
 PERSONALITY: {target_persona.get('personality', {})}
 
-You are in a meeting about {orchestrator.scenario.get('title', '...')} to address the challenges of {orchestrator.scenario.get('challenge', '')}. Respond as {target_persona['identity']['name']} would, providing information and insights relevant to your role and the current challenges. Be professional and provide specific insights about the distribution network, kiosks, or your role in the business.
+You are in a meeting about {orchestrator.scenario.get('title', '...')} to address the challenges of {orchestrator.scenario.get('challenge', '')}. 
+
+CRITICAL MEMORY INSTRUCTIONS:
+- You have access to the COMPLETE conversation history from THIS SCENE ONLY
+- You MUST remember and reference information shared in previous interactions within this scene
+- If the user tells you something personal (like their birthday), you MUST remember it for this scene
+- When asked about something you previously discussed in this scene, provide the specific information
+- DO NOT reference information from other scenes - only use information from the current scene
+- Use the conversation history to maintain continuity and context
+
+{memory_context}
+
+Respond as {target_persona['identity']['name']} would, providing information and insights relevant to your role and the current challenges. Be professional and provide specific insights about the distribution network, kiosks, or your role in the business.
 
 This is about {orchestrator.scenario.get('title', '...')} and its challenges, NOT about any other company or system.
 
@@ -1443,6 +1499,15 @@ User's message: {request.message}"""
                     system_prompt = f"""You are the ChatOrchestrator managing a business simulation about {orchestrator.scenario.get('title', '...')}.
 
 Available personas: {', '.join([p['id'] for p in orchestrator.scenario.get('personas', [])])}
+
+CRITICAL MEMORY INSTRUCTIONS:
+- You have access to the COMPLETE conversation history from THIS SCENE ONLY
+- You MUST remember and reference information shared in previous interactions within this scene
+- If the user tells you something personal (like their birthday), you MUST remember it for this scene
+- When asked about something you previously discussed in this scene, provide the specific information
+- DO NOT reference information from other scenes - only use information from the current scene
+
+{memory_context}
 
 Gently redirect them to use a valid persona mention or provide general guidance."""
                     persona_name = "ChatOrchestrator"
@@ -1459,9 +1524,18 @@ The user can:
 - Ask general questions about the situation
 - Request help or guidance
 
+CRITICAL MEMORY INSTRUCTIONS:
+- You have access to the COMPLETE conversation history from THIS SCENE ONLY
+- You MUST remember and reference information shared in previous interactions within this scene
+- If the user tells you something personal (like their birthday), you MUST remember it for this scene
+- When asked about something you previously discussed in this scene, provide the specific information
+- DO NOT reference information from other scenes - only use information from the current scene
+
+{memory_context}
+
 This is about {orchestrator.scenario.get('title', '...')} and its challenges, NOT about any other company or system.
 
-Respond helpfully and guide them toward productive interactions with the team members. If they ask about previous conversations, remind them that you can only see the current message and suggest they ask the specific person again.
+Respond helpfully and guide them toward productive interactions with the team members. You have access to the full conversation history, so you can reference previous interactions.
 
 User's message: {request.message}"""
                 persona_name = "ChatOrchestrator"
@@ -1484,9 +1558,8 @@ User's message: {request.message}"""
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": request.message}
-                ],
+                    {"role": "system", "content": system_prompt}
+                ] + conversation_context,
                 max_tokens=600,
                 temperature=0.7
             )
@@ -1506,27 +1579,6 @@ User's message: {request.message}"""
             if current_scene and current_scene.get('objectives'):
                 scene_goal = current_scene['objectives'][0]
                 scene_description = current_scene.get('description', '')
-                
-                # Get recent conversation for context - include the current message
-                scene_id_to_use = request.scene_id if request.scene_id is not None else user_progress.current_scene_id
-                recent_messages = db.query(ConversationLog).filter(
-                    and_(
-                        ConversationLog.user_progress_id == user_progress.id,
-                        ConversationLog.scene_id == scene_id_to_use
-                    )
-                ).order_by(desc(ConversationLog.message_order)).limit(10).all()
-                
-                # Build conversation history
-                conversation_history = []
-                for msg in reversed(recent_messages):
-                    speaker = msg.sender_name or "System"
-                    conversation_history.append(f"{speaker}: {msg.message_content}")
-                
-                # Add the current user message
-                conversation_history.append(f"User: {request.message}")
-                
-                conversation_text = "\n".join(conversation_history)
-                print(f"[DEBUG] Conversation history: {conversation_text[:500]}...")
                 
                 # Get current attempts
                 scene_progress = db.query(SceneProgress).filter(
@@ -1724,7 +1776,7 @@ User's message: {request.message}"""
             message_type="ai_persona" if persona_name != "ChatOrchestrator" else "orchestrator",
             sender_name=persona_name,
             persona_id=persona_id,  # This will be None for orchestrator messages
-            message_content=f"User: {request.message}\n\n{persona_name}: {ai_response}",
+            message_content=ai_response,  # Store only the AI response content
             message_order=1,  # Simplified for now
             timestamp=datetime.utcnow()
         )

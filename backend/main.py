@@ -323,6 +323,23 @@ async def change_password(
     
     return {"message": "Password changed successfully"}
 
+@app.post("/users/activity")
+async def track_user_activity(
+    activity_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Track user activity for inactivity monitoring"""
+    try:
+        # Update user's last_activity timestamp
+        current_user.last_activity = datetime.utcnow()
+        db.commit()
+        return {"status": "success", "timestamp": current_user.last_activity.isoformat()}
+    except Exception as e:
+        # Log error but don't fail the request to avoid disrupting UX
+        print(f"[ERROR] Activity tracking failed: {str(e)}")
+        return {"status": "error", "message": "Activity tracking failed"}
+
 @app.get("/users/{user_id}", response_model=UserResponse)
 async def get_user_profile(user_id: int, db: Session = Depends(get_db)):
     """Get user profile (public information only)"""

@@ -93,22 +93,41 @@ export interface RegisterData {
 // Tokens are now handled server-side via secure cookies, not localStorage
 // This prevents XSS attacks from accessing authentication tokens
 
-// In-memory token storage for client-side auth state (non-persistent)
+// Persistent token storage for client-side auth state
 let inMemoryToken: string | null = null
 
 const getAuthToken = (): string | null => {
-  // Return in-memory token only (no localStorage access)
-  return inMemoryToken
+  // First check in-memory token
+  if (inMemoryToken) {
+    return inMemoryToken
+  }
+  
+  // Fallback to localStorage for persistence across page refreshes
+  if (typeof window !== 'undefined') {
+    const storedToken = localStorage.getItem('auth_token')
+    if (storedToken) {
+      inMemoryToken = storedToken
+      return storedToken
+    }
+  }
+  
+  return null
 }
 
 const setAuthToken = (token: string): void => {
-  // Store token in memory only (non-persistent, cleared on page refresh)
+  // Store token in both memory and localStorage for persistence
   inMemoryToken = token
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('auth_token', token)
+  }
 }
 
 const removeAuthToken = (): void => {
-  // Clear in-memory token
+  // Clear token from both memory and localStorage
   inMemoryToken = null
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('auth_token')
+  }
 }
 
 // Helper function to make authenticated API requests
@@ -124,7 +143,7 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAut
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
       ...options,
       headers,
       credentials: 'include', // Include HttpOnly cookies in requests

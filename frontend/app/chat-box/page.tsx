@@ -497,13 +497,23 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
         body: JSON.stringify({
           scenario_id: scenarioId
         })
-      })
+      }, true) // Add silentAuthError = true to handle auth errors gracefully
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          // User is not authenticated, redirect to login
+          console.log("Authentication failed, redirecting to login")
+          router.push("/")
+          return
+        }
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
 
       const data: SimulationData = await response.json()
       setSimulationData(data)
       
       // Try to fetch all scenes for the scenario
-      const scenesRes = await apiClient.apiRequest(`/api/scenarios/${scenarioId}/full`);
+      const scenesRes = await apiClient.apiRequest(`/api/scenarios/${scenarioId}/full`, {}, true); // Add silentAuthError = true
       if (scenesRes.ok) {
         const scenarioDetail = await scenesRes.json();
         console.log("[DEBUG] Scenario detail response:", scenarioDetail);
@@ -514,6 +524,11 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
           setAllScenes([data.current_scene]);
           console.log("[DEBUG] allScenes fallback to current_scene:", [data.current_scene]);
         }
+      } else if (scenesRes.status === 401) {
+        // User is not authenticated, redirect to login
+        console.log("Authentication failed during scene fetch, redirecting to login")
+        router.push("/")
+        return
       } else {
         setAllScenes([data.current_scene]);
         console.log("[DEBUG] allScenes fallback to current_scene (fetch error):", [data.current_scene]);

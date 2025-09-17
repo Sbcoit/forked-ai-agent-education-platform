@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Skip cache version check to avoid clearing auth token on page refresh
         // Cache will be managed by TTL and selective invalidation instead
         
-        // Check if we have a token
+        // Check if we have a token (now includes localStorage fallback)
         if (process.env.NODE_ENV === 'development') {
           console.log('Checking authentication status...')
         }

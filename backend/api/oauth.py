@@ -11,7 +11,9 @@ import asyncio
 import logging
 import os
 import threading
+import base64
 from contextlib import asynccontextmanager
+from cryptography.fernet import Fernet
 
 from database.connection import get_db
 from database.models import User
@@ -46,6 +48,26 @@ class OAuthStateStore:
         self.redis_client = None
         self.fallback_to_memory = True
         self._init_redis()
+        self._init_encryption()
+    
+    def _init_encryption(self):
+        """Initialize encryption cipher for state payloads"""
+        try:
+            encryption_key = os.getenv('OAUTH_ENCRYPTION_KEY')
+            if not encryption_key:
+                # Generate a new key if none provided (for development)
+                key = Fernet.generate_key()
+                logger.warning("No OAUTH_ENCRYPTION_KEY found, using generated key. Set OAUTH_ENCRYPTION_KEY in production!")
+                self.cipher = Fernet(key)
+            else:
+                # Use provided key (should be base64 encoded)
+                if len(encryption_key) != 44:  # Fernet keys are 44 chars when base64 encoded
+                    raise ValueError("OAUTH_ENCRYPTION_KEY must be a valid Fernet key (44 characters)")
+                self.cipher = Fernet(encryption_key.encode())
+        except Exception as e:
+            logger.error(f"Failed to initialize encryption: {e}")
+            # Fallback to no encryption (not recommended for production)
+            self.cipher = None
     
     def _init_redis(self):
         """Initialize Redis client if available"""
@@ -65,14 +87,29 @@ class OAuthStateStore:
     def set_state(self, state: str, data: Dict[str, Any], ttl: int = 600) -> bool:
         """Store OAuth state with TTL (default 10 minutes)"""
         try:
+            # Add created_at timestamp
+            data['created_at'] = time.time()
+            
+            # Encrypt the payload if cipher is available
+            if self.cipher:
+                try:
+                    json_payload = json.dumps(data)
+                    encrypted_payload = self.cipher.encrypt(json_payload.encode())
+                    encrypted_data = base64.b64encode(encrypted_payload).decode('utf-8')
+                except Exception as e:
+                    logger.error(f"Failed to encrypt state data: {e}")
+                    return False
+            else:
+                # No encryption available, store as JSON
+                encrypted_data = json.dumps(data)
+            
             if self.redis_client and not self.fallback_to_memory:
-                self.redis_client.setex(state, ttl, json.dumps(data))
+                self.redis_client.setex(state, ttl, encrypted_data)
                 return True
             else:
                 # Fallback to in-memory storage
-                data['created_at'] = time.time()
                 with oauth_states_lock:
-                    oauth_states[state] = data
+                    oauth_states[state] = encrypted_data
                 return True
         except Exception as e:
             logger.error(f"Failed to store OAuth state: {e}")
@@ -82,14 +119,28 @@ class OAuthStateStore:
         """Retrieve OAuth state data"""
         try:
             if self.redis_client and not self.fallback_to_memory:
-                data_str = self.redis_client.get(state)
-                if data_str:
-                    return json.loads(data_str)
-                return None
+                encrypted_data = self.redis_client.get(state)
+                if not encrypted_data:
+                    return None
             else:
                 # Fallback to in-memory storage
                 with oauth_states_lock:
-                    return oauth_states.get(state)
+                    encrypted_data = oauth_states.get(state)
+                    if not encrypted_data:
+                        return None
+            
+            # Decrypt the payload if cipher is available
+            if self.cipher:
+                try:
+                    encrypted_payload = base64.b64decode(encrypted_data.encode('utf-8'))
+                    decrypted_payload = self.cipher.decrypt(encrypted_payload)
+                    return json.loads(decrypted_payload.decode('utf-8'))
+                except Exception as e:
+                    logger.error(f"Failed to decrypt state data: {e}")
+                    return None
+            else:
+                # No encryption, parse as JSON
+                return json.loads(encrypted_data)
         except Exception as e:
             logger.error(f"Failed to retrieve OAuth state: {e}")
             return None
@@ -262,11 +313,13 @@ async def google_callback(
             detail="Missing authorization code or state"
         )
     
-    # Verify state
-    if state not in oauth_states:
+    # Verify state using the store abstraction
+    state_data = oauth_state_store.get_state(state)
+    if not state_data:
         # Clean up expired states and try again
         cleanup_expired_states()
-        if state not in oauth_states:
+        state_data = oauth_state_store.get_state(state)
+        if not state_data:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid or expired state parameter. Please try logging in again."
@@ -365,7 +418,7 @@ async def google_callback(
     
     # Create new user
     new_user = create_oauth_user(db, {**user_info, "id": google_id})
-    oauth_states.pop(state, None)  # Clean up state
+    oauth_state_store.delete_state(state)  # Clean up state
     
     return create_user_login_response(new_user)
 

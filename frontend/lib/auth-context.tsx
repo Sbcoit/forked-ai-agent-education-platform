@@ -40,19 +40,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = React.useState(true)
 
   // Track user activity for inactivity-based logout
-  const updateLastActivity = React.useCallback(() => {
+  const updateLastActivity = React.useCallback(async () => {
     const timestamp = Date.now().toString()
-    localStorage.setItem('last_activity', timestamp)
-    console.log('Activity timestamp updated:', new Date(parseInt(timestamp)).toLocaleTimeString())
+    
+    // Store in sessionStorage for per-tab scope (more secure than localStorage)
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('last_activity', timestamp)
+    }
+    
+    // Also send heartbeat to server for secure activity tracking
+    try {
+      await apiClient.apiRequest('/users/activity', {
+        method: 'POST',
+        body: JSON.stringify({ timestamp: parseInt(timestamp) })
+      }, true) // Silent auth error to avoid disrupting UX
+    } catch (error) {
+      // Fallback to client-side tracking if server call fails
+      console.debug('Server activity tracking failed, using client-side fallback')
+    }
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Activity timestamp updated:', new Date(parseInt(timestamp)).toLocaleTimeString())
+    }
   }, [])
 
   const checkInactivity = React.useCallback(() => {
-    const lastActivity = localStorage.getItem('last_activity')
-    console.log('Checking inactivity, last activity timestamp:', lastActivity)
+    const lastActivity = sessionStorage.getItem('last_activity')
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Checking inactivity, last activity timestamp:', lastActivity)
+    }
     
     if (!lastActivity) {
       // No activity timestamp means this is a fresh session, set current time and don't logout
-      console.log('Fresh session detected, setting activity timestamp')
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Fresh session detected, setting activity timestamp')
+      }
       updateLastActivity()
       return false
     }
@@ -60,16 +82,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const timeSinceActivity = Date.now() - parseInt(lastActivity)
     const inactivityThreshold = INACTIVITY_THRESHOLD_MS
     
-    console.log(`Time since last activity: ${Math.round(timeSinceActivity / 1000)} seconds (${Math.round(timeSinceActivity / 60000)} minutes)`)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Time since last activity: ${Math.round(timeSinceActivity / 1000)} seconds (${Math.round(timeSinceActivity / 60000)} minutes)`)
+    }
     
     if (timeSinceActivity > inactivityThreshold) {
-      console.log(`User inactive for ${Math.round(timeSinceActivity / 60000)} minutes, logging out...`)
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`User inactive for ${Math.round(timeSinceActivity / 60000)} minutes, logging out...`)
+      }
       apiClient.logout()
       setUser(null)
       return true
     }
     
-    console.log(`User active within last ${Math.round(timeSinceActivity / 60000)} minutes, staying logged in`)
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`User active within last ${Math.round(timeSinceActivity / 60000)} minutes, staying logged in`)
+    }
     return false
   }, [updateLastActivity])
 
@@ -87,24 +115,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Cache will be managed by TTL and selective invalidation instead
         
         // Check if we have a token
-        console.log('Checking authentication status...')
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Checking authentication status...')
+        }
         if (apiClient.isAuthenticated()) {
-          console.log('Token found, fetching current user...')
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Token found, fetching current user...')
+          }
           const currentUser = await apiClient.getCurrentUser()
           if (currentUser) {
-            console.log('User authenticated successfully:', currentUser.email)
+            if (process.env.NODE_ENV === 'development') {
+              console.log('User authenticated successfully:', currentUser.email)
+            }
             setUser(currentUser)
             updateLastActivity() // Update activity on successful login
           } else {
-            console.log('Token invalid, clearing...')
+            if (process.env.NODE_ENV === 'development') {
+              console.log('Token invalid, clearing...')
+            }
             // Token is invalid, clear it
             apiClient.logout()
           }
         } else {
-          console.log('No token found')
+          if (process.env.NODE_ENV === 'development') {
+            console.log('No token found')
+          }
         }
       } catch (error) {
-        console.log('Auth initialization failed:', error)
+        if (process.env.NODE_ENV === 'development') {
+          console.log('Auth initialization failed:', error)
+        }
         // Clear invalid token
         apiClient.logout()
       } finally {
@@ -136,7 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Logout error:', error)
     } finally {
       setUser(null)
-      localStorage.removeItem('last_activity') // Clear activity tracking on logout
+      sessionStorage.removeItem('last_activity') // Clear activity tracking on logout
     }
   }
 
@@ -199,7 +239,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     console.log('Manually clearing all cache...')
     apiClient.clearAllCache()
     setUser(null)
-    localStorage.removeItem('last_activity') // Clear activity tracking on manual cache clear
+    sessionStorage.removeItem('last_activity') // Clear activity tracking on manual cache clear
   }
 
   const isAuthenticated = !!user

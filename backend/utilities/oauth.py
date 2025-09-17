@@ -184,10 +184,45 @@ def find_oauth_user_by_original_email(db: Session, original_email: str) -> Optio
     # Create precise regex pattern: base_email+google followed by one or more digits
     pattern = f"^{escaped_base}\\+google\\d+@{escaped_domain}$"
     
-    return db.query(User).filter(
-        User.email.op('~')(pattern),
-        User.provider == "google"
-    ).first()
+    # Use dialect-aware regex matching
+    from sqlalchemy import text
+    from database.connection import engine
+    
+    # Detect database dialect and use appropriate regex operator
+    dialect_name = engine.dialect.name
+    if dialect_name == 'postgresql':
+        # PostgreSQL uses ~ operator
+        return db.query(User).filter(
+            User.email.op('~')(pattern),
+            User.provider == "google"
+        ).first()
+    elif dialect_name in ['mysql', 'mariadb']:
+        # MySQL uses REGEXP operator
+        return db.query(User).filter(
+            User.email.op('REGEXP')(pattern),
+            User.provider == "google"
+        ).first()
+    elif dialect_name == 'sqlite':
+        # SQLite uses REGEXP operator (if extension is loaded) or fallback to LIKE
+        try:
+            return db.query(User).filter(
+                User.email.op('REGEXP')(pattern),
+                User.provider == "google"
+            ).first()
+        except Exception:
+            # Fallback to LIKE-based pattern matching for SQLite
+            like_pattern = f"{base_email}+google%@{domain}"
+            return db.query(User).filter(
+                User.email.like(like_pattern),
+                User.provider == "google"
+            ).first()
+    else:
+        # Fallback to LIKE-based pattern matching for unsupported dialects
+        like_pattern = f"{base_email}+google%@{domain}"
+        return db.query(User).filter(
+            User.email.like(like_pattern),
+            User.provider == "google"
+        ).first()
 
 def create_oauth_user(db: Session, google_data: Dict[str, Any]) -> User:
     """Create a new user from Google OAuth data"""

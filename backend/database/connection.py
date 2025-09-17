@@ -46,13 +46,15 @@ def _validate_environment():
         if "localhost" in settings.google_redirect_uri:
             raise RuntimeError("GOOGLE_REDIRECT_URI cannot use localhost in production environment")
 
-# Run validation
-_validate_environment()
+# Validation is now called from application startup instead of import time
 
-# Print loaded settings for debugging (remove in production)
-print(f"🤖 OpenAI API Key: {'✅ Set' if settings.openai_api_key else '❌ Missing'}")
-print(f"🔑 Secret Key: {'✅ Set' if settings.secret_key else '❌ Missing'}")
+# Print loaded settings securely
+from utilities.secure_logging import secure_print_api_key_status, secure_print_database_url
+
 print(f"🌍 Environment: {settings.environment}")
+secure_print_api_key_status("OpenAI API Key", settings.openai_api_key, settings.environment)
+secure_print_api_key_status("Secret Key", settings.secret_key, settings.environment)
+secure_print_database_url(settings.database_url, settings.environment)
 
 # Database setup with SSL and connection pooling
 if settings.database_url.startswith("postgresql"):

@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from database.connection import get_db, engine, settings
+from database.connection import get_db, engine, settings, _validate_environment
 from database.models import Base, User, Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, ScenarioReview
 from database.schemas import (
     ScenarioCreate, UserRegister, UserLogin, UserLoginResponse, 
@@ -38,6 +38,9 @@ from services.session_manager import session_manager
 @asynccontextmanager
 async def combined_lifespan(app):
     """Combined lifespan manager for OAuth and session cleanup tasks"""
+    # Validate environment on startup
+    _validate_environment()
+    
     # Start OAuth cleanup task
     async with oauth_lifespan(app):
         # Start session manager cleanup task

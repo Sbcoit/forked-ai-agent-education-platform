@@ -78,11 +78,14 @@ def downgrade():
     op.add_column('vector_embeddings', 
                   sa.Column('embedding_vector_old', sa.JSON(), nullable=True))
     
-    # Copy vector data to JSON format
+    # Copy vector data to JSON format, handling nulls explicitly
     op.execute("""
         UPDATE vector_embeddings 
-        SET embedding_vector_old = json_build_object('embedding', embedding_vector::text::json)
-        WHERE embedding_vector IS NOT NULL
+        SET embedding_vector_old = CASE 
+            WHEN embedding_vector IS NOT NULL 
+            THEN json_build_object('embedding', embedding_vector::text::json)
+            ELSE json_build_object('embedding', '[]'::json)
+        END
     """)
     
     # Drop the vector column
@@ -91,6 +94,13 @@ def downgrade():
     # Rename the JSON column
     op.alter_column('vector_embeddings', 'embedding_vector_old', 
                     new_column_name='embedding_vector')
+    
+    # Ensure no null values exist before making column not nullable
+    op.execute("""
+        UPDATE vector_embeddings 
+        SET embedding_vector = json_build_object('embedding', '[]'::json)
+        WHERE embedding_vector IS NULL
+    """)
     
     # Make it not nullable
     op.alter_column('vector_embeddings', 'embedding_vector', nullable=False)

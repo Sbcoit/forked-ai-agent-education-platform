@@ -1,9 +1,16 @@
 // Real API client for connecting to the backend
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const getApiBaseUrl = () => {
+  if (typeof window === 'undefined') {
+    // Server-side rendering - return a placeholder
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+  }
+  // Client-side - use environment variable or fallback
+  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+}
 
 // Helper function to build API URLs
 export const buildApiUrl = (endpoint: string): string => {
-  return `${API_BASE_URL}${endpoint}`
+  return `${getApiBaseUrl()}${endpoint}`
 }
 
 export interface User {
@@ -82,38 +89,26 @@ export interface RegisterData {
   allow_contact?: boolean
 }
 
-// SECURITY NOTE: Removed unsafe localStorage-based auth helpers
-// These functions were vulnerable to XSS attacks and have been replaced
-// with secure cookie-based authentication handled by the backend
+// SECURITY: Secure authentication using HttpOnly cookies
+// Tokens are now handled server-side via secure cookies, not localStorage
+// This prevents XSS attacks from accessing authentication tokens
 
-// TODO: Implement secure authentication system
-// The backend should handle authentication via Secure, HttpOnly, SameSite cookies
-// and provide endpoints for token management. Client-side token storage is unsafe.
+// In-memory token storage for client-side auth state (non-persistent)
+let inMemoryToken: string | null = null
 
-// Temporary shim functions that will be replaced with secure implementation
 const getAuthToken = (): string | null => {
-  // TODO: Replace with secure cookie-based auth or in-memory auth state
-  console.warn('SECURITY WARNING: Using unsafe localStorage auth. This should be replaced with secure cookie-based authentication.')
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('auth_token')
-  }
-  return null
+  // Return in-memory token only (no localStorage access)
+  return inMemoryToken
 }
 
 const setAuthToken = (token: string): void => {
-  // TODO: Replace with secure cookie-based auth or in-memory auth state
-  console.warn('SECURITY WARNING: Using unsafe localStorage auth. This should be replaced with secure cookie-based authentication.')
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('auth_token', token)
-  }
+  // Store token in memory only (non-persistent, cleared on page refresh)
+  inMemoryToken = token
 }
 
 const removeAuthToken = (): void => {
-  // TODO: Replace with secure cookie-based auth or in-memory auth state
-  console.warn('SECURITY WARNING: Using unsafe localStorage auth. This should be replaced with secure cookie-based authentication.')
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('auth_token')
-  }
+  // Clear in-memory token
+  inMemoryToken = null
 }
 
 // Helper function to make authenticated API requests
@@ -132,6 +127,7 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAut
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers,
+      credentials: 'include', // Include HttpOnly cookies in requests
     })
 
     if (!response.ok) {
@@ -327,6 +323,49 @@ export const apiClient = {
       body: JSON.stringify(passwordData),
     })
     return response.json()
+  },
+
+  // Cohort methods
+  getCohorts: async (): Promise<any[]> => {
+    const response = await apiRequest('/cohorts/')
+    return response.json()
+  },
+
+  getCohort: async (cohortId: string): Promise<any> => {
+    const response = await apiRequest(`/cohorts/${cohortId}`)
+    return response.json()
+  },
+
+  getCohortStudents: async (cohortId: string): Promise<any[]> => {
+    const response = await apiRequest(`/cohorts/${cohortId}/students`)
+    return response.json()
+  },
+
+  getCohortSimulations: async (cohortId: string): Promise<any[]> => {
+    const response = await apiRequest(`/cohorts/${cohortId}/simulations`)
+    return response.json()
+  },
+
+  createCohort: async (cohortData: any): Promise<any> => {
+    const response = await apiRequest('/cohorts/', {
+      method: 'POST',
+      body: JSON.stringify(cohortData),
+    })
+    return response.json()
+  },
+
+  updateCohort: async (cohortId: string, cohortData: any): Promise<any> => {
+    const response = await apiRequest(`/cohorts/${cohortId}`, {
+      method: 'PUT',
+      body: JSON.stringify(cohortData),
+    })
+    return response.json()
+  },
+
+  deleteCohort: async (cohortId: string): Promise<void> => {
+    await apiRequest(`/cohorts/${cohortId}`, {
+      method: 'DELETE',
+    })
   },
 
   // Utility methods

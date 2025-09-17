@@ -65,7 +65,8 @@ def clear_database():
         print("\n" + "="*60)
         print("⚠️  WARNING: This will DELETE ALL DATA in the database!")
         print("="*60)
-        print(f"Database: {db_url_partial}")
+        from utilities.secure_logging import secure_print_database_url
+        secure_print_database_url(db_url)
         print("This action cannot be undone!")
         print("="*60)
         

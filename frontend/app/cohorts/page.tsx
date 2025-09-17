@@ -19,54 +19,16 @@ import {
 } from "lucide-react"
 import Sidebar from "@/components/Sidebar"
 import { useAuth } from "@/lib/auth-context"
+import { apiClient } from "@/lib/api"
 
 export default function Cohorts() {
   const router = useRouter()
   const { user, logout, isLoading: authLoading } = useAuth()
   
-  // Mock cohort data matching the image exactly
-  const [cohorts] = useState([
-    {
-      id: "CH-A7B3K9X2",
-      title: "Business Strategy Fall 2024",
-      status: "Active",
-      statusColor: "bg-green-100 text-green-800",
-      description: "Advanced strategic planning and competitive analysis for senior business students.",
-      students: 24,
-      simulations: 3,
-      date: "Dec 1"
-    },
-    {
-      id: "CH-M4N8P1Q5",
-      title: "Financial Management 401",
-      status: "Active",
-      statusColor: "bg-green-100 text-green-800",
-      description: "Corporate finance, investment analysis, and risk management simulations.",
-      students: 18,
-      simulations: 2,
-      date: "Nov 28"
-    },
-    {
-      id: "CH-R9S2T6W1",
-      title: "Marketing Analytics Lab",
-      status: "Draft",
-      statusColor: "bg-yellow-100 text-yellow-800",
-      description: "Data-driven marketing decision making with real client case studies.",
-      students: 0,
-      simulations: 0,
-      date: "Dec 8"
-    },
-    {
-      id: "CH-E5F7H3J9",
-      title: "Operations Management Spring 2024",
-      status: "Archived",
-      statusColor: "bg-gray-100 text-gray-800",
-      description: "Supply chain optimization and process improvement simulations.",
-      students: 32,
-      simulations: 4,
-      date: "Oct 15"
-    }
-  ])
+  // State for cohorts data
+  const [cohorts, setCohorts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
   const [activeFilter, setActiveFilter] = useState("All")
   const [searchTerm, setSearchTerm] = useState("")
@@ -89,6 +51,25 @@ export default function Cohorts() {
   })
   const [showTagDropdown, setShowTagDropdown] = useState(false)
   
+  // Fetch cohorts data on component mount
+  useEffect(() => {
+    const fetchCohorts = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        const cohortsData = await apiClient.getCohorts()
+        setCohorts(cohortsData)
+      } catch (err) {
+        console.error('Error fetching cohorts:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load cohorts')
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    fetchCohorts()
+  }, [])
+
   // Handle redirect when user is not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
@@ -114,6 +95,32 @@ export default function Cohorts() {
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
           <p className="text-black">Redirecting...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading while fetching cohorts
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
+          <p className="text-black">Loading cohorts...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error if failed to load cohorts
+  if (error) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
         </div>
       </div>
     )
@@ -148,23 +155,31 @@ export default function Cohorts() {
     }))
   }
 
-  const handleCreateCohort = () => {
-    // Here you would typically send the data to your API
-    console.log("Creating cohort:", formData)
-    
-    // Reset form and close modal
-    setFormData({
-      cohortName: "",
-      description: "",
-      courseCode: "",
-      semester: "",
-      year: "",
-      maxStudents: "",
-      autoApprove: true,
-      allowSelfEnrollment: false,
-      tags: []
-    })
-    setShowCreateModal(false)
+  const handleCreateCohort = async () => {
+    try {
+      setLoading(true)
+      const newCohort = await apiClient.createCohort(formData)
+      setCohorts(prev => [...prev, newCohort])
+      
+      // Reset form and close modal
+      setFormData({
+        cohortName: "",
+        description: "",
+        courseCode: "",
+        semester: "",
+        year: "",
+        maxStudents: "",
+        autoApprove: true,
+        allowSelfEnrollment: false,
+        tags: []
+      })
+      setShowCreateModal(false)
+    } catch (err) {
+      console.error('Error creating cohort:', err)
+      setError(err instanceof Error ? err.message : 'Failed to create cohort')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleCloseModal = () => {

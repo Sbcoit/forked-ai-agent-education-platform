@@ -67,7 +67,10 @@ export default function GoogleCallbackPage() {
         // Store the access token if present (for successful login)
         if (result.access_token) {
           localStorage.setItem('auth_token', result.access_token)
-          console.log('Google OAuth token stored successfully in callback page')
+          // Only log in development environment, never log the actual token
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Google OAuth token stored successfully in callback page')
+          }
         }
 
         // Send success data to parent window

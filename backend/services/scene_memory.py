@@ -64,7 +64,7 @@ class SceneMemoryManager:
                     await self._load_scene_memory(user_progress_id, scene_id)
                 except Exception as e:
                     # Check if we're in production environment
-                    is_production = os.getenv('ENV') == 'production' or not getattr(settings, 'DEBUG', True)
+                    is_production = os.getenv('ENVIRONMENT') == 'production' or os.getenv('ENV') == 'production' or not getattr(settings, 'DEBUG', True)
                     
                     if is_production:
                         # In production, log error and re-raise to ensure proper alerting

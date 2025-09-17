@@ -29,14 +29,10 @@ from database.models import Scenario, ScenarioPersona, ScenarioScene, ScenarioFi
 
 LLAMAPARSE_API_KEY = settings.llamaparse_api_key
 OPENAI_API_KEY = settings.openai_api_key
-if LLAMAPARSE_API_KEY:
-    print(f"[DEBUG] LLAMAPARSE_API_KEY loaded: {LLAMAPARSE_API_KEY[:6]}...{LLAMAPARSE_API_KEY[-4:]}")
-else:
-    print("[DEBUG] LLAMAPARSE_API_KEY loaded: None")
-if OPENAI_API_KEY:
-    print(f"[DEBUG] OPENAI_API_KEY loaded: {OPENAI_API_KEY[:6]}...{OPENAI_API_KEY[-4:]}")
-else:
-    print("[DEBUG] OPENAI_API_KEY loaded: None")
+from utilities.secure_logging import secure_print_api_key_status
+
+secure_print_api_key_status("LLAMAPARSE_API_KEY", LLAMAPARSE_API_KEY)
+secure_print_api_key_status("OPENAI_API_KEY", OPENAI_API_KEY)
 
 router = APIRouter()
 

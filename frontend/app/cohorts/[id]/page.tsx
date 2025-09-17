@@ -23,6 +23,7 @@ import {
 } from "lucide-react"
 import Sidebar from "@/components/Sidebar"
 import { useAuth } from "@/lib/auth-context"
+import { apiClient } from "@/lib/api"
 
 export default function CohortDetail() {
   const router = useRouter()
@@ -30,213 +31,44 @@ export default function CohortDetail() {
   const { user, logout, isLoading: authLoading } = useAuth()
   
   const [activeTab, setActiveTab] = useState("Students")
-  
-  // Mock cohort data - in real app, this would be fetched based on the ID
-  const allCohorts = [
-    {
-      id: "CH-A7B3K9X2",
-      title: "Business Strategy Fall 2024",
-      description: "Advanced strategic planning and competitive analysis for senior business students.",
-      status: "Active",
-      statusColor: "bg-green-100 text-green-800",
-      createdDate: "Dec 1",
-      totalStudents: 24,
-      activeStudents: 22,
-      simulations: 2,
-      avgCompletion: 87
-    },
-    {
-      id: "CH-M4N8P105",
-      title: "Financial Management 401",
-      description: "Corporate finance, investment analysis, and risk management for advanced students.",
-      status: "Active",
-      statusColor: "bg-green-100 text-green-800",
-      createdDate: "Nov 28",
-      totalStudents: 18,
-      activeStudents: 16,
-      simulations: 2,
-      avgCompletion: 92
-    },
-    {
-      id: "CH-R9S2T6W1",
-      title: "Marketing Analytics Lab",
-      description: "Data-driven marketing decision making with real client case studies.",
-      status: "Draft",
-      statusColor: "bg-yellow-100 text-yellow-800",
-      createdDate: "Dec 8",
-      totalStudents: 0,
-      activeStudents: 0,
-      simulations: 0,
-      avgCompletion: 0
-    },
-    {
-      id: "CH-E5F7H3J9",
-      title: "Operations Management Spring 2024",
-      description: "Supply chain optimization and process improvement simulations.",
-      status: "Draft",
-      statusColor: "bg-yellow-100 text-yellow-800",
-      createdDate: "Oct 15",
-      totalStudents: 32,
-      activeStudents: 28,
-      simulations: 4,
-      avgCompletion: 78
+  const [cohortData, setCohortData] = useState<any>(null)
+  const [students, setStudents] = useState<any[]>([])
+  const [simulations, setSimulations] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch cohort data on component mount
+  useEffect(() => {
+    const fetchCohortData = async () => {
+      if (!params.id) return
+      
+      try {
+        setLoading(true)
+        setError(null)
+        
+        // Fetch cohort details
+        const cohort = await apiClient.getCohort(params.id as string)
+        setCohortData(cohort)
+        
+        // Fetch students and simulations in parallel
+        const [studentsData, simulationsData] = await Promise.all([
+          apiClient.getCohortStudents(params.id as string).catch(() => []),
+          apiClient.getCohortSimulations(params.id as string).catch(() => [])
+        ])
+        
+        setStudents(studentsData)
+        setSimulations(simulationsData)
+        
+      } catch (err) {
+        console.error('Error fetching cohort data:', err)
+        setError(err instanceof Error ? err.message : 'Failed to load cohort data')
+      } finally {
+        setLoading(false)
+      }
     }
-  ]
-
-  // Find the cohort based on the URL parameter
-  const cohortData = allCohorts.find(cohort => cohort.id === params.id)
-  
-  // If no cohort found, return 404
-  if (!cohortData) {
-    notFound()
-  }
-
-  // Mock student data - different for each cohort
-  const getStudentsForCohort = (cohortId: string) => {
-    const studentData = {
-      "CH-A7B3K9X2": [
-        {
-          id: 1,
-          name: "Emma Johnson",
-          email: "emma.johnson@university.edu",
-          initials: "EJ",
-          completed: 3,
-          pending: 1,
-          status: "Active",
-          statusColor: "bg-black text-white",
-          joinedDate: "Dec 1"
-        },
-        {
-          id: 2,
-          name: "Michael Chen",
-          email: "m.chen@university.edu",
-          initials: "MC",
-          completed: 2,
-          pending: 2,
-          status: "Active",
-          statusColor: "bg-black text-white",
-          joinedDate: "Dec 1"
-        },
-        {
-          id: 3,
-          name: "Sarah Williams",
-          email: "sarah.w@university.edu",
-          initials: "SW",
-          completed: 0,
-          pending: 0,
-          status: "Pending",
-          statusColor: "bg-gray-100 text-gray-800",
-          joinedDate: "Dec 3"
-        }
-      ],
-      "CH-M4N8P105": [
-        {
-          id: 4,
-          name: "David Rodriguez",
-          email: "d.rodriguez@university.edu",
-          initials: "DR",
-          completed: 2,
-          pending: 0,
-          status: "Active",
-          statusColor: "bg-black text-white",
-          joinedDate: "Nov 28"
-        },
-        {
-          id: 5,
-          name: "Lisa Park",
-          email: "l.park@university.edu",
-          initials: "LP",
-          completed: 1,
-          pending: 1,
-          status: "Active",
-          statusColor: "bg-black text-white",
-          joinedDate: "Nov 30"
-        }
-      ],
-      "CH-R9S2T6W1": [],
-      "CH-E5F7H3J9": [
-        {
-          id: 6,
-          name: "Alex Thompson",
-          email: "a.thompson@university.edu",
-          initials: "AT",
-          completed: 4,
-          pending: 0,
-          status: "Active",
-          statusColor: "bg-black text-white",
-          joinedDate: "Oct 15"
-        }
-      ]
-    }
-    return studentData[cohortId as keyof typeof studentData] || []
-  }
-
-  // Mock simulation data - different for each cohort
-  const getSimulationsForCohort = (cohortId: string) => {
-    const simulationData = {
-      "CH-A7B3K9X2": [
-        {
-          id: 1,
-          title: "Marketing Strategy Case Study",
-          assignedDate: "Dec 1",
-          dueDate: "Dec 15",
-          status: "Active",
-          statusColor: "bg-green-100 text-green-800",
-          completed: 18,
-          total: 24
-        },
-        {
-          id: 2,
-          title: "Financial Analysis Challenge",
-          assignedDate: "Nov 28",
-          dueDate: "Dec 12",
-          status: "Active",
-          statusColor: "bg-green-100 text-green-800",
-          completed: 22,
-          total: 24
-        }
-      ],
-      "CH-M4N8P105": [
-        {
-          id: 3,
-          title: "Investment Portfolio Analysis",
-          assignedDate: "Nov 28",
-          dueDate: "Dec 10",
-          status: "Active",
-          statusColor: "bg-green-100 text-green-800",
-          completed: 16,
-          total: 18
-        }
-      ],
-      "CH-R9S2T6W1": [],
-      "CH-E5F7H3J9": [
-        {
-          id: 4,
-          title: "Supply Chain Optimization",
-          assignedDate: "Oct 15",
-          dueDate: "Nov 15",
-          status: "Active",
-          statusColor: "bg-green-100 text-green-800",
-          completed: 28,
-          total: 32
-        },
-        {
-          id: 5,
-          title: "Process Improvement Workshop",
-          assignedDate: "Oct 20",
-          dueDate: "Nov 20",
-          status: "Active",
-          statusColor: "bg-green-100 text-green-800",
-          completed: 30,
-          total: 32
-        }
-      ]
-    }
-    return simulationData[cohortId as keyof typeof simulationData] || []
-  }
-
-  const students = getStudentsForCohort(params.id as string)
-  const simulations = getSimulationsForCohort(params.id as string)
+    
+    fetchCohortData()
+  }, [params.id])
 
   const [searchTerm, setSearchTerm] = useState("")
   const [studentFilter, setStudentFilter] = useState("All Students")
@@ -267,6 +99,32 @@ export default function CohortDetail() {
       <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
           <p className="text-black">Redirecting...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading while fetching cohort data
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
+          <p className="text-black">Loading cohort data...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show error if cohort not found or failed to load
+  if (error || !cohortData) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">{error || 'Cohort not found'}</p>
+          <Button onClick={() => router.push('/cohorts')}>
+            Back to Cohorts
+          </Button>
         </div>
       </div>
     )

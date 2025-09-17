@@ -2,6 +2,7 @@
 OAuth utilities for Google authentication
 """
 import httpx
+import logging
 from typing import Optional, Dict, Any
 from database.connection import settings
 from database.models import User
@@ -10,6 +11,13 @@ from utilities.auth import create_access_token
 import secrets
 import hashlib
 import base64
+import hmac
+from google.auth.transport import requests
+from google.oauth2 import id_token
+from fastapi import HTTPException, status
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 # Google OAuth configuration
 GOOGLE_CLIENT_ID = settings.google_client_id
@@ -27,10 +35,14 @@ def generate_state() -> str:
 
 def verify_state(state: str, stored_state: str) -> bool:
     """Verify the OAuth state parameter"""
-    return state == stored_state
+    return hmac.compare_digest(state or "", stored_state or "")
 
 def get_google_auth_url(state: str) -> str:
     """Generate Google OAuth authorization URL"""
+    # Validate required OAuth configuration
+    if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URI:
+        raise ValueError("Google OAuth is not configured. Missing GOOGLE_CLIENT_ID or GOOGLE_REDIRECT_URI")
+    
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": GOOGLE_REDIRECT_URI,
@@ -46,7 +58,7 @@ def get_google_auth_url(state: str) -> str:
     return f"{GOOGLE_AUTH_URL}?{query_string}"
 
 async def exchange_code_for_token(code: str) -> Optional[Dict[str, Any]]:
-    """Exchange authorization code for access token"""
+    """Exchange authorization code for access token and id_token"""
     data = {
         "client_id": GOOGLE_CLIENT_ID,
         "client_secret": GOOGLE_CLIENT_SECRET,
@@ -55,17 +67,81 @@ async def exchange_code_for_token(code: str) -> Optional[Dict[str, Any]]:
         "redirect_uri": GOOGLE_REDIRECT_URI,
     }
     
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
     async with httpx.AsyncClient(timeout=30.0) as client:
         try:
-            response = await client.post(GOOGLE_TOKEN_URL, data=data)
+            response = await client.post(GOOGLE_TOKEN_URL, data=data, headers=headers)
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as e:
-            print(f"Error exchanging code for token: {e}")
+            logger.error(f"Error exchanging code for token: {e}")
             return None
 
+def verify_google_id_token(id_token_str: str) -> Dict[str, Any]:
+    """
+    Verify Google ID token and return validated claims
+    
+    Args:
+        id_token_str: The ID token string from Google
+        
+    Returns:
+        Dict containing validated claims
+        
+    Raises:
+        HTTPException: If token verification fails
+    """
+    try:
+        # Verify the ID token
+        idinfo = id_token.verify_oauth2_token(
+            id_token_str, 
+            requests.Request(), 
+            GOOGLE_CLIENT_ID
+        )
+        
+        # Validate issuer
+        if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid token issuer"
+            )
+        
+        # Validate audience
+        if idinfo['aud'] != GOOGLE_CLIENT_ID:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid token audience"
+            )
+        
+        # Check email verification
+        if not idinfo.get('email_verified', False):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email not verified"
+            )
+        
+        # Return validated claims
+        return {
+            "email": idinfo.get("email"),
+            "name": idinfo.get("name"),
+            "picture": idinfo.get("picture"),
+            "sub": idinfo.get("sub"),
+            "id": idinfo.get("sub"),
+            "email_verified": idinfo.get("email_verified", False)
+        }
+        
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid ID token: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Token verification failed: {str(e)}"
+        )
+
 async def get_google_user_info(access_token: str) -> Optional[Dict[str, Any]]:
-    """Get user information from Google using access token"""
+    """Get user information from Google using access token (fallback method)"""
     headers = {"Authorization": f"Bearer {access_token}"}
     
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -74,7 +150,7 @@ async def get_google_user_info(access_token: str) -> Optional[Dict[str, Any]]:
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as e:
-            print(f"Error getting user info: {e}")
+            logger.error(f"Error getting user info: {e}")
             return None
 
 def find_existing_user_by_email(db: Session, email: str) -> Optional[User]:

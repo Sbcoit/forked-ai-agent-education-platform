@@ -1,5 +1,5 @@
 # AI Agent Education Platform - Main FastAPI Application
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from utilities.auth import (
     get_password_hash, authenticate_user, create_access_token, 
     get_current_user, get_current_user_optional, require_admin
 )
+from utilities.rate_limiter import check_test_login_rate_limit
 
 # Import API routers
 from api.parse_pdf import router as pdf_router
@@ -76,13 +77,6 @@ async def startup_event():
     else:
         logger.info("✅ Application startup completed successfully!")
     
-    # Start the session cleanup task
-    try:
-        session_manager.start_cleanup_task()
-        logger.info("🧹 Session cleanup task started successfully")
-    except Exception as e:
-        logger.error(f"❌ Failed to start session cleanup task: {e}")
-        # Don't fail startup for this, but log the error
 
 # CORS middleware
 app.add_middleware(
@@ -263,7 +257,12 @@ async def get_current_user_profile(current_user: User = Depends(get_current_user
     return current_user
 
 @app.post("/test-login")
-async def test_login(user: UserLogin, db: Session = Depends(get_db)):
+async def test_login(
+    user: UserLogin, 
+    request: Request,
+    db: Session = Depends(get_db),
+    _: None = Depends(check_test_login_rate_limit)
+):
     """Test endpoint to debug login issues (development only)"""
     # Only allow in development environment
     if settings.environment == "production":

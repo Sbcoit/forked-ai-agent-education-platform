@@ -581,14 +581,59 @@ IMPORTANT SCENE GENERATION RULES:
 - For each scene:
   * The personas_involved array must list only non-student figures (from key_figures) who are actively referenced in the scene_description.
   * The scene_description must always mention, in-depth and narratively, at least one non-student persona from the personas/key_figures list. The figure(s) must be woven into the scene in a way that makes narrative sense and advances the business scenario. The description should be multi-paragraph, detailed, and immersive, not superficial.
-  * Do not include the main character (student role) in personas_involved.
+  * CRITICAL: The personas_involved array must NEVER include the main character/student role, even if they are mentioned by name in the scene. The student is the player and should not be listed as a persona they interact with.
+  * Double-check that no persona in personas_involved matches the student_role or the main character name.
+  * If the scene involves the main character, focus on the OTHER people they interact with, not the main character themselves.
 
 Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
-
-{{
   "title": "<The exact title of the business case study>",
   "description": "<A highly comprehensive, multi-paragraph, and in-depth background that includes: 1) the business context, history, and market environment, 2) the main challenges, decisions, and their implications, 3) an explicit and prominent statement that the student will be tackling the case study as the primary decision-maker or central figure (include their name/title if available), 4) clear references to the key figures, their roles, and their relationships to the student’s role, and 5) a synthesis of deeper context, connections, and business analysis inferred from the case study. The description should be analytical, engaging, and written in a professional tone suitable for business education.>",
-  "student_role": "<The specific role or position the student will assume in this case study. This should be the primary decision-maker or central figure in the case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', 'Founder', etc.). This person/role will NOT be included in key_figures since the student will be playing this role.>",
+  "student_role": "<The specific role or position the student will assume in this case study. This should be the primary decision-maker or central figure in the case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', 'Founder', etc.). This person/role will NOT be included in key_figures since the student will be playing this role.
+
+EXAMPLES OF HOW TO IDENTIFY THE STUDENT ROLE:
+
+Example 1: Case: "In 2020, Howard Schultz, CEO of Starbucks, was considering expanding into new markets in Asia."
+→ student_role: "CEO" (Howard Schultz is the main decision-maker)
+
+Example 2: Case: "You are the marketing director of a mid-sized e-commerce company, deciding on the budget allocation for the upcoming year."
+→ student_role: "Marketing Director" (explicitly stated as "You are")
+
+Example 3: Case: "Jane, the founder of a fintech startup, needs to pitch to investors to secure Series A funding."
+→ student_role: "Founder" (Jane is the main character making decisions)
+
+Example 4: Case: "The plant manager must decide whether to implement a new automated production line to improve efficiency."
+→ student_role: "Plant Manager" (the main decision-maker in the scenario)
+
+Example 5: Case: "As CFO of a global retail chain, Robert is evaluating options to reduce operational costs across regions."
+→ student_role: "CFO" (Robert is the main character, but the role is CFO)
+
+Example 6: Case: "You are the HR manager of a tech company, facing high employee turnover and low morale, and need to design a retention strategy."
+→ student_role: "HR Manager" (explicitly stated as "You are")
+
+Example 7: Case: "The product manager at a consumer electronics firm must decide whether to launch a new gadget ahead of the competitor."
+→ student_role: "Product Manager" (the main decision-maker)
+
+Example 8: Case: "As the sustainability officer of a multinational, Maria must create a plan to reduce the company's carbon footprint while maintaining profitability."
+→ student_role: "Sustainability Officer" (Maria is the main character, but the role is Sustainability Officer)
+
+Example 9: Case: "You are a consultant hired to advise a struggling airline on restructuring its operations to avoid bankruptcy."
+→ student_role: "Consultant" (explicitly stated as "You are")
+
+Example 10: Case: "The compliance officer must evaluate whether the company's new data handling practices meet global privacy regulations."
+→ student_role: "Compliance Officer" (the main decision-maker)
+
+Example 11: Case: "A small business owner is deciding whether to accept venture capital funding, balancing growth with maintaining control of the company."
+→ student_role: "Small Business Owner" (the main decision-maker)
+
+Example 12: Case: "The supply chain manager must address delays caused by geopolitical disruptions affecting key suppliers."
+→ student_role: "Supply Chain Manager" (the main decision-maker)
+
+KEY IDENTIFICATION RULES:
+- Look for the primary decision-maker or central figure in the case
+- If the case says "You are [role]" or "As [role]", that's the student role
+- If a specific person is mentioned as the main character, identify their role/title
+- The student role should be someone who makes key decisions in the scenario
+- This person/role should NOT appear in key_figures since the student plays this role>",
   "key_figures": [
     {{
       "name": "<Full name of figure (e.g., 'John Smith', 'Wanjohi', 'Lisa Mwezi Schuepbach'), or descriptive title if unnamed (e.g., 'The Board of Directors', 'Competitor CEO', 'Industry Analyst')>",

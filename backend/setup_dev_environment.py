@@ -12,6 +12,7 @@ import logging
 import psycopg2
 from psycopg2 import sql
 import re
+import secrets
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -249,7 +250,14 @@ def create_database_and_user():
     # Default values for development
     db_name = "ai_agent_platform_dev"
     db_user = "ai_agent_user"
-    db_password = "dev_password_123"  # Change this in production!
+    
+    # Get password from environment variable or generate secure random password for dev
+    db_password = os.getenv("DB_PASSWORD")
+    if not db_password:
+        # Generate a secure random password for development only
+        db_password = secrets.token_urlsafe(16)
+        logger.info("🔐 Generated secure random password for development database")
+        logger.info("⚠️  This is a development-only password. Use DB_PASSWORD env var for production!")
     
     # Allow user to customize database name (only in interactive mode)
     non_interactive = os.getenv('NON_INTERACTIVE') == 'true'
@@ -281,13 +289,14 @@ def create_database_and_user():
         create_user_sql = sql.SQL("""
         DO $$
         BEGIN
-            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = {username}) THEN
-                CREATE USER {username} WITH PASSWORD {password};
+            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = {username_lit}) THEN
+                CREATE USER {username_ident} WITH PASSWORD {password};
             END IF;
         END
         $$;
         """).format(
-            username=sql.Identifier(db_user),
+            username_lit=sql.Literal(db_user),
+            username_ident=sql.Identifier(db_user),
             password=sql.Literal(db_password)
         )
         cursor.execute(create_user_sql)
@@ -328,7 +337,8 @@ def create_database_and_user():
         
         # Generate connection string
         connection_string = f"postgresql://{db_user}:{db_password}@localhost:5432/{db_name}"
-        logger.info(f"Database connection string: {connection_string}")
+        safe_dsn = f"postgresql://{db_user}:***@localhost:5432/{db_name}"
+        logger.info(f"Database connection string: {safe_dsn}")
         
         return connection_string
         

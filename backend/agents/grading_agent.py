@@ -34,7 +34,7 @@ class GradingCallbackHandler(BaseCallbackHandler):
         if self.start_time:
             processing_time = (datetime.utcnow() - self.start_time).total_seconds()
             self.grading_metadata["processing_time"] = processing_time
-            self.grading_metadata["timestamp"] = datetime.utcnow().isoformat() + "Z"
+            self.grading_metadata["timestamp"] = datetime.utcnow().isoformat()
 
 class GradingAgent:
     """LangChain-based grading agent for scene and overall simulation evaluation"""
@@ -55,7 +55,7 @@ class GradingAgent:
         self.agent_executor = AgentExecutor(
             agent=self.agent,
             tools=self.tools,
-            verbose=True,
+            verbose=(getattr(settings, "environment", "development") != "production"),
             handle_parsing_errors=True,
             max_iterations=2
         )
@@ -175,7 +175,7 @@ Provide a score (0-100) and detailed feedback. Use your tools to analyze the res
                 "scene_title": scene.title,
                 "user_progress_id": user_progress_id,
                 "grading_metadata": callback_handler.grading_metadata,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat() + "Z"
             })
             
             return result
@@ -243,7 +243,7 @@ Provide comprehensive feedback on the overall simulation performance, highlighti
                 "user_progress_id": user_progress_id,
                 "scene_count": len(scene_grades),
                 "grading_metadata": callback_handler.grading_metadata,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.utcnow().isoformat() + "Z"
             })
             
             return result

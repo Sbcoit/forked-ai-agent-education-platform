@@ -16,7 +16,7 @@ from datetime import datetime
 
 from langchain_config import langchain_manager, settings
 from database.models import ScenarioPersona, ConversationLog
-from database.connection import get_db, SessionLocal
+from database.connection import SessionLocal
 
 class PersonaCallbackHandler(BaseCallbackHandler):
     """Callback handler for persona interactions"""
@@ -51,19 +51,32 @@ class PersonaCallbackHandler(BaseCallbackHandler):
                 sender_name="Persona",
                 persona_id=self.persona_id,
                 message_content=response_text,
-                message_order=0,  # Will be set by the calling function
+                message_order=self._next_message_order(db),
                 ai_model_version=settings.openai_model,
                 processing_time=processing_time,
                 timestamp=datetime.utcnow()
             )
             db.add(conversation_log)
             db.commit()
+            db.close()
         except Exception as e:
             print(f"Error logging conversation: {e}")
             raise
         finally:
             if db is not None:
                 db.close()
+                
+    def _next_message_order(self, db):
+        last = (
+            db.query(ConversationLog.message_order)
+            .filter(
+                ConversationLog.user_progress_id == self.user_progress_id,
+                ConversationLog.scene_id == self.scene_id,
+            )
+            .order_by(ConversationLog.message_order.desc())
+            .first()
+        )
+        return (last[0] if last else 0) + 1
 
 class PersonaAgent:
     """LangChain-based persona agent with context awareness and memory"""
@@ -96,7 +109,7 @@ class PersonaAgent:
             agent=self.agent,
             tools=self.tools,
             memory=self.memory,
-            verbose=True,
+            verbose=(getattr(settings, "environment", "development") != "production"),
             handle_parsing_errors=True,
             max_iterations=3
         )

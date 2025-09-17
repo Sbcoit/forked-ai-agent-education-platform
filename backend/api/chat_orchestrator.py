@@ -449,8 +449,8 @@ class ChatOrchestrator:
                         summary_data = json.loads(summary.summary_text)
                         scene_title = summary_data.get('scene_data', {}).get('title', 'Previous Scene')
                         intro += f"• {scene_title}: Key insights and progress\n"
-                    except:
-                        pass
+                    except (json.JSONDecodeError, TypeError) as parse_err:
+                        print(f"Unable to parse previous summary JSON: {parse_err}")
             
             return intro
             

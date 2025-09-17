@@ -20,7 +20,7 @@ except ImportError:
 
 from database.connection import get_db, settings
 from database.models import VectorEmbeddings
-from langchain_config import embeddings, settings as langchain_settings
+from langchain_config import langchain_manager, settings as langchain_settings
 
 class VectorStoreService:
     """
@@ -28,8 +28,11 @@ class VectorStoreService:
     """
     
     def __init__(self, embedding_model: str = None):
-        self.pgvector_available = PGVECTOR_AVAILABLE
-        self.embeddings_model = embeddings
+        import os
+        # Enable pgvector only when both the package and an explicit flag are present.
+        self.pgvector_available = PGVECTOR_AVAILABLE and os.getenv("PGVECTOR_ENABLED", "0") == "1"
+        # Instantiate embeddings provider
+        self.embeddings_model = langchain_manager.embeddings
         # Use provided embedding model or get from config with fallback
         self.embedding_model = embedding_model or self._get_configured_embedding_model()
     
@@ -113,6 +116,10 @@ class VectorStoreService:
     
     def _normalize_embedding_dimensions(self, embedding: List[float]) -> List[float]:
         """Normalize embedding dimensions to 1536 for consistency"""
+        # Convert to plain Python list if it's a NumPy array
+        if hasattr(embedding, 'tolist'):
+            embedding = embedding.tolist()
+        
         # Ensure we have the right dimension (1536 for OpenAI, 384 for HuggingFace)
         if len(embedding) == 384:
             # Pad to 1536 dimensions for consistency
@@ -128,31 +135,41 @@ class VectorStoreService:
     
     def _generate_fallback_embedding(self, text: str) -> List[float]:
         """Generate a simple fallback embedding when OpenAI is not available"""
-        # Create a deterministic embedding based on text hash
-        text_hash = hashlib.md5(text.encode()).hexdigest()
+        # Create a deterministic embedding based on text hash using BLAKE2b
+        text_hash = hashlib.blake2b(text.encode(), digest_size=32).hexdigest()
         
-        # Convert hash to 1536-dimensional vector (OpenAI embedding size)
+        # Generate 1536 bytes of entropy by iteratively hashing
+        embedding_bytes = bytearray()
+        counter = 0
+        
+        while len(embedding_bytes) < 1536:
+            # Create hash with counter for additional entropy
+            counter_bytes = counter.to_bytes(4, byteorder='big')
+            chunk_hash = hashlib.blake2b(
+                text.encode() + counter_bytes, 
+                digest_size=min(64, 1536 - len(embedding_bytes))
+            ).digest()
+            embedding_bytes.extend(chunk_hash)
+            counter += 1
+        
+        # Convert bytes to 1536-dimensional vector
         embedding = []
-        for i in range(0, len(text_hash), 2):
-            # Use hex pairs to generate values
-            hex_pair = text_hash[i:i+2]
-            value = int(hex_pair, 16) / 255.0  # Normalize to 0-1
+        for i in range(1536):
+            # Map byte to float in range [-1, 1] to avoid long tails of zeros
+            byte_val = embedding_bytes[i]
+            # Normalize: (byte_val / 255.0) * 2 - 1 maps [0,255] to [-1,1]
+            value = (byte_val / 255.0) * 2.0 - 1.0
             embedding.append(value)
-        
-        # Pad or truncate to 1536 dimensions
-        while len(embedding) < 1536:
-            embedding.append(0.0)
-        embedding = embedding[:1536]
         
         return embedding
     
     def _generate_document_id(self, content: str, metadata: Dict[str, Any] = None) -> str:
         """Generate a unique document ID"""
-        content_hash = hashlib.md5(content.encode()).hexdigest()
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
         if metadata:
             metadata_str = json.dumps(metadata, sort_keys=True)
-            metadata_hash = hashlib.md5(metadata_str.encode()).hexdigest()
-            return f"{content_hash}_{metadata_hash[:8]}"
+            metadata_hash = hashlib.sha256(metadata_str.encode()).hexdigest()
+            return f"{content_hash}_{metadata_hash[:16]}"
         return content_hash
     
     async def _store_with_pgvector(self, 
@@ -297,6 +314,10 @@ class VectorStoreService:
                                         k: int,
                                         score_threshold: float) -> List[Dict[str, Any]]:
         """Similarity search using pgvector"""
+        # Early guard: fall back if pgvector is not available
+        if not self.pgvector_available:
+            return await self._similarity_search_fallback(query_embedding, collection_name, k, score_threshold)
+        
         db_gen = get_db()
         try:
             db = next(db_gen)
@@ -306,27 +327,32 @@ class VectorStoreService:
             if not isinstance(query_embedding, (list, tuple, np.ndarray)):
                 raise ValueError("query_embedding must be a list, tuple, or numpy array")
             
-            # Convert to list of floats and validate
-            embedding_list = [float(x) for x in query_embedding]
+            # Convert to plain Python list of floats
+            if hasattr(query_embedding, 'tolist'):
+                embedding_list = query_embedding.tolist()
+            else:
+                embedding_list = [float(x) for x in query_embedding]
             
             # Ensure pgvector extension is registered
             from pgvector.sqlalchemy import Vector
             
-            results = db.execute(
-                text("""
-                    SELECT content_hash, original_content, content_metadata, 
-                           1 - (embedding_vector <=> :query_embedding::vector) as similarity_score
-                    FROM vector_embeddings 
-                    WHERE content_type = :collection_name
-                    ORDER BY embedding_vector <=> :query_embedding::vector
-                    LIMIT :k
-                """),
-                {
-                    "query_embedding": embedding_list,
-                    "collection_name": collection_name,
-                    "k": k
-                }
-            ).fetchall()
+            # Use parameterized query with proper pgvector syntax
+            # Convert embedding list to pgvector literal format
+            embedding_str = "[" + ",".join(map(str, embedding_list)) + "]"
+            
+            # Use raw SQL with proper parameter substitution
+            query = f"""
+                SELECT content_hash,
+                       original_content,
+                       content_metadata,
+                       1 - (embedding_vector <=> '{embedding_str}'::vector) AS similarity_score
+                FROM vector_embeddings
+                WHERE content_type = '{collection_name}'
+                ORDER BY embedding_vector <=> '{embedding_str}'::vector
+                LIMIT {k}
+            """
+            
+            results = db.execute(text(query)).fetchall()
             
             # Filter by score threshold and format results
             filtered_results = []
@@ -418,9 +444,15 @@ class VectorStoreService:
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """Calculate cosine similarity between two vectors"""
         try:
+            # Ensure both vectors are plain Python lists
+            if hasattr(vec1, 'tolist'):
+                vec1 = vec1.tolist()
+            if hasattr(vec2, 'tolist'):
+                vec2 = vec2.tolist()
+            
             # Convert to numpy arrays
-            a = np.array(vec1)
-            b = np.array(vec2)
+            a = np.array(vec1, dtype=float)
+            b = np.array(vec2, dtype=float)
             
             # Calculate cosine similarity
             dot_product = np.dot(a, b)
@@ -430,7 +462,7 @@ class VectorStoreService:
             if norm_a == 0 or norm_b == 0:
                 return 0.0
             
-            return dot_product / (norm_a * norm_b)
+            return float(dot_product / (norm_a * norm_b))
             
         except Exception as e:
             print(f"Error calculating cosine similarity: {e}")

@@ -50,6 +50,26 @@ def upgrade() -> None:
             )
         """))
         
+        # Delete data in LangChain-related tables referencing anonymous progress
+        connection.execute(sa.text("""
+            DELETE FROM session_memory
+            WHERE user_progress_id IN (
+                SELECT id FROM user_progress WHERE user_id IS NULL
+            )
+        """))
+        connection.execute(sa.text("""
+            DELETE FROM conversation_summaries
+            WHERE user_progress_id IN (
+                SELECT id FROM user_progress WHERE user_id IS NULL
+            )
+        """))
+        connection.execute(sa.text("""
+            DELETE FROM agent_sessions
+            WHERE user_progress_id IN (
+                SELECT id FROM user_progress WHERE user_id IS NULL
+            )
+        """))
+        
         # Delete anonymous user_progress records
         connection.execute(sa.text("DELETE FROM user_progress WHERE user_id IS NULL"))
         

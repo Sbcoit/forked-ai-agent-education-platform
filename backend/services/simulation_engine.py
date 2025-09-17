@@ -412,11 +412,14 @@ Respond in valid JSON format:
         
         try:
             # Use LangChain persona agent for enhanced response
-            response = await self.persona_agent.generate_response(
+            scene_context = {
+                "scene_data": scene_data,
+                "conversation_history": conversation_history[-8:],
+                "attempt_number": attempt_number,
+            }
+            response = await self.persona_agent.chat(
                 message=user_message,
-                persona_data=persona_data,
-                scene_data=scene_data,
-                conversation_history=conversation_history,
+                scene_context=scene_context,
                 user_progress_id=user_progress_id,
                 scene_id=scene_id
             )

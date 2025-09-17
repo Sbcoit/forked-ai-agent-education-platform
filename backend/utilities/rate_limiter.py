@@ -195,6 +195,12 @@ ANONYMOUS_REVIEW_CONFIG = RateLimitConfig(
     key_prefix="anonymous_review"
 )
 
+TEST_LOGIN_CONFIG = RateLimitConfig(
+    max_requests=5,  # 5 attempts per hour per IP
+    window_seconds=3600,  # 1 hour
+    key_prefix="test_login"
+)
+
 def check_anonymous_review_rate_limit(request: Request) -> RateLimitResult:
     """
     Check rate limit for anonymous review creation
@@ -217,6 +223,36 @@ def check_anonymous_review_rate_limit(request: Request) -> RateLimitResult:
             detail={
                 "error": "Rate limit exceeded",
                 "message": f"Too many anonymous reviews. You can create {ANONYMOUS_REVIEW_CONFIG.max_requests} reviews per hour.",
+                "retry_after": result.retry_after,
+                "reset_time": result.reset_time.isoformat()
+            },
+            headers=headers
+        )
+    
+    return result
+
+def check_test_login_rate_limit(request: Request) -> RateLimitResult:
+    """
+    Check rate limit for test-login endpoint
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        RateLimitResult with limit status
+        
+    Raises:
+        HTTPException: If rate limit is exceeded
+    """
+    result = rate_limiter.check_rate_limit(request, "test_login", TEST_LOGIN_CONFIG)
+    
+    if not result.allowed:
+        headers = rate_limiter.get_rate_limit_headers(result, TEST_LOGIN_CONFIG)
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "Rate limit exceeded",
+                "message": f"Too many login attempts. You can make {TEST_LOGIN_CONFIG.max_requests} attempts per hour.",
                 "retry_after": result.retry_after,
                 "reset_time": result.reset_time.isoformat()
             },

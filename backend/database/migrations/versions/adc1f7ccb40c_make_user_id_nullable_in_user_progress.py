@@ -50,19 +50,46 @@ def downgrade() -> None:
         print("Deleting anonymous progress records to allow downgrade...")
         
         # Delete all related data for anonymous progress
-        connection.execute(sa.text("""
+        # Delete from all tables with FK references to user_progress
+        session_memory_deleted = connection.execute(sa.text("""
+            DELETE FROM session_memory 
+            WHERE user_progress_id IN (
+                SELECT id FROM user_progress WHERE user_id IS NULL
+            )
+        """)).rowcount
+        print(f"Deleted {session_memory_deleted} session_memory records")
+        
+        conversation_summaries_deleted = connection.execute(sa.text("""
+            DELETE FROM conversation_summaries 
+            WHERE user_progress_id IN (
+                SELECT id FROM user_progress WHERE user_id IS NULL
+            )
+        """)).rowcount
+        print(f"Deleted {conversation_summaries_deleted} conversation_summaries records")
+        
+        agent_sessions_deleted = connection.execute(sa.text("""
+            DELETE FROM agent_sessions 
+            WHERE user_progress_id IN (
+                SELECT id FROM user_progress WHERE user_id IS NULL
+            )
+        """)).rowcount
+        print(f"Deleted {agent_sessions_deleted} agent_sessions records")
+        
+        conversation_logs_deleted = connection.execute(sa.text("""
             DELETE FROM conversation_logs 
             WHERE user_progress_id IN (
                 SELECT id FROM user_progress WHERE user_id IS NULL
             )
-        """))
+        """)).rowcount
+        print(f"Deleted {conversation_logs_deleted} conversation_logs records")
         
-        connection.execute(sa.text("""
+        scene_progress_deleted = connection.execute(sa.text("""
             DELETE FROM scene_progress 
             WHERE user_progress_id IN (
                 SELECT id FROM user_progress WHERE user_id IS NULL
             )
-        """))
+        """)).rowcount
+        print(f"Deleted {scene_progress_deleted} scene_progress records")
         
         # Delete anonymous user_progress records
         connection.execute(sa.text("DELETE FROM user_progress WHERE user_id IS NULL"))

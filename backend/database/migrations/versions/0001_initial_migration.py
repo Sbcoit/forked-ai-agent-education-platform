@@ -38,9 +38,6 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_users_id'), 'users', ['id'], unique=False)
-    op.create_index('idx_users_email', 'users', ['email'], unique=False)
-    op.create_index('idx_users_username', 'users', ['username'], unique=False)
     op.create_index('idx_users_role', 'users', ['role'], unique=False)
     op.create_index('idx_users_created_at', 'users', ['created_at'], unique=False)
     op.create_index(op.f('ix_users_email'), 'users', ['email'], unique=True)
@@ -77,9 +74,7 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['created_by'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_scenarios_id'), 'scenarios', ['id'], unique=False)
     op.create_index(op.f('ix_scenarios_title'), 'scenarios', ['title'], unique=False)
-    op.create_index('idx_scenarios_title', 'scenarios', ['title'], unique=False)
     op.create_index('idx_scenarios_industry', 'scenarios', ['industry'], unique=False)
     op.create_index('idx_scenarios_is_public', 'scenarios', ['is_public'], unique=False)
     op.create_index('idx_scenarios_created_by', 'scenarios', ['created_by'], unique=False)
@@ -101,7 +96,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['scenario_id'], ['scenarios.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_scenario_personas_id'), 'scenario_personas', ['id'], unique=False)
     op.create_index(op.f('ix_scenario_personas_name'), 'scenario_personas', ['name'], unique=False)
 
     # Create scenario_scenes table
@@ -128,7 +122,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['scenario_id'], ['scenarios.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_scenario_scenes_id'), 'scenario_scenes', ['id'], unique=False)
 
     # Create scenario_files table
     op.create_table('scenario_files',
@@ -148,7 +141,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['scenario_id'], ['scenarios.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_scenario_files_id'), 'scenario_files', ['id'], unique=False)
 
     # Create scenario_reviews table
     op.create_table('scenario_reviews',
@@ -167,7 +159,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['scenario_id'], ['scenarios.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_scenario_reviews_id'), 'scenario_reviews', ['id'], unique=False)
 
     # Create user_progress table
     op.create_table('user_progress',
@@ -195,7 +186,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_user_progress_id'), 'user_progress', ['id'], unique=False)
 
     # Create scene_progress table
     op.create_table('scene_progress',
@@ -221,7 +211,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['user_progress_id'], ['user_progress.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_scene_progress_id'), 'scene_progress', ['id'], unique=False)
 
     # Create conversation_logs table
     op.create_table('conversation_logs',
@@ -246,7 +235,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['user_progress_id'], ['user_progress.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_conversation_logs_id'), 'conversation_logs', ['id'], unique=False)
 
     # Create scene_personas association table
     op.create_table('scene_personas',
@@ -263,35 +251,23 @@ def upgrade() -> None:
 def downgrade() -> None:
     # Drop tables in reverse order
     op.drop_table('scene_personas')
-    op.drop_index(op.f('ix_conversation_logs_id'), table_name='conversation_logs')
     op.drop_table('conversation_logs')
-    op.drop_index(op.f('ix_scene_progress_id'), table_name='scene_progress')
     op.drop_table('scene_progress')
-    op.drop_index(op.f('ix_user_progress_id'), table_name='user_progress')
     op.drop_table('user_progress')
-    op.drop_index(op.f('ix_scenario_reviews_id'), table_name='scenario_reviews')
     op.drop_table('scenario_reviews')
-    op.drop_index(op.f('ix_scenario_files_id'), table_name='scenario_files')
     op.drop_table('scenario_files')
-    op.drop_index(op.f('ix_scenario_scenes_id'), table_name='scenario_scenes')
     op.drop_table('scenario_scenes')
     op.drop_index(op.f('ix_scenario_personas_name'), table_name='scenario_personas')
-    op.drop_index(op.f('ix_scenario_personas_id'), table_name='scenario_personas')
     op.drop_table('scenario_personas')
     op.drop_index('idx_scenarios_rating_avg', table_name='scenarios')
     op.drop_index('idx_scenarios_created_at', table_name='scenarios')
     op.drop_index('idx_scenarios_created_by', table_name='scenarios')
     op.drop_index('idx_scenarios_is_public', table_name='scenarios')
     op.drop_index('idx_scenarios_industry', table_name='scenarios')
-    op.drop_index('idx_scenarios_title', table_name='scenarios')
     op.drop_index(op.f('ix_scenarios_title'), table_name='scenarios')
-    op.drop_index(op.f('ix_scenarios_id'), table_name='scenarios')
     op.drop_table('scenarios')
     op.drop_index(op.f('ix_users_username'), table_name='users')
     op.drop_index(op.f('ix_users_email'), table_name='users')
     op.drop_index('idx_users_created_at', table_name='users')
     op.drop_index('idx_users_role', table_name='users')
-    op.drop_index('idx_users_username', table_name='users')
-    op.drop_index('idx_users_email', table_name='users')
-    op.drop_index(op.f('ix_users_id'), table_name='users')
     op.drop_table('users')

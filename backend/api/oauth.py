@@ -26,6 +26,7 @@ from utilities.oauth import (
     verify_state,
     get_google_auth_url,
     exchange_code_for_token,
+    verify_google_id_token,
     get_google_user_info,
     find_existing_user_by_email,
     find_existing_user_by_google_id,
@@ -282,23 +283,44 @@ async def google_callback(
             detail="Failed to exchange code for token"
         )
     
-    # Get user info from Google
-    user_info = await get_google_user_info(token_data["access_token"])
-    if not user_info:
+    # Verify id_token for secure user authentication
+    if not token_data.get("id_token"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to get user information from Google"
+            detail="Missing ID token in OAuth response"
         )
     
+    try:
+        # Verify the ID token and get validated claims
+        user_info = verify_google_id_token(token_data["id_token"])
+    except HTTPException:
+        # Re-raise HTTP exceptions from verification
+        raise
+    except Exception as e:
+        logger.error(f"ID token verification failed: {e}")
+        # Fallback to userinfo endpoint if id_token verification fails
+        logger.warning("Falling back to userinfo endpoint")
+        user_info = await get_google_user_info(token_data["access_token"])
+        if not user_info:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to get user information from Google"
+            )
+    
+    # Extract Google ID using OIDC 'sub' claim with 'id' fallback
+    google_id = user_info.get("sub") or user_info.get("id")
+    if not google_id:
+        raise HTTPException(status_code=400, detail="Invalid Google user info (missing subject)")
+    
     # Check if user already exists with this Google ID
-    existing_google_user = find_existing_user_by_google_id(db, user_info["id"])
+    existing_google_user = find_existing_user_by_google_id(db, google_id)
     if existing_google_user:
         # User already linked, return login response
         oauth_state_store.delete_state(state)  # Clean up state
         return create_user_login_response(existing_google_user)
     
     # Check if user exists with this email (including OAuth users with modified emails)
-    existing_email_user = find_oauth_user_by_original_email(db, user_info["email"])
+    existing_email_user = find_oauth_user_by_original_email(db, user_info.get("email", ""))
     
     if existing_email_user:
         # Check if the existing user is already an OAuth user
@@ -308,35 +330,20 @@ async def google_callback(
             return create_user_login_response(existing_email_user)
         else:
             # Account linking scenario for non-OAuth users
-            # Sanitize Google data to remove sensitive fields
-            sanitized_google_data = {
-                "email": user_info.get("email"),
-                "name": user_info.get("name"),
-                "picture": user_info.get("picture"),
-                "sub": user_info.get("sub") or user_info.get("id"),
-                "id": user_info.get("sub") or user_info.get("id")
-            }
-            
             existing_state = oauth_state_store.get_state(state) or {}
-            if isinstance(existing_state, dict):
-                existing_state.update({
-                    "status": "link_required",
-                    "intent": "link",
-                    "google_data": sanitized_google_data,
-                    "existing_user_id": existing_email_user.id,
-                    "link_required": True
-                })
-                oauth_state_store.set_state(state, existing_state)
-            else:
-                # If existing state is not a dict, create new one with metadata
-                oauth_state_store.set_state(state, {
-                    "status": "link_required",
-                    "intent": "link",
-                    "created_at": time.time(),
-                    "google_data": sanitized_google_data,
-                    "existing_user_id": existing_email_user.id,
-                    "link_required": True
-                })
+            oauth_state_store.set_state(state, {
+                "status": "link_required",
+                "created_at": existing_state.get("created_at") if isinstance(existing_state, dict) else None,
+                "payload": {
+                    "google_data": {
+                        "id": google_id,
+                        "email": user_info.get("email", ""),
+                        "name": user_info.get("name", ""),
+                        "picture": user_info.get("picture")
+                    },
+                    "existing_user_id": existing_email_user.id
+                }
+            })
             
             return {
                 "action": "link_required",
@@ -348,16 +355,16 @@ async def google_callback(
                     "provider": existing_email_user.provider
                 },
                 "google_data": {
-                    "email": user_info["email"],
+                    "email": user_info.get("email", ""),
                     "full_name": user_info.get("name", ""),
                     "avatar_url": user_info.get("picture"),
-                    "google_id": user_info.get("sub") or user_info.get("id", "")
+                    "google_id": google_id
                 },
                 "state": state
             }
     
     # Create new user
-    new_user = create_oauth_user(db, user_info)
+    new_user = create_oauth_user(db, {**user_info, "id": google_id})
     oauth_states.pop(state, None)  # Clean up state
     
     return create_user_login_response(new_user)
@@ -369,8 +376,25 @@ async def link_google_account(
 ):
     """Link Google account to existing user or create separate account"""
     
-    # Validate OAuth state
+    # Validate OAuth state and get server-stored google_data
     state_data = validate_oauth_state(request.state)
+    
+    # Extract google_data from server-stored state (not client-supplied)
+    if not isinstance(state_data, dict) or "payload" not in state_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OAuth state - missing payload data"
+        )
+    
+    payload = state_data["payload"]
+    if "google_data" not in payload:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OAuth state - missing Google user data"
+        )
+    
+    # Use server-stored google_data (prevents account takeover)
+    server_google_data = payload["google_data"]
     
     # Get existing user
     existing_user = db.query(User).filter(User.id == request.existing_user_id).first()
@@ -381,13 +405,13 @@ async def link_google_account(
         )
     
     if request.action == "link":
-        # Convert OAuthUserData to format expected by utility functions
+        # Convert server-stored google_data to format expected by utility functions
         google_user_data = {
-            "email": request.google_data.email,
-            "name": request.google_data.full_name,
-            "picture": request.google_data.avatar_url,
-            "sub": request.google_data.google_id,
-            "id": request.google_data.google_id
+            "email": server_google_data["email"],
+            "name": server_google_data["name"],
+            "picture": server_google_data["picture"],
+            "sub": server_google_data["id"],
+            "id": server_google_data["id"]
         }
         # Link Google account to existing user
         linked_user = link_google_to_existing_user(db, existing_user, google_user_data)
@@ -395,13 +419,13 @@ async def link_google_account(
         return create_user_login_response(linked_user)
     
     elif request.action == "create_separate":
-        # Convert OAuthUserData to format expected by utility functions
+        # Convert server-stored google_data to format expected by utility functions
         google_user_data = {
-            "email": request.google_data.email,
-            "name": request.google_data.full_name,
-            "picture": request.google_data.avatar_url,
-            "sub": request.google_data.google_id,
-            "id": request.google_data.google_id
+            "email": server_google_data["email"],
+            "name": server_google_data["name"],
+            "picture": server_google_data["picture"],
+            "sub": server_google_data["id"],
+            "id": server_google_data["id"]
         }
         # Create separate account with Google OAuth
         new_user = create_oauth_user(db, google_user_data)

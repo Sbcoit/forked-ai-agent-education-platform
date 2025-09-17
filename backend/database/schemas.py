@@ -372,8 +372,7 @@ class OAuthUserData(BaseModel):
 class AccountLinkingRequest(BaseModel):
     action: Literal["link", "create_separate"]
     existing_user_id: Optional[int] = None  # Required when action == "link"
-    google_data: OAuthUserData
-    state: str  # OAuth state for verification
+    state: str  # OAuth state for verification - server will fetch google_data from this
 
 # --- COLLECTION SCHEMAS ---
 class CollectionCreate(BaseModel):

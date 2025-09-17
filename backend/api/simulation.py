@@ -32,14 +32,15 @@ from .chat_orchestrator import ChatOrchestrator, SimulationState
 router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 
 # OpenAI configuration - defer validation to request time
-def _ensure_openai_configured():
-    """Ensure OpenAI is configured, raise error if not"""
-    if not settings.openai_api_key or not settings.openai_api_key.strip():
+def _get_openai_client():
+    """Get configured OpenAI client, raise error if not configured"""
+    api_key = settings.openai_api_key
+    if not api_key or not api_key.strip():
         raise HTTPException(
             status_code=503,
             detail="OpenAI API key not configured. Please contact administrator."
         )
-    openai.api_key = settings.openai_api_key
+    return openai.OpenAI(api_key=api_key)
 
 def validate_goal_with_function_calling(
     conversation_history: str,
@@ -148,11 +149,7 @@ Call the progress_to_next_scene function with your analysis.
 """
     # --- END PATCH ---
     try:
-        api_key = settings.openai_api_key
-        if not api_key:
-            raise Exception("OpenAI API key not found in environment variables")
-        
-        client = openai.OpenAI(api_key=api_key)
+        client = _get_openai_client()
         
         # First call to get function call
         response = client.chat.completions.create(
@@ -458,9 +455,6 @@ async def chat_with_persona(
 ):
     """Send message to AI persona and get response"""
     
-    # Ensure OpenAI is configured
-    _ensure_openai_configured()
-    
     start_time = time.time()
     
     # Get user progress and validate
@@ -581,7 +575,8 @@ SIMULATION INSTRUCTIONS:
     
     try:
         # Call OpenAI API
-        response = openai.chat.completions.create(
+        client = _get_openai_client()
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_prompt}
@@ -652,9 +647,6 @@ async def validate_scene_goal(
     db: Session = Depends(get_db)
 ):
     """Check if user has achieved the scene goal"""
-    
-    # Ensure OpenAI is configured
-    _ensure_openai_configured()
     
     # Get user progress and scene
     user_progress = db.query(UserProgress).filter(
@@ -737,7 +729,8 @@ Respond in JSON format:
 """
     
     try:
-        response = openai.chat.completions.create(
+        client = _get_openai_client()
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": evaluation_prompt}],
             max_tokens=300,
@@ -1078,9 +1071,6 @@ async def linear_simulation_chat(
     db: Session = Depends(get_db)
 ):
     """Handle orchestrated chat interactions in linear simulation"""
-    
-    # Ensure OpenAI is configured
-    _ensure_openai_configured()
     
     def _safe_scene_id():
         # Use the correct scene ID from the current scene if available
@@ -1542,18 +1532,11 @@ User's message: {request.message}"""
                 persona_id = None
             
             # Make OpenAI API call
-            import openai
-            import os
-            
-            api_key = settings.openai_api_key
-            if not api_key:
-                raise HTTPException(status_code=500, detail="OpenAI API key not configured")
-            
             try:
-                client = openai.OpenAI(api_key=api_key)
-            except Exception as e:
+                client = _get_openai_client()
+            except HTTPException as e:
                 print(f"[ERROR] Failed to initialize OpenAI client: {e}")
-                raise HTTPException(status_code=500, detail=f"OpenAI client initialization failed: {str(e)}")
+                raise e
             
             response = client.chat.completions.create(
                 model="gpt-4",
@@ -1914,14 +1897,12 @@ async def get_simulation_grading(
     scene_feedback = []
     total_score = 0
     max_score = 0
-    openai_api_key = settings.openai_api_key
     client = None
-    if openai_api_key:
-        try:
-            client = openai.OpenAI(api_key=openai_api_key)
-        except Exception as e:
-            print(f"[ERROR] Failed to initialize OpenAI client: {e}")
-            client = None
+    try:
+        client = _get_openai_client()
+    except HTTPException as e:
+        print(f"[ERROR] Failed to initialize OpenAI client: {e}")
+        client = None
     for scene in scenes:
         sp = scene_progress_map.get(scene.id)
         user_responses = user_msgs_by_scene.get(scene.id, [])

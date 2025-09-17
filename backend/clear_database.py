@@ -11,6 +11,8 @@ from pathlib import Path
 from sqlalchemy import create_engine, text, MetaData, Table
 from sqlalchemy.schema import DropTable
 from sqlalchemy.exc import SQLAlchemyError
+from alembic.config import Config
+from alembic import command
 
 # Add the backend directory to the Python path
 backend_dir = Path(__file__).parent
@@ -23,6 +25,24 @@ from database.models import *
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def apply_migrations(db_url: str) -> None:
+    """Apply Alembic migrations to recreate the database schema"""
+    alembic_ini = Path(__file__).parent / "database" / "alembic.ini"
+    cfg = Config(str(alembic_ini))
+    cfg.set_main_option("sqlalchemy.url", db_url)
+    
+    # Set the correct working directory for migrations
+    # The alembic.ini has script_location = migrations, so we need to be in the database directory
+    original_cwd = os.getcwd()
+    database_dir = Path(__file__).parent / "database"
+    os.chdir(database_dir)
+    
+    try:
+        command.upgrade(cfg, "head")
+    finally:
+        # Restore original working directory
+        os.chdir(original_cwd)
 
 def clear_database():
     """Clear all data from the database by dropping and recreating tables"""
@@ -63,24 +83,30 @@ def clear_database():
                 # Drop all tables in the correct order (respecting foreign key constraints)
                 logger.info("Dropping tables in dependency order...")
                 
-                # Get all table names
+                # Reflect all tables and get them in reverse dependency order
                 metadata = MetaData()
                 metadata.reflect(bind=engine)
-                table_names = list(metadata.tables.keys())
+                tables = list(metadata.tables.values())
                 
-                logger.info(f"Found {len(table_names)} tables to drop: {', '.join(table_names)}")
+                logger.info(f"Found {len(tables)} tables to drop: {', '.join(table.name for table in tables)}")
                 
-                # Drop all tables with CASCADE to handle foreign key constraints
-                for table_name in table_names:
-                    logger.info(f"Dropping table: {table_name}")
-                    # Use properly quoted table names to handle mixed-case or reserved identifiers
-                    quoted_table_name = engine.dialect.identifier_preparer.quote(table_name)
-                    # Only use CASCADE for PostgreSQL, other databases don't support it
+                # Drop all tables in reverse dependency order using SQLAlchemy DropTable
+                # This ensures proper quoting and dependency handling
+                for table in reversed(metadata.sorted_tables):
+                    logger.info(f"Dropping table: {table.name}")
+                    # Use SQLAlchemy DropTable for proper identifier quoting
+                    drop_stmt = DropTable(table)
+                    
+                    # For PostgreSQL, add CASCADE to handle foreign key constraints
                     if engine.dialect.name == 'postgresql':
-                        drop_stmt = text(f"DROP TABLE IF EXISTS {quoted_table_name} CASCADE")
+                        # Compile the statement and add CASCADE
+                        compiled_stmt = drop_stmt.compile(bind=engine)
+                        sql_str = str(compiled_stmt) + " CASCADE"
+                        conn.execute(text(sql_str))
                     else:
-                        drop_stmt = text(f"DROP TABLE IF EXISTS {quoted_table_name}")
-                    conn.execute(drop_stmt)
+                        # For other databases, use the standard compiled statement
+                        compiled_stmt = drop_stmt.compile(bind=engine)
+                        conn.execute(compiled_stmt)
                 
                 # Commit the transaction
                 trans.commit()
@@ -91,10 +117,10 @@ def clear_database():
                 logger.error(f"❌ Error dropping tables: {e}")
                 raise
         
-        # Recreate all tables
-        logger.info("Recreating all tables...")
-        Base.metadata.create_all(bind=engine)
-        logger.info("✅ All tables recreated successfully")
+        # Recreate schema via Alembic to ensure extensions/indexes/etc. are applied
+        logger.info("Recreating all tables via Alembic migrations...")
+        apply_migrations(settings.database_url)
+        logger.info("✅ All migrations applied successfully")
         
         # Verify tables were created
         with engine.connect() as conn:

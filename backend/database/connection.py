@@ -47,7 +47,6 @@ def _validate_environment():
 _validate_environment()
 
 # Print loaded settings for debugging (remove in production)
-print(f"🔗 Database URL: {settings.database_url.split('@')[0]}@...")
 print(f"🤖 OpenAI API Key: {'✅ Set' if settings.openai_api_key else '❌ Missing'}")
 print(f"🔑 Secret Key: {'✅ Set' if settings.secret_key else '❌ Missing'}")
 print(f"🌍 Environment: {settings.environment}")
@@ -68,9 +67,12 @@ if settings.database_url.startswith("postgresql"):
 elif settings.database_url.startswith("sqlite"):
     # Use simpler engine for SQLite (development only)
     print("⚠️  WARNING: Using SQLite for development. PostgreSQL recommended for production.")
-    engine = create_engine(settings.database_url)
+    engine = create_engine(
+        settings.database_url,
+        connect_args={"check_same_thread": False}
+    )
 else:
-    raise ValueError(f"Unsupported database URL format: {settings.database_url}")
+    raise ValueError("Unsupported database URL format. Only PostgreSQL and SQLite are supported.")
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

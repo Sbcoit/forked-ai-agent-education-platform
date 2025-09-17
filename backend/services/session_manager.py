@@ -9,6 +9,7 @@ import json
 import hashlib
 import asyncio
 import logging
+import secrets
 from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, desc
@@ -34,12 +35,11 @@ class SessionManager:
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
         self.session_timeout = settings.session_timeout
         self.cache_ttl = settings.cache_ttl
+        self._cleanup_task: Optional[asyncio.Task] = None
         
     def generate_session_id(self, user_id: int, scenario_id: int, scene_id: int) -> str:
-        """Generate unique session ID"""
-        timestamp = datetime.utcnow().isoformat()
-        session_data = f"{user_id}_{scenario_id}_{scene_id}_{timestamp}"
-        return hashlib.md5(session_data.encode()).hexdigest()
+        """Generate unique, unguessable session ID"""
+        return secrets.token_urlsafe(32)
     
     def get_cache_key(self, content_type: str, content_id: int, additional_data: str = "") -> str:
         """Generate cache key for content"""
@@ -562,24 +562,6 @@ class SessionManager:
         finally:
             db.close()
     
-    def start_cleanup_task(self):
-        """Start the background cleanup task (deprecated - use lifespan manager instead)"""
-        logger.warning("start_cleanup_task() is deprecated. Use session_manager_lifespan() instead.")
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If we're already in an event loop, create the task
-                asyncio.create_task(cleanup_task())
-                logger.info("Session cleanup task started successfully")
-            else:
-                # If no event loop is running, schedule it to run later
-                logger.warning("No event loop running, cleanup task will be started when event loop is available")
-        except RuntimeError:
-            # No event loop exists, schedule it to run later
-            logger.warning("No event loop exists, cleanup task will be started when event loop is available")
-        except Exception as e:
-            logger.error(f"Error starting cleanup task: {e}")
-            # Don't raise the exception to avoid blocking startup
 
 # Global session manager instance
 session_manager = SessionManager()

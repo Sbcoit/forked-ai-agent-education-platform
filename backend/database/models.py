@@ -2,16 +2,23 @@
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, JSON, Table, Float, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from database.connection import Base
+from database.connection import Base, settings
 
-# Import pgvector if available
+# Import pgvector if available and configured
 try:
     from pgvector.sqlalchemy import Vector
     PGVECTOR_AVAILABLE = True
 except ImportError:
     PGVECTOR_AVAILABLE = False
-    # Fallback for when pgvector is not available
     Vector = None
+
+# Use configuration to determine vector column type
+def get_vector_column_type():
+    """Get the appropriate column type based on configuration"""
+    if settings.use_pgvector and PGVECTOR_AVAILABLE:
+        return Vector(1536)
+    else:
+        return JSON
 
 # Junction table for scene-persona relationships
 scene_personas = Table(
@@ -363,9 +370,9 @@ class VectorEmbeddings(Base):
     content_type = Column(String, nullable=False, index=True)  # 'scenario', 'persona', 'conversation', etc.
     content_id = Column(Integer, nullable=False, index=True)  # ID of the original content
     content_hash = Column(String, nullable=False, index=True)  # Hash for deduplication
-    # Store as Vector when pgvector is available, JSON otherwise
+    # Store as Vector when configured and available, JSON otherwise
     embedding_vector = Column(
-        Vector(1536) if PGVECTOR_AVAILABLE else JSON, 
+        get_vector_column_type(), 
         nullable=False
     )
     embedding_model = Column(String, nullable=False)  # 'openai-ada-002', 'sentence-transformers', etc.

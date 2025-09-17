@@ -121,8 +121,8 @@ logs/
 *.sqlite
 
 # Alembic
-alembic/versions/*.py
-!alembic/versions/__init__.py
+alembic/versions/*.pyc
+alembic/versions/__pycache__/
 
 # IDE & Editor files
 .vscode/

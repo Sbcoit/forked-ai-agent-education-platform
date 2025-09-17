@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     google_client_secret: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
     google_redirect_uri: str = os.getenv("GOOGLE_REDIRECT_URI", "")
     
+    # Vector database configuration
+    use_pgvector: bool = os.getenv("USE_PGVECTOR", "true").lower() == "true"
+    
     class Config:
         env_file = project_root / ".env"  # Look for .env in project root
 

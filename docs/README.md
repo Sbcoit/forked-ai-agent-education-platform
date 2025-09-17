@@ -292,16 +292,17 @@ The platform supports Google OAuth for user authentication. Follow these steps t
 
 1. **Go to Google Cloud Console**: https://console.cloud.google.com/
 2. **Create a new project** or select an existing one
-3. **Enable Google+ API**:
-   - Navigate to "APIs & Services" > "Library"
-   - Search for "Google+ API" and enable it
-4. **Create OAuth 2.0 credentials**:
+3. **Configure OAuth consent screen**:
+   - Go to "APIs & Services" > "OAuth consent screen"
+   - Set up scopes (openid, email, profile) and test users (if internal)
+4. **Create OAuth 2.0 Client ID (Google Identity Services)**:
    - Go to "APIs & Services" > "Credentials"
    - Click "Create Credentials" > "OAuth 2.0 Client IDs"
    - Choose "Web application"
    - Add authorized redirect URIs:
-     - `http://localhost:3000/auth/google/callback` (for development)
-     - `https://yourdomain.com/auth/google/callback` (for production)
+     - `http://localhost:8000/auth/google/callback` (backend callback, dev)
+     - `https://yourdomain.com/auth/google/callback` (backend callback, prod)
+   - (Optional) Enable People API only if you call it explicitly
 
 ### 2. Get Your Credentials
 
@@ -319,8 +320,8 @@ GOOGLE_CLIENT_SECRET="your_actual_client_secret_here"
 GOOGLE_REDIRECT_URI="your_authorized_redirect_uri"
 ```
 
-**Important**: Make sure your Google Cloud Console redirect URI is set to:
-- `http://localhost:3000/auth/google/callback` (for development)
+**Important**: Set your Google Cloud Console redirect URI to:
+- `http://localhost:8000/auth/google/callback` (development FastAPI)
 
 ### 🔒 Security Note
 

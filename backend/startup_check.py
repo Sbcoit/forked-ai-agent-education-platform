@@ -125,6 +125,54 @@ def check_database_tables():
         logger.error(f"❌ Failed to check database tables: {e}")
         return False
 
+def check_vector_database_config():
+    """Check if vector database configuration matches the actual database state"""
+    try:
+        from database.connection import engine, settings
+        from sqlalchemy import text
+        
+        with engine.connect() as conn:
+            # Check if pgvector extension is available
+            result = conn.execute(text("SELECT 1 FROM pg_extension WHERE extname = 'vector'"))
+            pgvector_available = result.fetchone() is not None
+            
+            # Check if vector_embeddings table exists and what type its column is
+            result = conn.execute(text("""
+                SELECT data_type 
+                FROM information_schema.columns 
+                WHERE table_name = 'vector_embeddings' 
+                AND column_name = 'embedding_vector'
+            """))
+            column_type = result.fetchone()
+            
+            if column_type:
+                is_vector_type = column_type[0] == 'USER-DEFINED'  # pgvector columns show as USER-DEFINED
+                is_json_type = column_type[0] == 'json'
+                
+                # Validate configuration matches database state
+                if settings.use_pgvector:
+                    if not pgvector_available:
+                        logger.error("❌ USE_PGVECTOR=true but pgvector extension is not available")
+                        return False
+                    if not is_vector_type:
+                        logger.error("❌ USE_PGVECTOR=true but vector_embeddings.embedding_vector is not vector type")
+                        return False
+                    logger.info("✅ Vector database configuration matches database state")
+                else:
+                    if is_vector_type:
+                        logger.error("❌ USE_PGVECTOR=false but vector_embeddings.embedding_vector is vector type")
+                        return False
+                    logger.info("✅ JSON database configuration matches database state")
+                
+                return True
+            else:
+                logger.info("✅ Vector database configuration check passed (no vector_embeddings table yet)")
+                return True
+                
+    except Exception as e:
+        logger.error(f"❌ Failed to check vector database configuration: {e}")
+        return False
+
 def run_startup_checks():
     """Run startup checks - lightweight for subsequent runs, full for first time"""
     if should_run_full_setup():
@@ -153,6 +201,10 @@ def run_full_startup_checks():
     # Check database tables
     if not check_database_tables():
         issues_found.append("Database tables are missing")
+    
+    # Check vector database configuration
+    if not check_vector_database_config():
+        issues_found.append("Vector database configuration mismatch")
     
     if issues_found:
         logger.error("❌ Startup checks failed!")

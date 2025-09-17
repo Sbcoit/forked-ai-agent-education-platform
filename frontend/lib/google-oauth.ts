@@ -181,10 +181,19 @@ export class GoogleOAuth {
 
       const data = await response.json()
       
-      // Store the access token if present (for successful account linking)
+      // SECURITY FIX: Removed unsafe localStorage token storage
+      // Access tokens should not be stored in localStorage due to XSS vulnerability
+      // TODO: Implement secure authentication flow with:
+      // 1. Authorization Code + PKCE flow for SPA
+      // 2. Keep access tokens only in JS memory (short-lived, non-persistent)
+      // 3. Backend issues and rotates refresh tokens stored in Secure, HttpOnly, SameSite cookies
+      // 4. Token refresh via backend endpoint
+      // 5. Add XSS mitigations (CSP, input/output encoding, limit third-party scripts)
+      // 6. Add CSRF protections for cookie-based flows
+      
       if (data.access_token) {
-        localStorage.setItem('auth_token', data.access_token)
-        // Token stored successfully - no need to log sensitive information
+        console.warn('SECURITY WARNING: Access token received but not stored securely. Implement secure authentication flow.')
+        // TODO: Handle token securely - either via secure cookies or in-memory auth state
       }
       
       return data
@@ -241,10 +250,19 @@ export async function handleOAuthCallback(): Promise<AccountLinkingData | any> {
 
     const data = await response.json()
     
-    // Store the access token if present (for successful login)
+    // SECURITY FIX: Removed unsafe localStorage token storage
+    // Access tokens should not be stored in localStorage due to XSS vulnerability
+    // TODO: Implement secure authentication flow with:
+    // 1. Authorization Code + PKCE flow for SPA
+    // 2. Keep access tokens only in JS memory (short-lived, non-persistent)
+    // 3. Backend issues and rotates refresh tokens stored in Secure, HttpOnly, SameSite cookies
+    // 4. Token refresh via backend endpoint
+    // 5. Add XSS mitigations (CSP, input/output encoding, limit third-party scripts)
+    // 6. Add CSRF protections for cookie-based flows
+    
     if (data.access_token) {
-      localStorage.setItem('auth_token', data.access_token)
-      // Token stored successfully - no need to log sensitive information
+      console.warn('SECURITY WARNING: Access token received but not stored securely. Implement secure authentication flow.')
+      // TODO: Handle token securely - either via secure cookies or in-memory auth state
     }
     
     return data

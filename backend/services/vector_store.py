@@ -336,23 +336,32 @@ class VectorStoreService:
             # Ensure pgvector extension is registered
             from pgvector.sqlalchemy import Vector
             
+            # Validate collection_name to prevent SQL injection
+            if not collection_name or not isinstance(collection_name, str):
+                raise ValueError("Invalid collection_name")
+            
+            # Only allow alphanumeric characters, underscores, and hyphens
+            import re
+            if not re.match(r'^[a-zA-Z0-9_-]+$', collection_name):
+                raise ValueError("Invalid collection_name: only alphanumeric characters, underscores, and hyphens are allowed")
+            
             # Use parameterized query with proper pgvector syntax
             # Convert embedding list to pgvector literal format
             embedding_str = "[" + ",".join(map(str, embedding_list)) + "]"
             
-            # Use raw SQL with proper parameter substitution
-            query = f"""
+            # Use parameterized query to prevent SQL injection
+            query = """
                 SELECT content_hash,
                        original_content,
                        content_metadata,
-                       1 - (embedding_vector <=> '{embedding_str}'::vector) AS similarity_score
+                       1 - (embedding_vector <=> %s::vector) AS similarity_score
                 FROM vector_embeddings
-                WHERE content_type = '{collection_name}'
-                ORDER BY embedding_vector <=> '{embedding_str}'::vector
-                LIMIT {k}
+                WHERE content_type = %s
+                ORDER BY embedding_vector <=> %s::vector
+                LIMIT %s
             """
             
-            results = db.execute(text(query)).fetchall()
+            results = db.execute(text(query), (embedding_str, collection_name, embedding_str, k)).fetchall()
             
             # Filter by score threshold and format results
             filtered_results = []

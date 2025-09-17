@@ -24,24 +24,24 @@ export default function Cohorts() {
   const router = useRouter()
   const { user, logout, isLoading: authLoading } = useAuth()
   
-  // Mock cohort data matching the image
+  // Mock cohort data matching the image exactly
   const [cohorts] = useState([
     {
       id: "CH-A7B3K9X2",
       title: "Business Strategy Fall 2024",
       status: "Active",
       statusColor: "bg-green-100 text-green-800",
-      description: "Advanced strategic planning and competitive analysis for senior...",
+      description: "Advanced strategic planning and competitive analysis for senior business students.",
       students: 24,
       simulations: 3,
       date: "Dec 1"
     },
     {
-      id: "CH-M4N8P105",
+      id: "CH-M4N8P1Q5",
       title: "Financial Management 401",
       status: "Active",
       statusColor: "bg-green-100 text-green-800",
-      description: "Corporate finance, investment analysis, and risk management...",
+      description: "Corporate finance, investment analysis, and risk management simulations.",
       students: 18,
       simulations: 2,
       date: "Nov 28"
@@ -59,8 +59,8 @@ export default function Cohorts() {
     {
       id: "CH-E5F7H3J9",
       title: "Operations Management Spring 2024",
-      status: "Draft",
-      statusColor: "bg-yellow-100 text-yellow-800",
+      status: "Archived",
+      statusColor: "bg-gray-100 text-gray-800",
       description: "Supply chain optimization and process improvement simulations.",
       students: 32,
       simulations: 4,
@@ -68,11 +68,12 @@ export default function Cohorts() {
     }
   ])
   
-  const [activeFilter, setActiveFilter] = useState("All Cohorts")
+  const [activeFilter, setActiveFilter] = useState("All")
   const [searchTerm, setSearchTerm] = useState("")
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showSemesterDropdown, setShowSemesterDropdown] = useState(false)
   const [showYearDropdown, setShowYearDropdown] = useState(false)
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false)
   
   // Form state for create cohort modal
   const [formData, setFormData] = useState({
@@ -171,6 +172,7 @@ export default function Cohorts() {
     setShowSemesterDropdown(false)
     setShowYearDropdown(false)
     setShowTagDropdown(false)
+    setShowStatusDropdown(false)
     // Reset form when closing
     setFormData({
       cohortName: "",
@@ -190,21 +192,24 @@ export default function Cohorts() {
     const matchesSearch = cohort.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          cohort.description.toLowerCase().includes(searchTerm.toLowerCase())
     
-    if (activeFilter === "All Cohorts") {
+    if (activeFilter === "All") {
       return matchesSearch
     } else if (activeFilter === "Active") {
       return cohort.status === "Active" && matchesSearch
-    } else if (activeFilter === "Drafts") {
+    } else if (activeFilter === "Draft") {
       return cohort.status === "Draft" && matchesSearch
+    } else if (activeFilter === "Archived") {
+      return cohort.status === "Archived" && matchesSearch
     }
     return matchesSearch
   })
 
   // Count cohorts by status
   const cohortCounts = {
-    "All Cohorts": cohorts.length,
+    "All": cohorts.length,
     "Active": cohorts.filter(c => c.status === "Active").length,
-    "Drafts": cohorts.filter(c => c.status === "Draft").length
+    "Draft": cohorts.filter(c => c.status === "Draft").length,
+    "Archived": cohorts.filter(c => c.status === "Archived").length
   }
 
   return (
@@ -213,41 +218,25 @@ export default function Cohorts() {
       <Sidebar currentPath="/cohorts" />
 
       {/* Main Content with left margin for sidebar */}
-      <div className="ml-20 bg-white">
-        {/* Header */}
-        <header className="bg-white border-b border-gray-200 px-6 py-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-black">Cohorts</h1>
+      <div className="ml-20 flex h-screen">
+        {/* Middle Sidebar - Cohort Management */}
+        <div className="w-96 bg-white border-r border-gray-200 flex flex-col">
+          {/* Header */}
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between mb-4">
+              <h1 className="text-2xl font-bold text-black">Cohorts</h1>
+              <Button 
+                onClick={() => setShowCreateModal(true)}
+                className="bg-black text-white hover:bg-gray-800 text-sm"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create
+              </Button>
             </div>
-            <Button variant="ghost" size="sm" onClick={handleLogout} className="text-gray-600 hover:text-black">
-              <LogOut className="h-4 w-4 mr-2" />
-              Logout
-            </Button>
-          </div>
-        </header>
-
-        {/* Main Content Area */}
-        <div className="p-6">
-          {/* Header Section with Create Button */}
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <p className="text-sm text-gray-600 text-[17px]">Manage your student groups and organize simulations</p>
-            </div>
-            <Button 
-              onClick={() => setShowCreateModal(true)}
-              className="bg-black text-white hover:bg-gray-800 text-sm"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Create Cohort
-            </Button>
-          </div>
-
-          {/* Search and Filter Section */}
-          <div className="flex items-center space-x-4 mb-6">
+            
             {/* Search Bar */}
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <div className="relative mb-4">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-5 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search cohorts..."
@@ -258,99 +247,129 @@ export default function Cohorts() {
             </div>
             
             {/* Filter Dropdown */}
-            <Button variant="outline" className="bg-gray-50 border-gray-200 hover:bg-gray-100">
-              <Filter className="h-4 w-4 mr-2" />
-              All Status
-            </Button>
-          </div>
-
-          {/* Cohort Status Tabs */}
-          <div className="flex space-x-2 mb-6">
-            {Object.entries(cohortCounts).map(([filter, count]) => (
-              <button
-                key={filter}
-                onClick={() => setActiveFilter(filter)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  activeFilter === filter
-                    ? "bg-gray-200 text-black"
-                    : "bg-white text-gray-600 hover:bg-gray-50 border border-gray-200"
-                }`}
+            <div className="relative">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                className="w-full bg-gray-50 border-gray-200 hover:bg-gray-100 justify-start"
               >
-                {filter} ({count})
-              </button>
-            ))}
+                <Filter className="h-4 w-4 mr-2" />
+                {activeFilter} ({cohortCounts[activeFilter as keyof typeof cohortCounts]})
+                <ChevronDown className={`h-4 w-4 ml-auto transition-transform ${showStatusDropdown ? 'rotate-180' : ''}`} />
+              </Button>
+              
+              {showStatusDropdown && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg">
+                  {Object.entries(cohortCounts).map(([filter, count]) => (
+                    <button
+                      key={filter}
+                      onClick={() => {
+                        setActiveFilter(filter)
+                        setShowStatusDropdown(false)
+                      }}
+                      className={`w-full px-4 py-2 text-left text-sm hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg ${
+                        activeFilter === filter
+                          ? "bg-gray-100 text-black font-medium"
+                          : "text-gray-700"
+                      }`}
+                    >
+                      {filter} ({count})
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Cohorts Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredCohorts.map((cohort) => (
-              <Link key={cohort.id} href={`/cohorts/${cohort.id}`}>
-                <Card className="bg-white border border-gray-200 hover:shadow-lg transition-shadow cursor-pointer">
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between">
-                    <CardTitle className="text-base font-semibold text-gray-900 leading-tight">
-                      {cohort.title}
-                    </CardTitle>
-                    <Badge className={`ml-2 text-xs ${cohort.statusColor}`}>
-                      {cohort.status}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <p className="text-sm text-gray-600 mb-3 leading-relaxed">
-                    {cohort.description}
-                  </p>
-                  
-                  {/* Cohort ID */}
-                  <div className="mb-3">
-                    <Badge variant="outline" className="text-xs text-gray-500 bg-gray-50">
+          {/* Cohort Listings */}
+          <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
+            <div className="space-y-4">
+              {filteredCohorts.map((cohort) => (
+                <Link key={cohort.id} href={`/cohorts/${cohort.id}`}>
+                  <div className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
+                    <div className="flex items-start justify-between mb-2">
+                      <h3 className="text-sm font-semibold text-gray-900 leading-tight">
+                        {cohort.title}
+                      </h3>
+                      <Badge className={`ml-2 text-xs ${cohort.statusColor}`}>
+                        {cohort.status}
+                      </Badge>
+                    </div>
+                    
+                    <p className="text-xs text-gray-600 mb-3 leading-relaxed">
+                      {cohort.description}
+                    </p>
+                    
+                    {/* Stats */}
+                    <div className="flex items-center space-x-4 text-xs text-gray-600 mb-2">
+                      <div className="flex items-center">
+                        <Users className="h-3 w-3 mr-1" />
+                        {cohort.students}
+                      </div>
+                      <div className="flex items-center">
+                        <BookOpen className="h-3 w-3 mr-1" />
+                        {cohort.simulations}
+                      </div>
+                    </div>
+                    
+                    {/* Date */}
+                    <div className="flex items-center text-xs text-gray-600 mb-2">
+                      <Calendar className="h-3 w-3 mr-1" />
+                      {cohort.date}
+                    </div>
+                    
+                    {/* ID */}
+                    <div className="text-xs text-gray-500">
                       ID: {cohort.id}
-                    </Badge>
-                  </div>
-                  
-                  {/* Stats */}
-                  <div className="flex items-center space-x-4 text-sm text-gray-600">
-                    <div className="flex items-center">
-                      <Users className="h-4 w-4 mr-1" />
-                      {cohort.students} students
-                    </div>
-                    <div className="flex items-center">
-                      <BookOpen className="h-4 w-4 mr-1" />
-                      {cohort.simulations} simulations
                     </div>
                   </div>
-                  
-                  {/* Date */}
-                  <div className="flex items-center mt-3 text-sm text-gray-600">
-                    <Calendar className="h-4 w-4 mr-1" />
-                    {cohort.date}
-                  </div>
-                </CardContent>
-                </Card>
-              </Link>
-            ))}
+                </Link>
+              ))}
+            </div>
           </div>
-          
-          {/* Show message if no cohorts match filter */}
-          {filteredCohorts.length === 0 && (
-            <div className="text-center py-8">
-              <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <Users className="h-8 w-8 text-gray-400" />
+        </div>
+
+        {/* Main Content Area - Empty State - Fixed Position */}
+        <div className="flex-1 bg-white flex items-center justify-center p-8 h-full">
+          <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-8 max-w-xl w-full flex flex-col justify-center">
+            <div className="text-center">
+              <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <Users className="h-10 w-10 text-gray-400" />
               </div>
-              <p className="text-gray-500 text-base mb-2">No cohorts found</p>
-              <p className="text-gray-400 text-sm mb-4">
-                {searchTerm 
-                  ? `No cohorts match "${searchTerm}"`
-                  : activeFilter === "All Cohorts"
-                    ? "Create your first cohort to get started"
-                    : `No cohorts with status "${activeFilter}" found`}
+              <h2 className="text-xl font-semibold text-gray-900 mb-3">Select a Cohort</h2>
+              <p className="text-gray-600 mb-6">
+                Choose a cohort from the sidebar to view its details, manage students, and assign simulations.
               </p>
-              <Button className="bg-black text-white hover:bg-gray-800 text-sm">
-                <Plus className="h-4 w-4 mr-2" />
-                Create Cohort
+              
+              <div className="space-y-3 text-left mb-6">
+                <div className="flex items-center text-sm text-gray-600">
+                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+                    <Users className="h-4 w-4 text-blue-600" />
+                  </div>
+                  Manage student enrollment and invitations
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
+                    <BookOpen className="h-4 w-4 text-purple-600" />
+                  </div>
+                  Assign and track simulation progress
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center mr-3">
+                    <Calendar className="h-4 w-4 text-green-600" />
+                  </div>
+                  Monitor cohort analytics and performance
+                </div>
+              </div>
+              
+              <Button 
+                onClick={() => setShowCreateModal(true)}
+                className="w-full bg-black text-white hover:bg-gray-800"
+              >
+                Create Your First Cohort
               </Button>
             </div>
-          )}
+          </div>
         </div>
       </div>
 

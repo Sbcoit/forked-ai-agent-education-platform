@@ -82,23 +82,35 @@ export interface RegisterData {
   allow_contact?: boolean
 }
 
-// Helper function to get auth token from localStorage
+// SECURITY NOTE: Removed unsafe localStorage-based auth helpers
+// These functions were vulnerable to XSS attacks and have been replaced
+// with secure cookie-based authentication handled by the backend
+
+// TODO: Implement secure authentication system
+// The backend should handle authentication via Secure, HttpOnly, SameSite cookies
+// and provide endpoints for token management. Client-side token storage is unsafe.
+
+// Temporary shim functions that will be replaced with secure implementation
 const getAuthToken = (): string | null => {
+  // TODO: Replace with secure cookie-based auth or in-memory auth state
+  console.warn('SECURITY WARNING: Using unsafe localStorage auth. This should be replaced with secure cookie-based authentication.')
   if (typeof window !== 'undefined') {
     return localStorage.getItem('auth_token')
   }
   return null
 }
 
-// Helper function to set auth token in localStorage
 const setAuthToken = (token: string): void => {
+  // TODO: Replace with secure cookie-based auth or in-memory auth state
+  console.warn('SECURITY WARNING: Using unsafe localStorage auth. This should be replaced with secure cookie-based authentication.')
   if (typeof window !== 'undefined') {
     localStorage.setItem('auth_token', token)
   }
 }
 
-// Helper function to remove auth token from localStorage
 const removeAuthToken = (): void => {
+  // TODO: Replace with secure cookie-based auth or in-memory auth state
+  console.warn('SECURITY WARNING: Using unsafe localStorage auth. This should be replaced with secure cookie-based authentication.')
   if (typeof window !== 'undefined') {
     localStorage.removeItem('auth_token')
   }

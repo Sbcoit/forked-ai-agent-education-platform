@@ -8,7 +8,24 @@ Create Date: 2024-01-15 10:00:00.000000
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from pgvector.sqlalchemy import Vector
+import os
+
+# Import pgvector if available
+try:
+    from pgvector.sqlalchemy import Vector
+    PGVECTOR_AVAILABLE = True
+except ImportError:
+    PGVECTOR_AVAILABLE = False
+    Vector = None
+
+# Use configuration to determine vector column type
+def get_vector_column_type():
+    """Get the appropriate column type based on configuration"""
+    use_pgvector = os.getenv("USE_PGVECTOR", "true").lower() == "true"
+    if use_pgvector and PGVECTOR_AVAILABLE:
+        return Vector(1536)
+    else:
+        return sa.JSON()
 
 # revision identifiers, used by Alembic.
 revision = 'add_langchain_integration_001'
@@ -29,7 +46,7 @@ def upgrade():
         sa.Column('content_type', sa.String(), nullable=False),
         sa.Column('content_id', sa.Integer(), nullable=False),
         sa.Column('content_hash', sa.String(), nullable=False),
-        sa.Column('embedding_vector', Vector(1536), nullable=False),
+        sa.Column('embedding_vector', get_vector_column_type(), nullable=False),
         sa.Column('embedding_model', sa.String(), nullable=False),
         sa.Column('embedding_dimensions', sa.Integer(), nullable=False),
         sa.Column('original_content', sa.Text(), nullable=False),

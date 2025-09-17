@@ -8,11 +8,28 @@ Create Date: 2024-01-15 12:00:00.000000
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-from pgvector.sqlalchemy import Vector
+import os
+
+# Import pgvector if available
+try:
+    from pgvector.sqlalchemy import Vector
+    PGVECTOR_AVAILABLE = True
+except ImportError:
+    PGVECTOR_AVAILABLE = False
+    Vector = None
+
+# Use configuration to determine vector column type
+def get_vector_column_type():
+    """Get the appropriate column type based on configuration"""
+    use_pgvector = os.getenv("USE_PGVECTOR", "true").lower() == "true"
+    if use_pgvector and PGVECTOR_AVAILABLE:
+        return Vector(1536)
+    else:
+        return sa.JSON()
 
 # revision identifiers, used by Alembic.
 revision = 'fix_vector_embeddings_001'
-down_revision = '7d3a637d0a30'
+down_revision = 'add_langchain_integration_001'
 branch_labels = None
 depends_on = None
 

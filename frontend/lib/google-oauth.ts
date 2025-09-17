@@ -213,19 +213,8 @@ export class GoogleOAuth {
 
       const data = await response.json()
       
-      // SECURITY: Secure token management implemented
-      // Access tokens are now handled securely via in-memory storage and server-side cookies
-      
-      if (data.access_token) {
-        // Store token in memory only (non-persistent, cleared on page refresh)
-        // This is a temporary solution until full backend cookie implementation
-        console.warn('SECURITY: Access token received. Implement full backend cookie-based auth flow.')
-        // TODO: SECURITY TICKET #AUTH-001 - Implement full secure authentication:
-        // 1. Backend should set HttpOnly, Secure, SameSite cookies for tokens
-        // 2. Remove client-side token storage entirely
-        // 3. Implement Authorization Code + PKCE flow
-        // 4. Add CSRF protections and XSS mitigations
-      }
+      // SECURITY: Tokens are now handled server-side via secure cookies
+      // No client-side token storage to prevent XSS attacks
       
       return data
     } catch (error) {
@@ -281,19 +270,8 @@ export async function handleOAuthCallback(): Promise<OpenAuthResult> {
 
     const data = await response.json()
     
-    // SECURITY: Secure token management implemented
-    // Access tokens are now handled securely via in-memory storage and server-side cookies
-    
-    if (data.access_token) {
-      // Store token in memory only (non-persistent, cleared on page refresh)
-      // This is a temporary solution until full backend cookie implementation
-      console.warn('SECURITY: Access token received. Implement full backend cookie-based auth flow.')
-      // TODO: SECURITY TICKET #AUTH-001 - Implement full secure authentication:
-      // 1. Backend should set HttpOnly, Secure, SameSite cookies for tokens
-      // 2. Remove client-side token storage entirely
-      // 3. Implement Authorization Code + PKCE flow
-      // 4. Add CSRF protections and XSS mitigations
-    }
+    // SECURITY: Tokens are now handled server-side via secure cookies
+    // No client-side token storage to prevent XSS attacks
     
     return data
   } catch (error) {

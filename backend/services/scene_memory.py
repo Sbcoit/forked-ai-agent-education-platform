@@ -18,6 +18,7 @@ from database.connection import get_db
 from database.models import UserProgress, ScenarioScene, ScenarioPersona, ConversationLog
 from database.models import SessionMemory, VectorEmbeddings
 from services.session_manager import session_manager
+from utils.env import is_production
 
 # Logger for scene memory operations
 logger = logging.getLogger(__name__)
@@ -64,9 +65,7 @@ class SceneMemoryManager:
                     await self._load_scene_memory(user_progress_id, scene_id)
                 except Exception as e:
                     # Check if we're in production environment
-                    is_production = os.getenv('ENVIRONMENT') == 'production' or os.getenv('ENV') == 'production' or not getattr(settings, 'DEBUG', True)
-                    
-                    if is_production:
+                    if is_production():
                         # In production, log error and re-raise to ensure proper alerting
                         logger.error(f"Failed to load scene memory for user_progress_id={user_progress_id}, scene_id={scene_id}: {e}")
                         raise

@@ -3,6 +3,7 @@ Secure logging utilities to prevent sensitive information exposure
 """
 import os
 import logging
+import re
 from typing import Any, Optional
 
 def secure_log(level: str, message: str, sensitive_data: Optional[Any] = None, environment: Optional[str] = None) -> None:
@@ -18,18 +19,34 @@ def secure_log(level: str, message: str, sensitive_data: Optional[Any] = None, e
     if environment is None:
         environment = os.getenv('ENVIRONMENT', 'development')
     
+    # Get logger for this module
+    logger = logging.getLogger(__name__)
+    
+    # Map level string to logger method
+    level_methods = {
+        'DEBUG': logger.debug,
+        'INFO': logger.info,
+        'WARNING': logger.warning,
+        'ERROR': logger.error
+    }
+    
+    log_method = level_methods.get(level.upper(), logger.info)
+    
     # In production, never log sensitive data
     if environment == 'production':
         if sensitive_data is not None:
-            # Replace sensitive data with placeholder
-            message = message.replace(str(sensitive_data), '[REDACTED]')
-        print(f"[{level}] {message}")
+            # Replace all occurrences of sensitive data with placeholder
+            sensitive_str = str(sensitive_data)
+            # Use regex to replace all occurrences, including partial matches
+            escaped_sensitive = re.escape(sensitive_str)
+            message = re.sub(escaped_sensitive, '[REDACTED]', message)
+        log_method(message)
     else:
         # In development, log everything
         if sensitive_data is not None:
-            print(f"[{level}] {message}: {sensitive_data}")
+            log_method(f"{message}: {sensitive_data}")
         else:
-            print(f"[{level}] {message}")
+            log_method(message)
 
 def secure_print_api_key_status(key_name: str, key_value: Optional[str], environment: Optional[str] = None) -> None:
     """

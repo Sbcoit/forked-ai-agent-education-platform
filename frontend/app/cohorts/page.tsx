@@ -156,8 +156,15 @@ export default function Cohorts() {
   }
 
   const handleCreateCohort = async () => {
+    // Validate required fields before making API call
+    if (!formData.cohortName.trim()) {
+      setError('Cohort name is required')
+      return
+    }
+    
     try {
       setLoading(true)
+      setError(null) // Clear any previous errors
       const newCohort = await apiClient.createCohort(formData)
       setCohorts(prev => [...prev, newCohort])
       

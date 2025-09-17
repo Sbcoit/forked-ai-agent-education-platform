@@ -40,15 +40,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = React.useState(true)
 
   // Track user activity for inactivity-based logout
+  const updateLastActivityLocal = React.useCallback(() => {
+    const timestamp = Date.now().toString()
+    
+    // Store in sessionStorage for per-tab scope (more secure than localStorage)
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('last_activity', timestamp)
+      
+      // Broadcast activity update to other tabs
+      try {
+        const channel = new BroadcastChannel('auth-activity')
+        channel.postMessage({ type: 'activity_update', timestamp })
+        channel.close()
+      } catch (error) {
+        // BroadcastChannel not supported, fallback to storage event
+        localStorage.setItem('auth_activity_broadcast', timestamp)
+      }
+    }
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Activity timestamp updated locally:', new Date(parseInt(timestamp)).toLocaleTimeString())
+    }
+  }, [])
+
   const updateLastActivity = React.useCallback(async () => {
     const timestamp = Date.now().toString()
     
     // Store in sessionStorage for per-tab scope (more secure than localStorage)
     if (typeof window !== 'undefined') {
       sessionStorage.setItem('last_activity', timestamp)
+      
+      // Broadcast activity update to other tabs
+      try {
+        const channel = new BroadcastChannel('auth-activity')
+        channel.postMessage({ type: 'activity_update', timestamp })
+        channel.close()
+      } catch (error) {
+        // BroadcastChannel not supported, fallback to storage event
+        localStorage.setItem('auth_activity_broadcast', timestamp)
+      }
     }
     
-    // Also send heartbeat to server for secure activity tracking
+    // Send heartbeat to server for secure activity tracking (only when explicitly called)
     try {
       await apiClient.apiRequest('/users/activity', {
         method: 'POST',
@@ -60,9 +93,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     
     if (process.env.NODE_ENV === 'development') {
-      console.log('Activity timestamp updated:', new Date(parseInt(timestamp)).toLocaleTimeString())
+      console.log('Activity timestamp updated with server call:', new Date(parseInt(timestamp)).toLocaleTimeString())
     }
   }, [])
+
+  const logout = async () => {
+    try {
+      await apiClient.logout()
+    } catch (error) {
+      console.error('Logout error:', error)
+    } finally {
+      setUser(null)
+      sessionStorage.removeItem('last_activity') // Clear activity tracking on logout
+    }
+  }
 
   const checkInactivity = React.useCallback(() => {
     const lastActivity = sessionStorage.getItem('last_activity')
@@ -90,8 +134,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (process.env.NODE_ENV === 'development') {
         console.log(`User inactive for ${Math.round(timeSinceActivity / 60000)} minutes, logging out...`)
       }
-      apiClient.logout()
-      setUser(null)
+      // Use component's logout handler instead of direct apiClient.logout()
+      logout()
       return true
     }
     
@@ -99,7 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log(`User active within last ${Math.round(timeSinceActivity / 60000)} minutes, staying logged in`)
     }
     return false
-  }, [updateLastActivity])
+  }, [updateLastActivity, logout])
 
   // Initialize auth state on mount
   useEffect(() => {
@@ -153,7 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     
     initializeAuth()
-  }, [checkInactivity])
+  }, []) // Remove checkInactivity dependency to prevent infinite loops
 
   const login = async (email: string, password: string) => {
     setIsLoading(true)
@@ -166,17 +210,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw error
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const logout = async () => {
-    try {
-      await apiClient.logout()
-    } catch (error) {
-      console.error('Logout error:', error)
-    } finally {
-      setUser(null)
-      sessionStorage.removeItem('last_activity') // Clear activity tracking on logout
     }
   }
 
@@ -249,13 +282,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return
 
     let lastActivityTime = 0
-    const THROTTLE_MS = 1000 // Throttle activity updates to once per second
+    let lastServerCall = 0
+    const THROTTLE_MS = 5000 // Throttle activity updates to once per 5 seconds
+    const SERVER_CALL_INTERVAL_MS = 30000 // Only call server every 30 seconds
 
     const handleUserActivity = () => {
       const now = Date.now()
       if (now - lastActivityTime > THROTTLE_MS) {
-        updateLastActivity()
+        // Update local storage for inactivity tracking
+        updateLastActivityLocal()
         lastActivityTime = now
+        
+        // Only call server if enough time has passed
+        if (now - lastServerCall > SERVER_CALL_INTERVAL_MS) {
+          updateLastActivity()
+          lastServerCall = now
+        }
       }
     }
 
@@ -266,10 +308,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       document.addEventListener(event, handleUserActivity, { passive: true })
     })
 
+    // Multi-tab synchronization
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'auth_activity_broadcast' && e.newValue) {
+        // Update activity from other tabs
+        sessionStorage.setItem('last_activity', e.newValue)
+      }
+    }
+
+    const handleBroadcastMessage = (e: MessageEvent) => {
+      if (e.data?.type === 'activity_update') {
+        sessionStorage.setItem('last_activity', e.data.timestamp)
+      } else if (e.data?.type === 'logout') {
+        // Handle logout from other tabs
+        setUser(null)
+        sessionStorage.removeItem('last_activity')
+      }
+    }
+
+    // Listen for storage events (fallback for older browsers)
+    window.addEventListener('storage', handleStorageChange)
+
+    // Listen for broadcast channel messages
+    let broadcastChannel: BroadcastChannel | null = null
+    try {
+      broadcastChannel = new BroadcastChannel('auth-activity')
+      broadcastChannel.addEventListener('message', handleBroadcastMessage)
+    } catch (error) {
+      // BroadcastChannel not supported
+    }
+
     // Periodic inactivity check every minute
     const inactivityCheckInterval = setInterval(() => {
       if (checkInactivity()) {
         setUser(null)
+        // Broadcast logout to other tabs
+        try {
+          const channel = new BroadcastChannel('auth-activity')
+          channel.postMessage({ type: 'logout' })
+          channel.close()
+        } catch (error) {
+          // Fallback to storage event
+          localStorage.setItem('auth_logout_broadcast', Date.now().toString())
+        }
       }
     }, 60000) // Check every minute
 
@@ -277,6 +358,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       events.forEach(event => {
         document.removeEventListener(event, handleUserActivity)
       })
+      window.removeEventListener('storage', handleStorageChange)
+      if (broadcastChannel) {
+        broadcastChannel.removeEventListener('message', handleBroadcastMessage)
+        broadcastChannel.close()
+      }
       clearInterval(inactivityCheckInterval)
     }
   }, [user, updateLastActivity, checkInactivity])

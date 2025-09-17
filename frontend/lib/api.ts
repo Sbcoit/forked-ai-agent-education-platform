@@ -143,7 +143,7 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAut
   }
 
   try {
-    const response = await fetch(`${getApiBaseUrl()}${endpoint}`, {
+    const response = await fetch(buildApiUrl(endpoint), {
       ...options,
       headers,
       credentials: 'include', // Include HttpOnly cookies in requests

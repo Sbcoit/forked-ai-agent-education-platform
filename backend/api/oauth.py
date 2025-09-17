@@ -55,10 +55,21 @@ class OAuthStateStore:
         try:
             encryption_key = os.getenv('OAUTH_ENCRYPTION_KEY')
             if not encryption_key:
-                # Generate a new key if none provided (for development)
-                key = Fernet.generate_key()
-                logger.warning("No OAUTH_ENCRYPTION_KEY found, using generated key. Set OAUTH_ENCRYPTION_KEY in production!")
-                self.cipher = Fernet(key)
+                # Check if we're in production environment
+                is_production = (
+                    os.getenv('ENVIRONMENT', '').lower() == 'production' or
+                    os.getenv('ENV', '').lower() == 'production' or
+                    os.getenv('FLASK_ENV', '').lower() == 'production' or
+                    os.getenv('APP_ENV', '').lower() == 'production'
+                )
+                
+                if is_production:
+                    raise ValueError("OAUTH_ENCRYPTION_KEY is required in production environment")
+                else:
+                    # Generate a new key for development only
+                    key = Fernet.generate_key()
+                    logger.warning("No OAUTH_ENCRYPTION_KEY found, using generated key for development. Set OAUTH_ENCRYPTION_KEY in production!")
+                    self.cipher = Fernet(key)
             else:
                 # Use provided key (should be base64 encoded)
                 if len(encryption_key) != 44:  # Fernet keys are 44 chars when base64 encoded
@@ -109,6 +120,23 @@ class OAuthStateStore:
             else:
                 # Fallback to in-memory storage
                 with oauth_states_lock:
+                    # Check if we need to clean up before adding new state
+                    if len(oauth_states) >= 50:
+                        # Sort by created_at and keep only the 50 most recent
+                        def get_created_at(item):
+                            value = item[1]
+                            if isinstance(value, dict):
+                                return value.get("created_at", 0)
+                            else:
+                                return 0
+                        
+                        sorted_states = sorted(oauth_states.items(), 
+                                             key=get_created_at, 
+                                             reverse=True)
+                        oauth_states.clear()
+                        for state_key, data in sorted_states[:50]:
+                            oauth_states[state_key] = data
+                    
                     oauth_states[state] = encrypted_data
                 return True
         except Exception as e:

@@ -13,10 +13,10 @@ except ImportError:
     Vector = None
 
 # Use configuration to determine vector column type
-def get_vector_column_type():
-    """Get the appropriate column type based on configuration"""
+def get_vector_column_type(dimension: int = 1536):
+    """Get the appropriate column type based on configuration and dimension"""
     if settings.use_pgvector and PGVECTOR_AVAILABLE:
-        return Vector(1536)
+        return Vector(dimension)
     else:
         return JSON
 
@@ -66,6 +66,7 @@ class User(Base):
     scenarios = relationship("Scenario", back_populates="creator")
     scenario_reviews = relationship("ScenarioReview", back_populates="reviewer")
     user_progress = relationship("UserProgress", back_populates="user")
+    created_cohorts = relationship("Cohort", back_populates="creator")
     
     # PostgreSQL indexes for better performance
     __table_args__ = (
@@ -371,6 +372,7 @@ class VectorEmbeddings(Base):
     content_id = Column(Integer, nullable=False, index=True)  # ID of the original content
     content_hash = Column(String, nullable=False, index=True)  # Hash for deduplication
     # Store as Vector when configured and available, JSON otherwise
+    # The vector dimension will be validated against embedding_dimension at runtime
     embedding_vector = Column(
         get_vector_column_type(), 
         nullable=False
@@ -501,6 +503,108 @@ class AgentSessions(Base):
         Index('idx_agent_sessions_agent_type', 'agent_type'),
         Index('idx_agent_sessions_active', 'is_active'),
         Index('idx_agent_sessions_last_activity', 'last_activity'),
+    )
+
+
+# --- COHORT MANAGEMENT MODELS ---
+
+class Cohort(Base):
+    """Cohort management for educational groups"""
+    __tablename__ = "cohorts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    course_code = Column(String, nullable=True, index=True)
+    semester = Column(String, nullable=True)  # Fall, Spring, Summer, Winter
+    year = Column(Integer, nullable=True, index=True)
+    max_students = Column(Integer, nullable=True)
+    
+    # Settings
+    auto_approve = Column(Boolean, default=True)
+    allow_self_enrollment = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True, index=True)
+    
+    # Metadata
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    creator = relationship("User", back_populates="created_cohorts")
+    students = relationship("CohortStudent", back_populates="cohort", cascade="all, delete-orphan")
+    simulations = relationship("CohortSimulation", back_populates="cohort", cascade="all, delete-orphan")
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_cohorts_created_by', 'created_by'),
+        Index('idx_cohorts_active', 'is_active'),
+        Index('idx_cohorts_year', 'year'),
+        Index('idx_cohorts_course_code', 'course_code'),
+    )
+
+
+class CohortStudent(Base):
+    """Student enrollment in cohorts"""
+    __tablename__ = "cohort_students"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    cohort_id = Column(Integer, ForeignKey("cohorts.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    
+    # Enrollment status
+    status = Column(String, default="pending")  # pending, approved, rejected, withdrawn
+    enrollment_date = Column(DateTime(timezone=True), server_default=func.now())
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    cohort = relationship("Cohort", back_populates="students")
+    student = relationship("User", foreign_keys=[student_id])
+    approver = relationship("User", foreign_keys=[approved_by])
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_cohort_students_cohort_id', 'cohort_id'),
+        Index('idx_cohort_students_student_id', 'student_id'),
+        Index('idx_cohort_students_status', 'status'),
+        Index('idx_cohort_students_enrollment_date', 'enrollment_date'),
+    )
+
+
+class CohortSimulation(Base):
+    """Simulations assigned to cohorts"""
+    __tablename__ = "cohort_simulations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    cohort_id = Column(Integer, ForeignKey("cohorts.id"), nullable=False, index=True)
+    simulation_id = Column(Integer, ForeignKey("user_progress.id"), nullable=False, index=True)
+    
+    # Assignment details
+    assigned_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    assigned_at = Column(DateTime(timezone=True), server_default=func.now())
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    is_required = Column(Boolean, default=True)
+    
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    cohort = relationship("Cohort", back_populates="simulations")
+    simulation = relationship("UserProgress")
+    assigner = relationship("User", foreign_keys=[assigned_by])
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_cohort_simulations_cohort_id', 'cohort_id'),
+        Index('idx_cohort_simulations_simulation_id', 'simulation_id'),
+        Index('idx_cohort_simulations_assigned_by', 'assigned_by'),
+        Index('idx_cohort_simulations_due_date', 'due_date'),
     )
 
 

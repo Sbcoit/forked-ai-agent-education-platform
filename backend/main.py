@@ -26,6 +26,7 @@ from api.parse_pdf import router as pdf_router
 from api.simulation import router as simulation_router
 from api.publishing import router as publishing_router
 from api.oauth import router as oauth_router, lifespan as oauth_lifespan
+from api.cohorts import router as cohorts_router
 from services.session_manager import session_manager_lifespan
 
 # Import startup check
@@ -95,6 +96,7 @@ app.include_router(pdf_router, tags=["PDF Processing"])
 app.include_router(simulation_router, tags=["Simulation"])
 app.include_router(publishing_router, tags=["Publishing"])
 app.include_router(oauth_router, tags=["OAuth"])
+app.include_router(cohorts_router, tags=["Cohorts"])
 
 # Create database tables (development only)
 if settings.environment != "production":

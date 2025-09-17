@@ -40,28 +40,29 @@ def upgrade():
     # Ensure pgvector extension is enabled
     op.execute('CREATE EXTENSION IF NOT EXISTS vector')
     
-    # Since we're clearing the database, we can simply ensure the column is the right type
-    # Check if the table exists and has the right column type
-    op.execute("""
-        DO $$
-        BEGIN
-            -- Check if vector_embeddings table exists and has the right column type
-            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'vector_embeddings') THEN
-                -- Ensure the column is of vector type
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns 
-                    WHERE table_name = 'vector_embeddings' 
-                    AND column_name = 'embedding_vector' 
-                    AND data_type = 'USER-DEFINED'
-                ) THEN
-                    -- Alter the column to be vector type
-                    ALTER TABLE vector_embeddings 
-                    ALTER COLUMN embedding_vector TYPE vector(1536);
-                END IF;
-            END IF;
-        END;
-        $$;
-    """)
+    # Get the database connection and inspector
+    connection = op.get_bind()
+    from sqlalchemy import inspect
+    inspector = inspect(connection)
+    
+    # Check if vector_embeddings table exists
+    if 'vector_embeddings' in inspector.get_table_names():
+        # Check current column type
+        columns = inspector.get_columns('vector_embeddings')
+        embedding_vector_col = next((col for col in columns if col['name'] == 'embedding_vector'), None)
+        
+        if embedding_vector_col:
+            current_type = str(embedding_vector_col['type'])
+            # Check if it's already a vector type
+            if 'vector' not in current_type.lower():
+                # Convert to vector type using proper SQLAlchemy approach
+                from sqlalchemy.dialects.postgresql import ARRAY
+                from sqlalchemy import Float
+                
+                # Use op.alter_column with proper type conversion
+                op.alter_column('vector_embeddings', 'embedding_vector', 
+                               type_=get_vector_column_type(),
+                               existing_type=embedding_vector_col['type'])
     
     # Create the vector index if it doesn't exist
     op.execute('DROP INDEX IF EXISTS idx_vector_embeddings_embedding_vector')

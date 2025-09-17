@@ -117,10 +117,7 @@ def downgrade() -> None:
     """
     print("WARNING: Reverting user data separation - this may cause security issues!")
     
-    # Remove indexes
-    op.drop_index('idx_agent_sessions_user_progress', table_name='agent_sessions')
-    op.drop_index('idx_conversation_summaries_user_progress', table_name='conversation_summaries')
-    op.drop_index('idx_session_memory_user_progress', table_name='session_memory')
+    # Remove indexes created by this migration only
     op.drop_index('idx_conversation_logs_user_progress', table_name='conversation_logs')
     op.drop_index('idx_scene_progress_user_progress', table_name='scene_progress')
     op.drop_index('idx_user_progress_user_scenario', table_name='user_progress')

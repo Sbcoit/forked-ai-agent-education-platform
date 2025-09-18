@@ -190,8 +190,12 @@ export default function PersonaCard({
         {/* Middle: Name, Position, Description, Goals */}
         <div className="flex-1 flex flex-col justify-center pr-6">
           <div className="text-xl font-bold leading-tight mb-0.5">{persona.name}</div>
-          <div className="text-base text-gray-500 mb-2">{persona.position}</div>
-          <div className="text-sm text-gray-800 mb-1">{persona.description}</div>
+          <div className="text-base text-gray-500 mb-2">
+            {persona.position || <span className="italic text-gray-400">Click to add role/title</span>}
+          </div>
+          <div className="text-sm text-gray-800 mb-1">
+            {persona.description || <span className="italic text-gray-400">Click to add background/bio</span>}
+          </div>
           {persona.primaryGoals && (
             <div className="text-xs text-blue-800 mt-1">
               <span className="font-semibold">Primary Goals:</span>{" "}

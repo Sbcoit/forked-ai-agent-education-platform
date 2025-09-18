@@ -16,7 +16,12 @@ import {
   Calendar,
   Users,
   Lightbulb,
-  X
+  X,
+  ChevronDown,
+  Check,
+  Play,
+  Trash2,
+  Edit
 } from "lucide-react"
 import Sidebar from "@/components/Sidebar"
 import { useAuth } from "@/lib/auth-context"
@@ -36,6 +41,31 @@ export default function Dashboard() {
   
   const [activeFilter, setActiveFilter] = useState("All")
   const [showWhatsNew, setShowWhatsNew] = useState(true)
+  const [editingStatus, setEditingStatus] = useState<number | null>(null)
+  const [statusUpdating, setStatusUpdating] = useState<number | null>(null)
+  
+  // State for deletion
+  const [deletingScenario, setDeletingScenario] = useState<number | null>(null)
+  
+  // Request deduplication - prevent multiple simultaneous API calls
+  const [pendingRequests, setPendingRequests] = useState<Set<string>>(new Set())
+
+  // Close status editor when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (editingStatus !== null) {
+        const target = event.target as HTMLElement
+        if (!target.closest('.status-editor')) {
+          setEditingStatus(null)
+        }
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [editingStatus])
 
   // Fetch data from API
   useEffect(() => {
@@ -48,6 +78,13 @@ export default function Dashboard() {
         setSimulations(simulationsData)
       } catch (error) {
         console.error('Failed to fetch simulations:', error)
+        // Check if it's an authentication error
+        if (error instanceof Error && error.message.includes('Authentication failed')) {
+          // Logout and redirect to login
+          logout()
+          router.push('/')
+          return
+        }
         setSimulationsError('Failed to load simulations')
         // Fallback to empty array
         setSimulations([])
@@ -91,6 +128,13 @@ export default function Dashboard() {
       setCohorts([])
     } catch (error) {
       console.error('Failed to refresh data:', error)
+      // Check if it's an authentication error
+      if (error instanceof Error && error.message.includes('Authentication failed')) {
+        // Logout and redirect to login
+        logout()
+        router.push('/')
+        return
+      }
       setSimulationsError('Failed to refresh data')
       setCohortsError('Failed to refresh data')
     } finally {
@@ -99,16 +143,170 @@ export default function Dashboard() {
     }
   }
 
+  // Update simulation status
+  const updateSimulationStatus = async (simulationId: number, newStatus: string) => {
+    try {
+      setStatusUpdating(simulationId)
+      console.log(`[DEBUG] Updating scenario ${simulationId} to status: ${newStatus}`)
+      
+      await apiClient.updateScenarioStatus(simulationId, newStatus)
+      
+      // Update local state
+      setSimulations(prev => prev.map(sim => 
+        sim.id === simulationId 
+          ? { 
+              ...sim, 
+              status: newStatus === 'active' ? 'Active' : 'Draft',
+              statusColor: newStatus === 'active' ? 'bg-green-100 text-green-800' : 
+                          'bg-yellow-100 text-yellow-800',
+              is_draft: newStatus === 'draft' // Update is_draft field
+            }
+          : sim
+      ))
+      
+      setEditingStatus(null)
+      console.log(`[DEBUG] Successfully updated scenario ${simulationId} to ${newStatus}`)
+    } catch (error) {
+      console.error('Failed to update status:', error)
+      console.log(`[DEBUG] Error updating scenario ${simulationId}:`, error)
+      
+      // If scenario not found, refresh the data to get current state
+      if (error instanceof Error && error.message.includes('Scenario not found')) {
+        console.log('[DEBUG] Scenario not found, refreshing data...')
+        await refreshData()
+        alert('Scenario not found. Data has been refreshed.')
+      } else {
+        alert('Failed to update simulation status. Please try again.')
+      }
+    } finally {
+      setStatusUpdating(null)
+    }
+  }
+
+  // Play simulation - navigate to chat-box with scenario data
+  const playSimulation = (simulation: any) => {
+    // Check if simulation is draft
+    if (simulation.is_draft || simulation.status === 'Draft') {
+      alert('Cannot play draft simulations. Please publish the simulation first.')
+      return
+    }
+    
+    // Store scenario data for chat-box
+    const chatboxData = {
+      scenario_id: simulation.id,
+      title: simulation.title
+    }
+    
+    localStorage.setItem("chatboxScenario", JSON.stringify(chatboxData))
+    
+    // Navigate to chat-box
+    router.push("/chat-box")
+  }
+
+  // Delete draft simulation
+  const deleteDraftSimulation = async (simulationId: number) => {
+    if (!confirm('Are you sure you want to delete this draft simulation? This action cannot be undone.')) {
+      return
+    }
+    
+    try {
+      setDeletingScenario(simulationId)
+      await apiClient.deleteDraftScenario(simulationId)
+      
+      // Remove from local state
+      setSimulations(prev => prev.filter(sim => sim.id !== simulationId))
+      
+    } catch (error) {
+      console.error('Failed to delete simulation:', error)
+      alert('Failed to delete simulation. Please try again.')
+    } finally {
+      setDeletingScenario(null)
+    }
+  }
+
+  // Edit draft simulation - navigate to simulation builder with draft ID
+  const editDraftSimulation = async (simulation: any) => {
+    const requestKey = `edit-${simulation.id}`
+    
+    // Prevent duplicate requests
+    if (pendingRequests.has(requestKey)) {
+      console.log(`[DEBUG] Request already pending for ${requestKey}`)
+      return
+    }
+    
+    try {
+      setPendingRequests(prev => new Set(prev).add(requestKey))
+      
+      console.log("=== EDIT DRAFT SIMULATION DEBUG ===")
+      console.log("Navigating to edit draft simulation:", simulation.id)
+      console.log("Simulation is_draft:", simulation.is_draft)
+      console.log("Simulation published_version_id:", simulation.published_version_id)
+      console.log("Simulation status:", simulation.status)
+      console.log("Simulation full object:", simulation)
+      console.log("All simulations:", simulations.map(s => ({ 
+        id: s.id, 
+        unique_id: s.unique_id,
+        is_draft: s.is_draft, 
+        published_version_id: s.published_version_id,
+        draft_of_id: s.draft_of_id,
+        status: s.status
+      })))
+      
+      // If this is a published simulation, we need to find its draft
+      if (!simulation.is_draft) {
+        console.log("Looking for draft of published scenario:", simulation.id)
+        console.log("Published scenario details:", { id: simulation.id, is_draft: simulation.is_draft, published_version_id: simulation.published_version_id })
+        
+        // Find the draft scenario that has this published scenario as its published_version_id
+        const draftSimulation = simulations.find(s => s.published_version_id === simulation.id && s.is_draft)
+        if (draftSimulation) {
+          console.log("Found draft scenario:", draftSimulation.id)
+          router.push(`/simulation-builder?edit=${draftSimulation.id}`)
+          return
+        } else {
+          console.log("No draft found for published scenario:", simulation.id)
+          console.log("Available simulations:", simulations.map(s => ({ id: s.id, is_draft: s.is_draft, published_version_id: s.published_version_id })))
+          alert("No draft found for this published simulation")
+          return
+        }
+      }
+      
+      // Navigate directly with the draft ID as a URL parameter
+      router.push(`/simulation-builder?edit=${simulation.id}`)
+      
+    } catch (error) {
+      console.error('Failed to navigate to draft editing:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      alert(`Failed to open draft for editing: ${errorMessage}`)
+    } finally {
+      setPendingRequests(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(requestKey)
+        return newSet
+      })
+    }
+  }
+
   // Calculate stats from actual data
   const activeCohorts = cohorts.filter(cohort => cohort.status === "Active").length
   const activeSimulations = simulations.filter(sim => sim.status === "Active").length
+  
+  // Debug: Log simulations data
+  console.log('[DEBUG] All simulations:', simulations.map(s => ({ 
+    id: s.id, 
+    unique_id: s.unique_id,
+    is_draft: s.is_draft, 
+    published_version_id: s.published_version_id,
+    draft_of_id: s.draft_of_id,
+    status: s.status
+  })))
   
   // Handle redirect when user is not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/")
     }
-  }, [user, authLoading, router])
+  }, [user?.id, authLoading, router]) // More specific dependency
   
   // Show loading while auth is being checked
   if (authLoading) {
@@ -160,9 +358,9 @@ export default function Dashboard() {
         </header>
 
         {/* Main Content Area */}
-        <div className="p-6">
+        <div className="p-6 pb-40">
           {/* Stats Section */}
-          <div className="mb-6">
+          <div className="mb-12">
             <div className="flex items-center space-x-6 text-sm text-gray-600">
               <span>{activeCohorts} cohorts active</span>
               <span>{activeSimulations} simulations active</span>
@@ -171,7 +369,7 @@ export default function Dashboard() {
 
           {/* What's New Notification */}
           {showWhatsNew && (
-            <div className="mb-8">
+            <div className="mb-16">
               <Card className="bg-white border-l-4 border-l-blue-500 shadow-sm">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
@@ -258,8 +456,8 @@ export default function Dashboard() {
           </div>
 
           {/* My Simulations Section */}
-          <div>
-            <div className="flex items-center justify-between mb-6">
+          <div className="mt-16">
+            <div className="flex items-center justify-between mb-8">
               <h2 className="text-2xl font-bold text-black">My simulations</h2>
               <Link href="/simulation-builder">
                 <Button className="bg-black text-white hover:bg-gray-800 text-sm">
@@ -312,30 +510,127 @@ export default function Dashboard() {
 
             {/* Simulations Grid */}
             {!simulationsLoading && !simulationsError && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mt-8">
                 {simulations
                   .filter(sim => activeFilter === "All" || sim.status === activeFilter)
                   .map((simulation) => (
-                  <Card key={simulation.id} className="bg-white border border-gray-200 hover:shadow-lg transition-shadow cursor-pointer">
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between">
-                        <CardTitle className="text-base font-semibold text-gray-900 leading-tight">
-                          {simulation.title}
+                  <Card key={simulation.id} className="bg-white border border-gray-200 hover:shadow-lg transition-shadow">
+                    <CardHeader className="pb-4 px-4 sm:px-6 pt-4 sm:pt-6">
+                      {/* Header Container - Title and Status */}
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <CardTitle className="text-base sm:text-lg font-semibold text-gray-900 leading-tight cursor-pointer hover:text-blue-600 transition-colors flex-1 min-w-0"
+                          onClick={() => playSimulation(simulation)}
+                        >
+                          <span className="block truncate">{simulation.title}</span>
+                          {simulation.unique_id && (
+                            <span className="text-xs text-gray-500 font-mono mt-1 block">ID: {simulation.unique_id}</span>
+                          )}
                         </CardTitle>
-                        <Badge className={`ml-2 text-xs ${simulation.statusColor}`}>
-                          {simulation.status}
-                        </Badge>
+                        <div className="relative status-editor flex-shrink-0">
+                          {editingStatus === simulation.id ? (
+                            <div className="flex items-center space-x-2">
+                              <select
+                                value={simulation.status === 'Active' ? 'active' : 'draft'}
+                                onChange={(e) => updateSimulationStatus(simulation.id, e.target.value)}
+                                className="text-xs px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                disabled={statusUpdating === simulation.id}
+                              >
+                                <option value="draft">Draft</option>
+                                <option value="active">Active</option>
+                              </select>
+                              {statusUpdating === simulation.id && (
+                                <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin"></div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="flex items-center space-x-2">
+                              <Badge 
+                                className={`text-xs ${simulation.statusColor} cursor-pointer hover:opacity-80`}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setEditingStatus(simulation.id)
+                                }}
+                              >
+                                {simulation.status}
+                              </Badge>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setEditingStatus(simulation.id)
+                                }}
+                                className="text-gray-400 hover:text-gray-600 transition-colors"
+                              >
+                                <ChevronDown className="h-3 w-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </CardHeader>
-                    <CardContent className="pt-0">
-                      <div className="flex items-center space-x-4 text-sm text-gray-600">
-                        <div className="flex items-center">
-                          <Calendar className="h-4 w-4 mr-1" />
-                          {simulation.date}
+                    <CardContent className="pt-0 px-4 sm:px-6 pb-4 sm:pb-6">
+                      {/* Content Container - Metadata and Actions */}
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-4 sm:gap-6 text-sm text-gray-600">
+                          <div className="flex items-center">
+                            <Calendar className="h-4 w-4 mr-2 flex-shrink-0" />
+                            <span>{simulation.date}</span>
+                          </div>
+                          <div className="flex items-center">
+                            <Users className="h-4 w-4 mr-2 flex-shrink-0" />
+                            <span>{simulation.students} students</span>
+                          </div>
                         </div>
-                        <div className="flex items-center">
-                          <Users className="h-4 w-4 mr-1" />
-                          {simulation.students} students
+                        <div className="flex items-center justify-end sm:justify-start gap-2 flex-wrap">
+                          <Button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              playSimulation(simulation)
+                            }}
+                            disabled={simulation.is_draft || simulation.status === 'Draft'}
+                            className={`text-sm px-3 sm:px-4 py-2 h-8 flex-shrink-0 ${
+                              (simulation.is_draft || simulation.status === 'Draft')
+                                ? 'bg-gray-400 text-gray-600 cursor-not-allowed' 
+                                : 'bg-blue-600 hover:bg-blue-700 text-white'
+                            }`}
+                          >
+                            <Play className="h-4 w-4 mr-1 flex-shrink-0" />
+                            <span className="hidden sm:inline">{(simulation.is_draft || simulation.status === 'Draft') ? 'Draft' : 'Play'}</span>
+                            <span className="sm:hidden">{(simulation.is_draft || simulation.status === 'Draft') ? 'Draft' : 'Play'}</span>
+                          </Button>
+                          
+                          {/* Edit and Delete buttons for draft simulations */}
+                          {(simulation.is_draft || simulation.status === 'Draft') && (
+                            <>
+                              <Button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  console.log('[DEBUG] Edit button clicked for simulation:', simulation)
+                                  editDraftSimulation(simulation)
+                                }}
+                                variant="outline"
+                                size="sm"
+                                className="h-8 px-3 flex-shrink-0"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  deleteDraftSimulation(simulation.id)
+                                }}
+                                disabled={deletingScenario === simulation.id}
+                                variant="destructive"
+                                size="sm"
+                                className="h-8 px-3 flex-shrink-0"
+                              >
+                                {deletingScenario === simulation.id ? (
+                                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </Button>
+                            </>
+                          )}
                         </div>
                       </div>
                     </CardContent>

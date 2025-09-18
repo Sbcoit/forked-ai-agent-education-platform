@@ -306,11 +306,91 @@ export const apiClient = {
     throw new Error('Scenario deletion not implemented yet')
   },
 
+  updateScenarioStatus: async (scenarioId: number, status: string): Promise<any> => {
+    const response = await apiRequest(`/api/scenarios/${scenarioId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    })
+    
+    if (!response.ok) {
+      throw new Error('Failed to update scenario status')
+    }
+    
+    return response.json()
+  },
+
+  deleteDraftScenario: async (scenarioId: number): Promise<any> => {
+    const response = await apiRequest(`/api/scenarios/drafts/${scenarioId}`, {
+      method: 'DELETE',
+    })
+    
+    if (!response.ok) {
+      throw new Error('Failed to delete draft scenario')
+    }
+    
+    return response.json()
+  },
+
+  getDraftScenario: async (scenarioId: number): Promise<any> => {
+    const response = await apiRequest(`/api/scenarios/drafts/${scenarioId}`, {
+      method: 'GET',
+    })
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch draft scenario')
+    }
+    
+    return response.json()
+  },
+
   // Simulation methods - using available endpoints
   getSimulations: async (): Promise<any[]> => {
-    // For now, return empty array since there's no GET /simulations/ endpoint
-    // TODO: Add GET /simulations/ endpoint to backend
-    return []
+    try {
+      // Fetch both published and draft scenarios
+      const [publishedResponse, draftResponse] = await Promise.all([
+        apiRequest('/api/scenarios/', { method: 'GET' }),
+        apiRequest('/api/scenarios/drafts/', { method: 'GET' })
+      ])
+      
+      if (!publishedResponse.ok || !draftResponse.ok) {
+        throw new Error('Failed to fetch simulations')
+      }
+      
+      const publishedScenarios = await publishedResponse.json()
+      const draftScenarios = await draftResponse.json()
+      
+      // Combine scenarios but filter out drafts that have published versions
+      const allScenarios = [...publishedScenarios, ...draftScenarios]
+      
+      // Filter out drafts that have a published version (to avoid duplicates)
+      const filteredScenarios = allScenarios.filter((scenario: any) => {
+        // Keep published scenarios
+        if (!scenario.is_draft) {
+          return true
+        }
+        // Keep drafts that don't have a published version
+        return !scenario.published_version_id
+      })
+      
+      return filteredScenarios.map((scenario: any) => ({
+        id: scenario.id,
+        title: scenario.title,
+        description: scenario.description,
+        status: scenario.is_draft ? 'Draft' : 'Active',
+        statusColor: scenario.is_draft ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800',
+        date: new Date(scenario.created_at).toLocaleDateString('en-US', { 
+          month: 'short', 
+          day: 'numeric' 
+        }),
+        students: scenario.personas?.length || 0, // Use personas count as student count for now
+        created_at: scenario.created_at,
+        is_draft: scenario.is_draft,
+        published_version_id: scenario.published_version_id
+      }))
+    } catch (error) {
+      console.error('Failed to fetch simulations:', error)
+      return []
+    }
   },
 
   createSimulation: async (simulationData: any): Promise<any> => {

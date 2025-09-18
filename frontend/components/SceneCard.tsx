@@ -56,7 +56,7 @@ export default function SceneCard({
     setEditFields({
       title: scene.title,
       description: scene.description,
-      personas_involved: scene.personas_involved, // No filtering
+      personas_involved: scene.personas_involved || [], // Ensure it's an array
       user_goal: scene.user_goal,
       sequence_order: scene.sequence_order,
       image_url: scene.image_url || "",
@@ -133,7 +133,7 @@ export default function SceneCard({
   const normStudentRole = normalizeName(studentRole || "");
 
   // Filter out main character from personas_involved for display and edit
-  const filteredPersonasInvolved = editFields.personas_involved.filter(
+  const filteredPersonasInvolved = (editFields.personas_involved || []).filter(
     name => normalizeName(name) !== normStudentRole
   );
 
@@ -150,7 +150,7 @@ export default function SceneCard({
   if (!editMode) {
     const validPersonaNames = new Set(allPersonas.map(p => p.name));
     // Also filter out main character in display mode
-    const filteredPersonasInvolvedDisplay = scene.personas_involved.filter(
+    const filteredPersonasInvolvedDisplay = (scene.personas_involved || []).filter(
       name => validPersonaNames.has(name) && normalizeName(name) !== normStudentRole
     );
     return (

@@ -52,8 +52,14 @@ export default function CohortDetail() {
         
         // Fetch students and simulations in parallel
         const [studentsData, simulationsData] = await Promise.all([
-          apiClient.getCohortStudents(params.id as string).catch(() => []),
-          apiClient.getCohortSimulations(params.id as string).catch(() => [])
+          apiClient.getCohortStudents(params.id as string).catch((err) => {
+            console.warn('Failed to fetch students:', err);
+            return [];
+          }),
+          apiClient.getCohortSimulations(params.id as string).catch((err) => {
+            console.warn('Failed to fetch simulations:', err);
+            return [];
+          })
         ])
         
         setStudents(studentsData)
@@ -195,17 +201,23 @@ export default function CohortDetail() {
           <div className="mb-8">
             <div className="flex items-start justify-between">
               <div className="flex-1">
-                <h2 className="text-2xl font-bold text-black mb-2">{cohortData.title}</h2>
-                <p className="text-gray-600 mb-4">{cohortData.description}</p>
+                <h2 className="text-2xl font-bold text-black mb-2">{cohortData?.title || 'Loading...'}</h2>
+                <p className="text-gray-600 mb-4">{cohortData?.description || 'No description provided'}</p>
                 
                 <div className="flex items-center space-x-4">
-                  <Badge className={`text-xs ${cohortData.statusColor}`}>
-                    ID: {cohortData.id}
+                  <Badge className="bg-gray-100 text-gray-700 text-xs px-2 py-1 hover:bg-black hover:text-white transition-colors duration-200 cursor-pointer">
+                    ID: {cohortData?.unique_id || cohortData?.id || 'Loading...'}
                   </Badge>
-                  <Badge className={`text-xs ${cohortData.statusColor}`}>
-                    {cohortData.status}
+                  <Badge className={`text-xs px-2 py-1 transition-colors duration-200 ${
+                    cohortData?.is_active 
+                      ? 'bg-green-100 text-green-700 hover:bg-black hover:text-white' 
+                      : 'bg-gray-100 text-gray-600 hover:bg-black hover:text-white'
+                  }`}>
+                    {cohortData?.is_active ? 'Active' : 'Inactive'}
                   </Badge>
-                  <span className="text-sm text-gray-600">Created {cohortData.createdDate}</span>
+                  <span className="text-sm text-gray-600">
+                    Created {cohortData?.created_at ? new Date(cohortData.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Loading...'}
+                  </span>
                 </div>
               </div>
 
@@ -214,7 +226,11 @@ export default function CohortDetail() {
                 <Button 
                   variant="outline" 
                   size="sm"
-                  onClick={handleCopyInviteLink}
+                  onClick={() => {
+                    const inviteLink = `${window.location.origin}/cohorts/${cohortData?.id}/join`;
+                    navigator.clipboard.writeText(inviteLink);
+                    // You could add a toast notification here
+                  }}
                   className="border-gray-300 text-gray-700 hover:bg-gray-50"
                 >
                   <Copy className="h-4 w-4 mr-2" />
@@ -238,64 +254,67 @@ export default function CohortDetail() {
             </div>
           </div>
 
-          {/* Statistics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <Card className="bg-white border border-gray-200">
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="p-3 bg-blue-100 rounded-lg">
-                    <Users className="h-6 w-6 text-blue-600" />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm text-gray-600">Total Students</p>
-                    <p className="text-2xl font-bold text-gray-900">{cohortData.totalStudents}</p>
-                  </div>
+          {/* Metrics Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            {/* Total Students */}
+            <div className="bg-white border border-gray-200 rounded-lg p-6">
+              <div className="flex items-center">
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4">
+                  <Users className="h-6 w-6 text-blue-600" />
                 </div>
-              </CardContent>
-            </Card>
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Total Students</p>
+                  <p className="text-2xl font-bold text-gray-900">{students?.length || 0}</p>
+                </div>
+              </div>
+            </div>
 
-            <Card className="bg-white border border-gray-200">
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="p-3 bg-green-100 rounded-lg">
-                    <CheckCircle className="h-6 w-6 text-green-600" />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm text-gray-600">Active Students</p>
-                    <p className="text-2xl font-bold text-gray-900">{cohortData.activeStudents}</p>
-                  </div>
+            {/* Active Students */}
+            <div className="bg-white border border-gray-200 rounded-lg p-6">
+              <div className="flex items-center">
+                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4">
+                  <CheckCircle className="h-6 w-6 text-green-600" />
                 </div>
-              </CardContent>
-            </Card>
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Active Students</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {students?.filter(student => student.status === 'approved').length || 0}
+                  </p>
+                </div>
+              </div>
+            </div>
 
-            <Card className="bg-white border border-gray-200">
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="p-3 bg-purple-100 rounded-lg">
-                    <BookOpen className="h-6 w-6 text-purple-600" />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm text-gray-600">Simulations</p>
-                    <p className="text-2xl font-bold text-gray-900">{cohortData.simulations}</p>
-                  </div>
+            {/* Simulations */}
+            <div className="bg-white border border-gray-200 rounded-lg p-6">
+              <div className="flex items-center">
+                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
+                  <BookOpen className="h-6 w-6 text-purple-600" />
                 </div>
-              </CardContent>
-            </Card>
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Simulations</p>
+                  <p className="text-2xl font-bold text-gray-900">{simulations?.length || 0}</p>
+                </div>
+              </div>
+            </div>
 
-            <Card className="bg-white border border-gray-200">
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="p-3 bg-orange-100 rounded-lg">
-                    <Clock className="h-6 w-6 text-orange-600" />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm text-gray-600">Avg. Completion</p>
-                    <p className="text-2xl font-bold text-gray-900">{cohortData.avgCompletion}%</p>
-                  </div>
+            {/* Avg. Completion */}
+            <div className="bg-white border border-gray-200 rounded-lg p-6">
+              <div className="flex items-center">
+                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mr-4">
+                  <Clock className="h-6 w-6 text-orange-600" />
                 </div>
-              </CardContent>
-            </Card>
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Avg. Completion</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {students?.length > 0 
+                      ? Math.round((students.filter(student => student.status === 'approved').length / students.length) * 100) 
+                      : 0}%
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
+
 
           {/* Tabs */}
           <div className="mb-6">

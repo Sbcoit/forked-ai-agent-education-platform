@@ -3,6 +3,8 @@ from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Bool
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database.connection import Base, settings
+import secrets
+import string
 
 # Import pgvector if available and configured
 try:
@@ -19,6 +21,14 @@ def get_vector_column_type(dimension: int = 1536):
         return Vector(dimension)
     else:
         return JSON
+
+def generate_cohort_id():
+    """Generate a short, user-friendly cohort ID like CH-MAN8P1QS"""
+    # Use uppercase letters and numbers for readability
+    chars = string.ascii_uppercase + string.digits
+    # Generate 8 random characters
+    random_part = ''.join(secrets.choice(chars) for _ in range(8))
+    return f"CH-{random_part}"
 
 # Junction table for scene-persona relationships
 scene_personas = Table(
@@ -82,6 +92,7 @@ class Scenario(Base):
     __tablename__ = "scenarios"
     
     id = Column(Integer, primary_key=True, index=True)
+    unique_id = Column(String, unique=True, nullable=False, index=True)  # Unique, unguessable ID
     title = Column(String, index=True)
     description = Column(Text)
     challenge = Column(Text)
@@ -112,6 +123,14 @@ class Scenario(Base):
     is_public = Column(Boolean, default=False)
     is_template = Column(Boolean, default=False)
     allow_remixes = Column(Boolean, default=True)
+    
+    # Status field for Draft/Active tags
+    status = Column(String, default="draft", index=True)  # draft, active, archived
+    
+    # Draft system fields
+    is_draft = Column(Boolean, default=True, index=True)  # True for draft, False for published
+    published_version_id = Column(Integer, ForeignKey("scenarios.id"), nullable=True)  # Reference to published version
+    draft_of_id = Column(Integer, ForeignKey("scenarios.id"), nullable=True)  # Reference to original if this is a draft
     
     # Community metrics
     usage_count = Column(Integer, default=0)
@@ -513,6 +532,7 @@ class Cohort(Base):
     __tablename__ = "cohorts"
     
     id = Column(Integer, primary_key=True, index=True)
+    unique_id = Column(String, unique=True, nullable=False, index=True)  # Unique, unguessable ID
     title = Column(String, nullable=False, index=True)
     description = Column(Text, nullable=True)
     course_code = Column(String, nullable=True, index=True)

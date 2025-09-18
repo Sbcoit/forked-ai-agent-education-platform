@@ -28,6 +28,10 @@ class ScenarioResponse(BaseModel):
     is_public: bool
     is_template: bool
     allow_remixes: bool
+    status: str  # draft, active, archived
+    is_draft: bool  # True for draft, False for published
+    published_version_id: Optional[int]  # Reference to published version
+    draft_of_id: Optional[int]  # Reference to original if this is a draft
     usage_count: int
     clone_count: int
     created_by: Optional[int]
@@ -617,6 +621,7 @@ class CohortSimulationResponse(BaseModel):
 
 class CohortResponse(BaseModel):
     id: int
+    unique_id: str
     title: str
     description: Optional[str]
     course_code: Optional[str]
@@ -637,6 +642,7 @@ class CohortResponse(BaseModel):
 
 class CohortListResponse(BaseModel):
     id: int
+    unique_id: str
     title: str
     description: Optional[str]
     course_code: Optional[str]

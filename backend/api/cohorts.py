@@ -8,11 +8,12 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import and_, or_, desc, func
 from typing import List, Optional
 from datetime import datetime
+import secrets
 
 from database.connection import get_db
 from utilities.auth import get_current_user, require_admin
 from database.models import (
-    Cohort, CohortStudent, CohortSimulation, User, UserProgress
+    Cohort, CohortStudent, CohortSimulation, User, UserProgress, generate_cohort_id
 )
 from database.schemas import (
     CohortCreate, CohortUpdate, CohortResponse, CohortListResponse,
@@ -74,6 +75,7 @@ async def get_cohorts(
         
         result.append(CohortListResponse(
             id=cohort.id,
+            unique_id=cohort.unique_id,
             title=cohort.title,
             description=cohort.description,
             course_code=cohort.course_code,
@@ -83,21 +85,20 @@ async def get_cohorts(
             is_active=cohort.is_active,
             created_by=cohort.created_by,
             created_at=cohort.created_at,
-            updated_at=cohort.updated_at,
             student_count=student_count,
             simulation_count=simulation_count
         ))
     
     return result
 
-@router.get("/{cohort_id}", response_model=CohortResponse)
+@router.get("/{cohort_unique_id}", response_model=CohortResponse)
 async def get_cohort(
-    cohort_id: int,
+    cohort_unique_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get a specific cohort with students and simulations"""
-    cohort = db.query(Cohort).filter(Cohort.id == cohort_id).first()
+    cohort = db.query(Cohort).filter(Cohort.unique_id == cohort_unique_id).first()
     if not cohort:
         raise HTTPException(status_code=404, detail="Cohort not found")
     
@@ -108,7 +109,7 @@ async def get_cohort(
     # Get students with user details
     students_query = db.query(CohortStudent, User).join(
         User, CohortStudent.student_id == User.id
-    ).filter(CohortStudent.cohort_id == cohort_id)
+    ).filter(CohortStudent.cohort_id == cohort.id)
     
     students = []
     for cohort_student, user in students_query:
@@ -124,7 +125,7 @@ async def get_cohort(
     
     # Get simulations
     simulations_query = db.query(CohortSimulation).filter(
-        CohortSimulation.cohort_id == cohort_id
+        CohortSimulation.cohort_id == cohort.id
     )
     
     simulations = []
@@ -140,6 +141,7 @@ async def get_cohort(
     
     return CohortResponse(
         id=cohort.id,
+        unique_id=cohort.unique_id,
         title=cohort.title,
         description=cohort.description,
         course_code=cohort.course_code,
@@ -167,8 +169,12 @@ async def create_cohort(
     if cohort_data.max_students is not None and cohort_data.max_students <= 0:
         raise HTTPException(status_code=400, detail="Max students must be positive")
     
+    # Generate short, user-friendly ID for the cohort
+    unique_id = generate_cohort_id()
+    
     # Create cohort
     cohort = Cohort(
+        unique_id=unique_id,
         title=cohort_data.title,
         description=cohort_data.description,
         course_code=cohort_data.course_code,
@@ -186,6 +192,7 @@ async def create_cohort(
     
     return CohortResponse(
         id=cohort.id,
+        unique_id=cohort.unique_id,
         title=cohort.title,
         description=cohort.description,
         course_code=cohort.course_code,
@@ -202,15 +209,15 @@ async def create_cohort(
         simulations=[]
     )
 
-@router.put("/{cohort_id}", response_model=CohortResponse)
+@router.put("/{cohort_unique_id}", response_model=CohortResponse)
 async def update_cohort(
-    cohort_id: int,
+    cohort_unique_id: str,
     cohort_data: CohortUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Update a cohort"""
-    cohort = db.query(Cohort).filter(Cohort.id == cohort_id).first()
+    cohort = db.query(Cohort).filter(Cohort.unique_id == cohort_unique_id).first()
     if not cohort:
         raise HTTPException(status_code=404, detail="Cohort not found")
     
@@ -245,14 +252,14 @@ async def update_cohort(
         simulations=[]
     )
 
-@router.delete("/{cohort_id}")
+@router.delete("/{cohort_unique_id}")
 async def delete_cohort(
-    cohort_id: int,
+    cohort_unique_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete a cohort"""
-    cohort = db.query(Cohort).filter(Cohort.id == cohort_id).first()
+    """Delete a cohort and all related data"""
+    cohort = db.query(Cohort).filter(Cohort.unique_id == cohort_unique_id).first()
     if not cohort:
         raise HTTPException(status_code=404, detail="Cohort not found")
     
@@ -260,22 +267,56 @@ async def delete_cohort(
     if cohort.created_by != current_user.id and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized to delete this cohort")
     
-    db.delete(cohort)
-    db.commit()
-    
-    return {"message": "Cohort deleted successfully"}
+    try:
+        # Get counts before deletion for logging
+        student_count = db.query(CohortStudent).filter(CohortStudent.cohort_id == cohort.id).count()
+        simulation_count = db.query(CohortSimulation).filter(CohortSimulation.cohort_id == cohort.id).count()
+        
+        # Check if there are any active simulations that might cause issues
+        active_simulations = db.query(CohortSimulation).filter(
+            CohortSimulation.cohort_id == cohort.id
+        ).all()
+        
+        # Delete related records first to ensure clean deletion
+        # This is more explicit than relying only on cascade
+        for simulation in active_simulations:
+            db.delete(simulation)
+        
+        # Delete student enrollments
+        student_enrollments = db.query(CohortStudent).filter(CohortStudent.cohort_id == cohort.id).all()
+        for enrollment in student_enrollments:
+            db.delete(enrollment)
+        
+        # Finally delete the cohort itself
+        db.delete(cohort)
+        db.commit()
+        
+        # Log the deletion for audit purposes
+        print(f"Cohort '{cohort.title}' (ID: {cohort.unique_id}) deleted by user {current_user.id}")
+        print(f"Deleted {student_count} student enrollments and {simulation_count} simulation assignments")
+        
+        return {
+            "message": "Cohort deleted successfully",
+            "deleted_students": student_count,
+            "deleted_simulations": simulation_count
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error deleting cohort {cohort.unique_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to delete cohort. Please try again.")
 
 # --- STUDENT MANAGEMENT ENDPOINTS ---
 
-@router.get("/{cohort_id}/students", response_model=List[CohortStudentResponse])
+@router.get("/{cohort_unique_id}/students", response_model=List[CohortStudentResponse])
 async def get_cohort_students(
-    cohort_id: int,
+    cohort_unique_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get all students in a cohort"""
     # Check if cohort exists and user has access
-    cohort = db.query(Cohort).filter(Cohort.id == cohort_id).first()
+    cohort = db.query(Cohort).filter(Cohort.unique_id == cohort_unique_id).first()
     if not cohort:
         raise HTTPException(status_code=404, detail="Cohort not found")
     
@@ -285,7 +326,7 @@ async def get_cohort_students(
     # Get students
     students_query = db.query(CohortStudent, User).join(
         User, CohortStudent.student_id == User.id
-    ).filter(CohortStudent.cohort_id == cohort_id)
+    ).filter(CohortStudent.cohort_id == cohort.id)
     
     students = []
     for cohort_student, user in students_query:
@@ -354,15 +395,15 @@ async def add_student_to_cohort(
 
 # --- SIMULATION MANAGEMENT ENDPOINTS ---
 
-@router.get("/{cohort_id}/simulations", response_model=List[CohortSimulationResponse])
+@router.get("/{cohort_unique_id}/simulations", response_model=List[CohortSimulationResponse])
 async def get_cohort_simulations(
-    cohort_id: int,
+    cohort_unique_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get all simulations assigned to a cohort"""
     # Check if cohort exists and user has access
-    cohort = db.query(Cohort).filter(Cohort.id == cohort_id).first()
+    cohort = db.query(Cohort).filter(Cohort.unique_id == cohort_unique_id).first()
     if not cohort:
         raise HTTPException(status_code=404, detail="Cohort not found")
     
@@ -371,7 +412,7 @@ async def get_cohort_simulations(
     
     # Get simulations
     simulations = db.query(CohortSimulation).filter(
-        CohortSimulation.cohort_id == cohort_id
+        CohortSimulation.cohort_id == cohort.id
     ).all()
     
     result = []

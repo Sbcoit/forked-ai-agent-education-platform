@@ -10,7 +10,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from database.connection import get_db, engine, settings, _validate_environment
-from database.models import Base, User, Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, ScenarioReview
+from database.models import Base, User, Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, ScenarioReview, scene_personas
 from database.schemas import (
     ScenarioCreate, UserRegister, UserLogin, UserLoginResponse, 
     UserResponse, UserUpdate, PasswordChange
@@ -128,7 +128,8 @@ async def get_scenarios(
     """Get scenarios created by the current user with their personas and scenes"""
     try:
         scenarios = db.query(Scenario).filter(
-            Scenario.created_by == current_user.id
+            Scenario.created_by == current_user.id,
+            Scenario.is_draft == False  # Only show published scenarios
         ).order_by(Scenario.created_at.desc()).all()
         
         result = []
@@ -145,12 +146,14 @@ async def get_scenarios(
             
             scenario_data = {
                 "id": scenario.id,
+                "unique_id": scenario.unique_id,
                 "title": scenario.title,
                 "description": scenario.description,
                 "challenge": scenario.challenge,
                 "industry": scenario.industry,
                 "learning_objectives": scenario.learning_objectives or [],
                 "student_role": scenario.student_role,
+                "status": scenario.status,  # Add status field
                 "created_at": scenario.created_at.isoformat() if scenario.created_at else None,
                 "is_public": scenario.is_public,
                 "personas": [
@@ -185,6 +188,447 @@ async def get_scenarios(
     except Exception as e:
         print(f"[ERROR] Failed to fetch scenarios: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch scenarios: {str(e)}")
+
+@app.get("/api/scenarios/drafts/")
+async def get_draft_scenarios(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get draft scenarios created by the current user"""
+    try:
+        scenarios = db.query(Scenario).filter(
+            Scenario.created_by == current_user.id,
+            Scenario.is_draft == True  # Only show draft scenarios
+        ).order_by(Scenario.created_at.desc()).all()
+        
+        result = []
+        for scenario in scenarios:
+            # Get personas for this scenario
+            personas = db.query(ScenarioPersona).filter(
+                ScenarioPersona.scenario_id == scenario.id
+            ).all()
+            
+            # Get scenes for this scenario
+            scenes = db.query(ScenarioScene).filter(
+                ScenarioScene.scenario_id == scenario.id
+            ).order_by(ScenarioScene.scene_order).all()
+            
+            # Get scene-persona relationships for each scene
+            scene_persona_relationships = {}
+            for scene in scenes:
+                relationships = db.query(scene_personas).filter(
+                    scene_personas.c.scene_id == scene.id
+                ).all()
+                scene_persona_relationships[scene.id] = relationships
+            
+            scenario_data = {
+                "id": scenario.id,
+                "unique_id": scenario.unique_id,
+                "title": scenario.title,
+                "description": scenario.description,
+                "challenge": scenario.challenge,
+                "industry": scenario.industry,
+                "learning_objectives": scenario.learning_objectives or [],
+                "student_role": scenario.student_role,
+                "status": scenario.status,
+                "is_draft": scenario.is_draft,
+                "published_version_id": scenario.published_version_id,
+                "created_at": scenario.created_at.isoformat() if scenario.created_at else None,
+                "is_public": scenario.is_public,
+                "personas": [
+                    {
+                        "id": persona.id,
+                        "name": persona.name,
+                        "role": persona.role,
+                        "background": persona.background,
+                        "correlation": persona.correlation,
+                        "primary_goals": persona.primary_goals or [],
+                        "personality_traits": persona.personality_traits or {}
+                    }
+                    for persona in personas
+                ],
+                "scenes": [
+                    {
+                        "id": scene.id,
+                        "title": scene.title,
+                        "description": scene.description,
+                        "user_goal": scene.user_goal,
+                        "scene_order": scene.scene_order,
+                        "estimated_duration": scene.estimated_duration,
+                        "image_url": scene.image_url,
+                        "timeout_turns": scene.timeout_turns,
+                        "success_metric": scene.success_metric,
+                        "personas_involved": [
+                            persona.name for persona in personas 
+                            if any(rel.persona_id == persona.id for rel in scene_persona_relationships.get(scene.id, []))
+                        ],
+                        "created_at": scene.created_at.isoformat() if scene.created_at else None,
+                        "updated_at": scene.updated_at.isoformat() if scene.updated_at else None,
+                        "personas": [
+                            {
+                                "id": persona.id,
+                                "scenario_id": persona.scenario_id,
+                                "name": persona.name,
+                                "role": persona.role,
+                                "background": persona.background,
+                                "correlation": persona.correlation,
+                                "primary_goals": persona.primary_goals or [],
+                                "personality_traits": persona.personality_traits or {},
+                                "created_at": persona.created_at.isoformat() if persona.created_at else None,
+                                "updated_at": persona.updated_at.isoformat() if persona.updated_at else None
+                            }
+                            for persona in personas 
+                            if any(rel.persona_id == persona.id for rel in scene_persona_relationships.get(scene.id, []))
+                        ]
+                    }
+                    for scene in scenes
+                ]
+            }
+            result.append(scenario_data)
+        
+        return result
+        
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch draft scenarios: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch draft scenarios: {str(e)}")
+
+@app.delete("/api/scenarios/unique/{unique_id}")
+async def delete_scenario_by_unique_id(
+    unique_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a scenario by unique_id (draft or published)"""
+    try:
+        # Find the scenario by unique_id
+        scenario = db.query(Scenario).filter(
+            Scenario.unique_id == unique_id,
+            Scenario.created_by == current_user.id
+        ).first()
+        
+        if not scenario:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+        
+        # If this is a published scenario, first update any drafts that reference it
+        if not scenario.is_draft:
+            draft_scenarios = db.query(Scenario).filter(
+                Scenario.published_version_id == scenario_id
+            ).all()
+            for draft in draft_scenarios:
+                draft.published_version_id = None
+                draft.status = "draft"  # Ensure it stays as draft
+                db.add(draft)
+            db.commit()
+        elif scenario.is_draft and scenario.published_version_id:
+            published_scenario = db.query(Scenario).filter(
+                Scenario.id == scenario.published_version_id
+            ).first()
+            if published_scenario:
+                db.delete(published_scenario)
+                db.commit()
+        
+        # Get all related IDs first (for the main scenario being deleted)
+        scenario_id = scenario.id  # Get the integer ID for cleanup operations
+        scene_ids = [id for (id,) in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario_id).all()]
+        persona_ids = [id for (id,) in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario_id).all()]
+        
+        # Clear references in user_progress and conversation_logs
+        from database.models import UserProgress, ConversationLog
+        db.query(UserProgress).filter(UserProgress.current_scene_id.in_(scene_ids)).update({UserProgress.current_scene_id: None}, synchronize_session=False)
+        db.query(ConversationLog).filter(ConversationLog.scene_id.in_(scene_ids)).delete()
+        db.query(ConversationLog).filter(ConversationLog.persona_id.in_(persona_ids)).delete()
+        
+        # Delete scene-persona relationships
+        from database.models import scene_personas
+        db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(scene_ids)))
+        
+        # Delete related records
+        db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == scenario_id).delete()
+        db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario_id).delete()
+        db.query(ScenarioFile).filter(ScenarioFile.scenario_id == scenario_id).delete()
+        db.query(ScenarioReview).filter(ScenarioReview.scenario_id == scenario_id).delete()
+        
+        # Delete the scenario itself
+        db.delete(scenario)
+        db.commit()
+        
+        return {"status": "success", "message": f"Scenario {unique_id} deleted."}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting scenario {unique_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete scenario: {str(e)}")
+
+@app.delete("/api/scenarios/drafts/{scenario_id}")
+async def delete_draft_scenario(
+    scenario_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a draft scenario"""
+    try:
+        # Find the draft scenario
+        scenario = db.query(Scenario).filter(
+            Scenario.id == scenario_id,
+            Scenario.created_by == current_user.id,
+            Scenario.is_draft == True
+        ).first()
+        
+        if not scenario:
+            raise HTTPException(status_code=404, detail="Draft scenario not found")
+        
+        # Check if it has a published version and handle it
+        if scenario.published_version_id:
+            # Find the published version
+            published_scenario = db.query(Scenario).filter(
+                Scenario.id == scenario.published_version_id
+            ).first()
+            
+            if published_scenario:
+                # Delete the published version first
+                print(f"[DEBUG] Deleting published version {published_scenario.id} first")
+                
+                # Get all related IDs for the published scenario
+                pub_scene_ids = [id for (id,) in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == published_scenario.id).all()]
+                pub_persona_ids = [id for (id,) in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == published_scenario.id).all()]
+                
+                # Clear references for published scenario
+                db.query(UserProgress).filter(
+                    UserProgress.current_scene_id.in_(pub_scene_ids)
+                ).update({UserProgress.current_scene_id: None}, synchronize_session=False)
+                
+                db.query(ConversationLog).filter(
+                    ConversationLog.scene_id.in_(pub_scene_ids)
+                ).delete()
+                
+                db.query(ConversationLog).filter(
+                    ConversationLog.persona_id.in_(pub_persona_ids)
+                ).delete()
+                
+                # Delete scene-persona relationships for published scenario
+                db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(pub_scene_ids)))
+                
+                # Delete published scenario records
+                db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == published_scenario.id).delete()
+                db.query(ScenarioScene).filter(ScenarioScene.scenario_id == published_scenario.id).delete()
+                db.delete(published_scenario)
+                
+                print(f"[DEBUG] Deleted published version {published_scenario.id}")
+            
+            # Clear the reference from the draft
+            scenario.published_version_id = None
+        
+        # Delete related records first
+        # Get all scene IDs for this scenario
+        scene_ids = db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario.id).all()
+        scene_id_list = [s[0] for s in scene_ids]
+        
+        # Get all persona IDs for this scenario
+        persona_ids = db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario.id).all()
+        persona_id_list = [p[0] for p in persona_ids]
+        
+        # For draft scenarios, we can be more aggressive with deletion
+        # since they shouldn't have user progress or conversation logs yet
+        from database.models import UserProgress, ConversationLog
+        
+        # Clear current_scene_id references in user_progress
+        db.query(UserProgress).filter(
+            UserProgress.current_scene_id.in_(scene_id_list)
+        ).update({UserProgress.current_scene_id: None}, synchronize_session=False)
+        
+        # Delete conversation logs that reference these scenes
+        db.query(ConversationLog).filter(
+            ConversationLog.scene_id.in_(scene_id_list)
+        ).delete()
+        
+        # Delete conversation logs that reference these personas
+        db.query(ConversationLog).filter(
+            ConversationLog.persona_id.in_(persona_id_list)
+        ).delete()
+        
+        print(f"[DEBUG] Cleared references for {len(scene_id_list)} scenes and {len(persona_id_list)} personas")
+        
+        # Delete all scene-persona relationships for this scenario
+        db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(scene_id_list)))
+        
+        # Delete all personas for this scenario
+        db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == scenario.id).delete()
+        
+        # Delete all scenes for this scenario
+        db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario.id).delete()
+        
+        # Delete the scenario itself
+        db.delete(scenario)
+        db.commit()
+        
+        return {
+            "message": f"Draft scenario '{scenario.title}' deleted successfully",
+            "deleted_id": scenario_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Failed to delete draft scenario: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete draft scenario: {str(e)}")
+
+@app.get("/api/scenarios/drafts/{scenario_id}")
+async def get_draft_scenario(
+    scenario_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get a specific draft scenario for editing"""
+    try:
+        scenario = db.query(Scenario).filter(
+            Scenario.id == scenario_id,
+            Scenario.created_by == current_user.id,
+            Scenario.is_draft == True
+        ).first()
+        
+        if not scenario:
+            raise HTTPException(status_code=404, detail="Draft scenario not found")
+        
+        # Get personas for this scenario
+        personas = db.query(ScenarioPersona).filter(
+            ScenarioPersona.scenario_id == scenario.id
+        ).all()
+        
+        # Get scenes for this scenario
+        scenes = db.query(ScenarioScene).filter(
+            ScenarioScene.scenario_id == scenario.id
+        ).order_by(ScenarioScene.scene_order).all()
+        
+        # Get scene-persona relationships for each scene
+        scene_persona_relationships = {}
+        for scene in scenes:
+            relationships = db.query(scene_personas).filter(
+                scene_personas.c.scene_id == scene.id
+            ).all()
+            scene_persona_relationships[scene.id] = relationships
+        
+        scenario_data = {
+            "id": scenario.id,
+            "title": scenario.title,
+            "description": scenario.description,
+            "challenge": scenario.challenge,
+            "industry": scenario.industry,
+            "learning_objectives": scenario.learning_objectives or [],
+            "student_role": scenario.student_role,
+            "status": scenario.status,
+            "is_draft": scenario.is_draft,
+            "published_version_id": scenario.published_version_id,
+            "created_at": scenario.created_at.isoformat() if scenario.created_at else None,
+            "is_public": scenario.is_public,
+            "personas": [
+                {
+                    "id": persona.id,
+                    "name": persona.name,
+                    "role": persona.role,
+                    "background": persona.background,
+                    "correlation": persona.correlation,
+                    "primary_goals": persona.primary_goals or [],
+                    "personality_traits": persona.personality_traits or {}
+                }
+                for persona in personas
+            ],
+            "scenes": [
+                {
+                    "id": scene.id,
+                    "title": scene.title,
+                    "description": scene.description,
+                    "user_goal": scene.user_goal,
+                    "scene_order": scene.scene_order,
+                    "estimated_duration": scene.estimated_duration,
+                    "image_url": scene.image_url,
+                    "timeout_turns": scene.timeout_turns,
+                    "success_metric": scene.success_metric,
+                    "personas_involved": [
+                        persona.name for persona in personas 
+                        if any(rel.persona_id == persona.id for rel in scene_persona_relationships.get(scene.id, []))
+                    ],
+                    "created_at": scene.created_at.isoformat() if scene.created_at else None,
+                    "updated_at": scene.updated_at.isoformat() if scene.updated_at else None,
+                    "personas": [
+                        {
+                            "id": persona.id,
+                            "scenario_id": persona.scenario_id,
+                            "name": persona.name,
+                            "role": persona.role,
+                            "background": persona.background,
+                            "correlation": persona.correlation,
+                            "primary_goals": persona.primary_goals or [],
+                            "personality_traits": persona.personality_traits or {},
+                            "created_at": persona.created_at.isoformat() if persona.created_at else None,
+                            "updated_at": persona.updated_at.isoformat() if persona.updated_at else None
+                        }
+                        for persona in personas 
+                        if any(rel.persona_id == persona.id for rel in scene_persona_relationships.get(scene.id, []))
+                    ]
+                }
+                for scene in scenes
+            ]
+        }
+        
+        return scenario_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch draft scenario: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch draft scenario: {str(e)}")
+
+@app.put("/api/scenarios/{scenario_id}/status")
+async def update_scenario_status(
+    scenario_id: int,
+    status_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update scenario status (draft/active/archived)"""
+    try:
+        scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+        if not scenario:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+        
+        # Check ownership
+        if scenario.created_by != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to update this scenario")
+        
+        # Validate status
+        new_status = status_data.get("status")
+        if new_status not in ["draft", "active"]:
+            raise HTTPException(status_code=400, detail="Invalid status. Must be 'draft' or 'active'")
+        
+        # Update status and is_draft field
+        scenario.status = new_status
+        scenario.updated_at = datetime.utcnow()
+        
+        # Update is_draft field based on status
+        if new_status == "draft":
+            scenario.is_draft = True
+            scenario.is_public = False
+        elif new_status == "active":
+            scenario.is_draft = False
+            scenario.is_public = True
+        
+        db.commit()
+        db.refresh(scenario)
+        
+        return {
+            "id": scenario.id,
+            "status": scenario.status,
+            "is_draft": scenario.is_draft,
+            "is_public": scenario.is_public,
+            "updated_at": scenario.updated_at.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Failed to update scenario status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update scenario status: {str(e)}")
 
 # --- USER AUTHENTICATION & MANAGEMENT ---
 @app.post("/users/register", response_model=UserResponse)

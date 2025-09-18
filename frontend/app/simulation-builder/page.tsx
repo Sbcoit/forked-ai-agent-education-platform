@@ -148,6 +148,137 @@ export default function ScenarioBuilder() {
      router.push("/")
    }
  }, [user, authLoading, router])
+
+ // Load draft data if editing
+ useEffect(() => {
+   const loadDraftData = async () => {
+     try {
+       // Check if we're editing a draft by looking at URL parameters
+       const urlParams = new URLSearchParams(window.location.search)
+       const editId = urlParams.get('edit')
+       
+       if (editId) {
+         console.log("Loading draft data for editing ID:", editId)
+         
+         // Fetch draft data directly from the database
+         const draftData = await apiClient.getDraftScenario(parseInt(editId))
+         console.log("Fetched draft data:", draftData)
+         
+         if (draftData && draftData.id) {
+           // Load the draft data into the form
+           setName(draftData.title || "")
+           setDescription(draftData.description || "")
+           
+           // Handle learning objectives - check if it's an array or string
+           if (Array.isArray(draftData.learning_objectives)) {
+             setLearningOutcomes(draftData.learning_objectives.join("\n"))
+           } else if (typeof draftData.learning_objectives === 'string') {
+             setLearningOutcomes(draftData.learning_objectives)
+           } else {
+             setLearningOutcomes("")
+           }
+           
+           // Load scenes first to extract personas
+           if (draftData.scenes && draftData.scenes.length > 0) {
+             // Transform scenes to ensure they have the correct structure for SceneCard
+             const transformedScenes = draftData.scenes.map((scene: any) => ({
+               ...scene,
+               sequence_order: scene.scene_order, // Map scene_order to sequence_order for compatibility
+               successMetric: scene.success_metric, // Map success_metric to successMetric for compatibility
+               // Ensure personas_involved is an array of names
+               personas_involved: scene.personas_involved || []
+             }))
+             setScenes(transformedScenes)
+             
+             // Extract all unique personas from scenes (these have the full data)
+             const allScenePersonas: any[] = []
+             const seenPersonaIds = new Set()
+             
+             draftData.scenes.forEach((scene: any) => {
+               if (scene.personas && scene.personas.length > 0) {
+                 scene.personas.forEach((persona: any) => {
+                   if (!seenPersonaIds.has(persona.id)) {
+                     seenPersonaIds.add(persona.id)
+                     allScenePersonas.push(persona)
+                   }
+                 })
+               }
+             })
+             
+             // Use scene personas if available, otherwise fall back to global personas
+             if (allScenePersonas.length > 0) {
+               console.log("Using scene personas:", JSON.stringify(allScenePersonas, null, 2))
+               // Transform personas to match PersonaCard expected structure
+               const transformedPersonas = allScenePersonas.map((persona: any) => ({
+                 name: persona.name,
+                 position: persona.role,
+                 description: persona.background,
+                 primaryGoals: Array.isArray(persona.primary_goals) ? persona.primary_goals.join(", ") : persona.primary_goals || "",
+                 traits: persona.personality_traits || {},
+                 imageUrl: persona.image_url
+               }))
+               console.log("Transformed scene personas:", JSON.stringify(transformedPersonas, null, 2))
+               setPersonas(transformedPersonas)
+             } else if (draftData.personas && draftData.personas.length > 0) {
+               console.log("Using global personas:", draftData.personas)
+               // Transform global personas to match PersonaCard expected structure
+               const transformedPersonas = draftData.personas.map((persona: any) => ({
+                 name: persona.name,
+                 position: persona.role,
+                 description: persona.background,
+                 primaryGoals: Array.isArray(persona.primary_goals) ? persona.primary_goals.join(", ") : persona.primary_goals || "",
+                 traits: persona.personality_traits || {},
+                 imageUrl: persona.image_url
+               }))
+               console.log("Transformed global personas:", JSON.stringify(transformedPersonas, null, 2))
+               setPersonas(transformedPersonas)
+             }
+           } else {
+             // Load personas from global data if no scenes
+             if (draftData.personas && draftData.personas.length > 0) {
+               // Transform global personas to match PersonaCard expected structure
+               const transformedPersonas = draftData.personas.map((persona: any) => ({
+                 name: persona.name,
+                 position: persona.role,
+                 description: persona.background,
+                 primaryGoals: Array.isArray(persona.primary_goals) ? persona.primary_goals.join(", ") : persona.primary_goals || "",
+                 traits: persona.personality_traits || {},
+                 imageUrl: persona.image_url
+               }))
+               setPersonas(transformedPersonas)
+             }
+           }
+           
+           // Set the saved scenario ID for updating
+           setSavedScenarioId(draftData.id)
+           setIsSaved(true) // Mark as already saved
+           
+           console.log("Draft data loaded successfully")
+         } else {
+           throw new Error("Invalid draft data received")
+         }
+       } else if (!editId) {
+         console.log("No draft ID found - creating new simulation")
+         // Ensure form is clean for new simulation
+         setName("")
+         setDescription("")
+         setLearningOutcomes("")
+         setPersonas([])
+         setScenes([])
+         setSavedScenarioId(null)
+         setIsSaved(false)
+       }
+     } catch (error) {
+       console.error("Failed to load draft data:", error)
+       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+       alert(`Failed to load draft simulation: ${errorMessage}`)
+     }
+   }
+
+   if (user && !authLoading) {
+     loadDraftData()
+   }
+ }, [user, authLoading])
  
  // Show loading while auth is being checked
  if (authLoading) {
@@ -174,23 +305,37 @@ export default function ScenarioBuilder() {
 
  // Save and Publish handlers
  const handleSave = async (): Promise<number | null> => {
-   if (!autofillResult) {
-     alert("No scenario data to save. Please upload and process a PDF first.");
+   // Prevent duplicate save requests
+   if (isSaving) {
+     console.log("[DEBUG] Save already in progress, ignoring duplicate request")
+     return null;
+   }
+   
+   // Allow saving if we have form data OR autofillResult
+   if (!autofillResult && !name && !description && !learningOutcomes && personas.length === 0 && scenes.length === 0) {
+     alert("No scenario data to save. Please upload and process a PDF first or create a scenario manually.");
      return null;
    }
 
-   // Build payload using only the latest user-edited state
-   const payload = {
-     // Only copy non-scene/persona fields from autofillResult
-     title: name || autofillResult.title,
-     description: description || autofillResult.description,
-     learning_outcomes: learningOutcomes || autofillResult.learning_outcomes,
-     student_role: autofillResult.student_role,
-     key_figures: autofillResult.key_figures,
-     // Use the latest scenes and personas state
-     scenes: normalizeScenes(scenes),
-     personas,
-   };
+  // Build payload using the latest user-edited state
+  const payload = {
+    // Use form data first, fallback to autofillResult if available
+    title: name || (autofillResult?.title || ""),
+    description: description || (autofillResult?.description || ""),
+    learning_outcomes: learningOutcomes || (autofillResult?.learning_outcomes || ""),
+    student_role: autofillResult?.student_role || "",
+    key_figures: autofillResult?.key_figures || [],
+    // Use the latest scenes and personas state
+    scenes: normalizeScenes(scenes),
+    // Map frontend persona fields to backend expected fields
+    personas: personas.map(persona => ({
+      ...persona,
+      role: persona.position,        // Map position → role
+      background: persona.description, // Map description → background
+      primary_goals: persona.primaryGoals, // Map primaryGoals → primary_goals
+      personality_traits: persona.traits  // Map traits → personality_traits
+    })),
+  };
 
   // Debug log to check scenes state before saving
   console.log("Scenes state before save:", scenes);
@@ -200,6 +345,9 @@ export default function ScenarioBuilder() {
   personas.forEach((persona, index) => {
     console.log(`[DEBUG] Persona ${index} (${persona.name}) traits being sent:`, persona.traits);
   });
+  
+  // Debug: Log the full payload structure
+  console.log("Full payload being sent:", JSON.stringify(payload, null, 2));
 
    setIsSaving(true);
    try {
@@ -214,6 +362,9 @@ export default function ScenarioBuilder() {
      const endpoint = savedScenarioId 
        ? `/api/scenarios/save?scenario_id=${savedScenarioId}`
        : "/api/scenarios/save";
+     
+     console.log("[DEBUG] Save endpoint:", endpoint)
+     console.log("[DEBUG] savedScenarioId:", savedScenarioId)
      
      const response = await apiClient.apiRequest(endpoint, {
        method: "POST",
@@ -239,7 +390,8 @@ export default function ScenarioBuilder() {
      }
    } catch (error) {
      console.error("Error saving scenario:", error);
-     alert("Error saving scenario. Please try again.");
+     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+     alert(`Error saving scenario: ${errorMessage}`);
      return null;
    } finally {
      setIsSaving(false);
@@ -247,7 +399,8 @@ export default function ScenarioBuilder() {
  };
 
  const handlePublish = async () => {
-   if (!autofillResult) {
+   // Check if we have scenario data (either from autofill or from draft editing)
+   if (!autofillResult && !isSaved) {
      alert("No scenario data to publish. Please save the scenario first.");
      return;
    }
@@ -267,7 +420,7 @@ export default function ScenarioBuilder() {
      
      // Actually publish the scenario
      const publishData = {
-       category: autofillResult.industry || "Business",
+       category: autofillResult?.industry || "Business",
        difficulty_level: "Intermediate",
        tags: ["case-study", "management", "teamwork"],
        estimated_duration: 60
@@ -1152,6 +1305,7 @@ const handleAutofillWithTeachingNotes = async () => {
      setPersonas(personas => personas.map((p, i) => i === idx ? { ...p, traits: { ...newTraits } } : p));
      console.log(`[DEBUG] SimulationBuilder: Updated persona ${idx} traits`);
    }
+   markAsUnsaved(); // Mark as unsaved when traits change
  };
 
 
@@ -1170,6 +1324,7 @@ const handleAutofillWithTeachingNotes = async () => {
      setPersonas(personas => personas.map((p, i) => i === idx ? { ...updatedPersona } : p));
    }
    setEditingIdx(null);
+   markAsUnsaved(); // Mark as unsaved when persona is saved/updated
  };
 
 
@@ -1184,6 +1339,7 @@ const handleAutofillWithTeachingNotes = async () => {
      setPersonas(personas => personas.filter((_, i) => i !== idx));
    }
    setEditingIdx(null);
+   markAsUnsaved(); // Mark as unsaved when persona is deleted
  };
 
  // Scene management handlers
@@ -1196,11 +1352,13 @@ const handleAutofillWithTeachingNotes = async () => {
      return s;
    }));
    setEditingSceneIdx(null);
+   markAsUnsaved(); // Mark as unsaved when scene is saved/updated
  };
 
  const handleDeleteScene = (idx: number) => {
    setScenes(scenes => scenes.filter((_, i) => i !== idx));
    setEditingSceneIdx(null);
+   markAsUnsaved(); // Mark as unsaved when scene is deleted
 };
 
 // Debug logging for personas
@@ -1637,7 +1795,7 @@ return (
                                    onSave={updatedScene => handleSaveScene(originalIdx, updatedScene)}
                                    onDelete={() => handleDeleteScene(originalIdx)}
                                    editMode={false}
-                                   allPersonas={[...personas, ...tempPersonas]}
+                                   allPersonas={personas}
                                    studentRole={autofillResult?.student_role || ""}
                                  />
                                </div>
@@ -1689,3 +1847,5 @@ return (
    </div>
  )
 }
+
+

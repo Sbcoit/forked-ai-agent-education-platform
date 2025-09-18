@@ -28,6 +28,7 @@ import Sidebar from "@/components/Sidebar"
 // Types aligned with backend database schema
 interface Scenario {
   id: number
+  unique_id: string
   title: string
   description: string
   challenge: string
@@ -193,7 +194,7 @@ const ScenarioSelector = ({
                   <div className="flex items-center gap-2 mb-2">
                     <h3 className="font-semibold">{scenario.title}</h3>
                     {scenario.is_public && (
-                      <Badge variant="secondary" className="text-xs">Public</Badge>
+                      <Badge variant="secondary" className="text-xs bg-green-100 text-green-800">Active</Badge>
                     )}
                   </div>
                   
@@ -219,7 +220,7 @@ const ScenarioSelector = ({
                 
                 <div className="ml-4 flex flex-col items-end gap-2">
                   <Badge variant="outline" className="text-xs">
-                    ID: {scenario.id}
+                    ID: {scenario.unique_id || scenario.id}
                   </Badge>
                   <Button
                     size="sm"
@@ -228,9 +229,9 @@ const ScenarioSelector = ({
                       e.stopPropagation();
                       if (!window.confirm(`Delete scenario '${scenario.title}'? This cannot be undone.`)) return;
                       try {
-                        const res = await apiClient.apiRequest(`/api/scenarios/${scenario.id}`, { method: 'DELETE' });
+                        const res = await apiClient.apiRequest(`/api/scenarios/unique/${scenario.unique_id}`, { method: 'DELETE' });
                         if (!res.ok) throw new Error('Failed to delete');
-                        setScenarios(scenarios => scenarios.filter(s => s.id !== scenario.id));
+                        setScenarios(scenarios => scenarios.filter(s => s.unique_id !== scenario.unique_id));
                         if (selectedScenario === scenario.id) setSelectedScenario(null);
                       } catch (err) {
                         alert('Failed to delete scenario.');
@@ -279,7 +280,7 @@ const SceneProgress = ({
     <Card className="mb-4">
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="font-semibold text-sm">Scene Progress</h3>
+          <h3 className="font-semibold text-sm">Simulation Progress</h3>
           <span className="text-xs text-gray-500">
             Scene {currentScene} of {totalScenes}
           </span>

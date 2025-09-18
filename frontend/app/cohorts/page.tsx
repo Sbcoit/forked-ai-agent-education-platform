@@ -15,7 +15,14 @@ import {
   BookOpen,
   LogOut,
   X,
-  ChevronDown
+  ChevronDown,
+  Trash2,
+  ArrowLeft,
+  Copy,
+  Settings,
+  CheckCircle,
+  Clock,
+  MoreVertical
 } from "lucide-react"
 import Sidebar from "@/components/Sidebar"
 import { useAuth } from "@/lib/auth-context"
@@ -47,9 +54,21 @@ export default function Cohorts() {
     maxStudents: "",
     autoApprove: true,
     allowSelfEnrollment: false,
-    tags: [] as string[]
+    tags: [] as string[] // Array for tags
   })
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [cohortToDelete, setCohortToDelete] = useState<any>(null)
   const [showTagDropdown, setShowTagDropdown] = useState(false)
+  
+  // State for inline cohort details
+  const [selectedCohort, setSelectedCohort] = useState<any>(null)
+  const [cohortDetails, setCohortDetails] = useState<any>(null)
+  const [cohortStudents, setCohortStudents] = useState<any[]>([])
+  const [cohortSimulations, setCohortSimulations] = useState<any[]>([])
+  const [loadingDetails, setLoadingDetails] = useState(false)
+  const [activeTab, setActiveTab] = useState('students')
+  const [studentSearchTerm, setStudentSearchTerm] = useState('')
+  const [studentFilter, setStudentFilter] = useState('all')
   
   // Fetch cohorts data on component mount
   useEffect(() => {
@@ -138,13 +157,11 @@ export default function Cohorts() {
     }))
   }
 
-  const handleAddTag = (tag: string) => {
-    if (!formData.tags.includes(tag)) {
+  const handleSelectTag = (tag: string) => {
       setFormData(prev => ({
         ...prev,
-        tags: [...prev.tags, tag]
+      tags: [tag] // Only allow one tag at a time
       }))
-    }
     setShowTagDropdown(false)
   }
 
@@ -153,6 +170,36 @@ export default function Cohorts() {
       ...prev,
       tags: prev.tags.filter(tag => tag !== tagToRemove)
     }))
+  }
+
+  const handleCohortClick = async (cohort: any) => {
+    try {
+      setLoadingDetails(true)
+      setSelectedCohort(cohort)
+      
+      // Fetch detailed cohort data
+      const [details, students, simulations] = await Promise.all([
+        apiClient.getCohort(cohort.unique_id || cohort.id),
+        apiClient.getCohortStudents(cohort.unique_id || cohort.id).catch(() => []),
+        apiClient.getCohortSimulations(cohort.unique_id || cohort.id).catch(() => [])
+      ])
+      
+      setCohortDetails(details)
+      setCohortStudents(students)
+      setCohortSimulations(simulations)
+    } catch (err) {
+      console.error('Error fetching cohort details:', err)
+      setError('Failed to load cohort details')
+    } finally {
+      setLoadingDetails(false)
+    }
+  }
+
+  const handleBackToList = () => {
+    setSelectedCohort(null)
+    setCohortDetails(null)
+    setCohortStudents([])
+    setCohortSimulations([])
   }
 
   const handleCreateCohort = async () => {
@@ -165,8 +212,29 @@ export default function Cohorts() {
     try {
       setLoading(true)
       setError(null) // Clear any previous errors
-      const newCohort = await apiClient.createCohort(formData)
-      setCohorts(prev => [...prev, newCohort])
+      
+      // Transform form data to match backend schema
+      const cohortData = {
+        title: formData.cohortName,
+        description: formData.description || null,
+        course_code: formData.courseCode || null,
+        semester: formData.semester || null,
+        year: formData.year ? parseInt(formData.year) : null,
+        max_students: formData.maxStudents ? parseInt(formData.maxStudents) : null,
+        auto_approve: formData.autoApprove,
+        allow_self_enrollment: formData.allowSelfEnrollment
+      }
+      
+      const newCohort = await apiClient.createCohort(cohortData)
+      
+      // Add the new cohort with proper counts (they start at 0)
+      const cohortWithCounts = {
+        ...newCohort,
+        student_count: 0,
+        simulation_count: 0
+      }
+      
+      setCohorts(prev => [...prev, cohortWithCounts])
       
       // Reset form and close modal
       setFormData({
@@ -209,19 +277,44 @@ export default function Cohorts() {
     })
   }
 
+  const handleDeleteCohort = async () => {
+    if (!cohortToDelete) return
+    
+    try {
+      setLoading(true)
+      setError(null)
+      await apiClient.deleteCohort(cohortToDelete.unique_id || cohortToDelete.id.toString())
+      setCohorts(prev => prev.filter(cohort => cohort.id !== cohortToDelete.id))
+      setShowDeleteModal(false)
+      setCohortToDelete(null)
+    } catch (err) {
+      console.error('Error deleting cohort:', err)
+      setError(err instanceof Error ? err.message : 'Failed to delete cohort')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDeleteClick = (cohort: any, e: React.MouseEvent) => {
+    e.preventDefault() // Prevent Link navigation
+    e.stopPropagation() // Stop event bubbling
+    setCohortToDelete(cohort)
+    setShowDeleteModal(true)
+  }
+
   // Filter cohorts based on active filter and search term
   const filteredCohorts = cohorts.filter(cohort => {
     const matchesSearch = cohort.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         cohort.description.toLowerCase().includes(searchTerm.toLowerCase())
+                         (cohort.description && cohort.description.toLowerCase().includes(searchTerm.toLowerCase()))
     
     if (activeFilter === "All") {
       return matchesSearch
     } else if (activeFilter === "Active") {
-      return cohort.status === "Active" && matchesSearch
+      return cohort.is_active && matchesSearch
     } else if (activeFilter === "Draft") {
-      return cohort.status === "Draft" && matchesSearch
+      return !cohort.is_active && matchesSearch
     } else if (activeFilter === "Archived") {
-      return cohort.status === "Archived" && matchesSearch
+      return !cohort.is_active && matchesSearch
     }
     return matchesSearch
   })
@@ -229,9 +322,9 @@ export default function Cohorts() {
   // Count cohorts by status
   const cohortCounts = {
     "All": cohorts.length,
-    "Active": cohorts.filter(c => c.status === "Active").length,
-    "Draft": cohorts.filter(c => c.status === "Draft").length,
-    "Archived": cohorts.filter(c => c.status === "Archived").length
+    "Active": cohorts.filter(c => c.is_active).length,
+    "Draft": cohorts.filter(c => !c.is_active).length,
+    "Archived": cohorts.filter(c => !c.is_active).length
   }
 
   return (
@@ -304,57 +397,371 @@ export default function Cohorts() {
           </div>
 
           {/* Cohort Listings */}
-          <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
-            <div className="space-y-4">
+          <div className="flex-1 overflow-y-auto p-3 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
+            <div className="space-y-3">
               {filteredCohorts.map((cohort) => (
-                <Link key={cohort.id} href={`/cohorts/${cohort.id}`}>
-                  <div className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer">
-                    <div className="flex items-start justify-between mb-2">
-                      <h3 className="text-sm font-semibold text-gray-900 leading-tight">
+                <div 
+                  key={cohort.id} 
+                  onClick={() => handleCohortClick(cohort)}
+                  className={`bg-white border rounded-lg p-5 hover:shadow-lg transition-all duration-200 cursor-pointer ${
+                    selectedCohort?.id === cohort.id 
+                      ? 'border-gray-400 bg-gray-50 shadow-md' 
+                      : 'border-gray-200'
+                  }`}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-gray-900 leading-tight hover:text-gray-700 mb-1">
                         {cohort.title}
                       </h3>
-                      <Badge className={`ml-2 text-xs ${cohort.statusColor}`}>
-                        {cohort.status}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Badge className={`text-xs px-2 py-1 rounded-full transition-colors duration-200 ${
+                        cohort.is_active 
+                          ? 'bg-green-100 text-green-700 hover:bg-black hover:text-white' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-black hover:text-white'
+                      }`}>
+                        {cohort.is_active ? 'Active' : 'Inactive'}
                       </Badge>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteClick(cohort, e)
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                        title="Delete cohort"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                     </div>
                     
-                    <p className="text-xs text-gray-600 mb-3 leading-relaxed">
-                      {cohort.description}
+                  <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+                    {cohort.description || 'No description provided'}
                     </p>
                     
-                    {/* Stats */}
-                    <div className="flex items-center space-x-4 text-xs text-gray-600 mb-2">
+                  {/* Stats and Date Row */}
+                  <div className="flex items-center justify-between text-sm text-gray-600 mb-3">
+                    <div className="flex items-center space-x-4">
                       <div className="flex items-center">
-                        <Users className="h-3 w-3 mr-1" />
-                        {cohort.students}
+                        <Users className="h-4 w-4 mr-1.5" />
+                        <span className="font-medium">{cohort.student_count || 0}</span>
                       </div>
                       <div className="flex items-center">
-                        <BookOpen className="h-3 w-3 mr-1" />
-                        {cohort.simulations}
+                        <BookOpen className="h-4 w-4 mr-1.5" />
+                        <span className="font-medium">{cohort.simulation_count || 0}</span>
                       </div>
                     </div>
-                    
-                    {/* Date */}
-                    <div className="flex items-center text-xs text-gray-600 mb-2">
-                      <Calendar className="h-3 w-3 mr-1" />
-                      {cohort.date}
+                    <div className="flex items-center">
+                      <Calendar className="h-4 w-4 mr-1.5" />
+                      <span>{new Date(cohort.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    </div>
                     </div>
                     
                     {/* ID */}
-                    <div className="text-xs text-gray-500">
-                      ID: {cohort.id}
+                  <div className="text-xs text-gray-500 font-mono hover:bg-black hover:text-white px-2 py-1 rounded transition-colors duration-200 cursor-pointer">
+                    ID: {cohort.unique_id || cohort.id}
                     </div>
                   </div>
-                </Link>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Main Content Area - Empty State - Fixed Position */}
-        <div className="flex-1 bg-white flex items-center justify-center p-8 h-full">
-          <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-8 max-w-xl w-full flex flex-col justify-center">
-            <div className="text-center">
+        {/* Main Content Area - Cohort Details or Empty State */}
+        <div className="flex-1 bg-white h-full">
+          {selectedCohort && cohortDetails ? (
+            <div className="h-full overflow-y-auto p-8">
+              {/* Back Button */}
+              <div className="mb-6">
+                <button
+                  onClick={handleBackToList}
+                  className="inline-flex items-center text-sm text-gray-600 hover:text-black transition-colors"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Cohorts
+                </button>
+              </div>
+
+              {/* Cohort Header */}
+              <div className="mb-8">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h2 className="text-2xl font-bold text-black mb-2">{cohortDetails.title}</h2>
+                    <p className="text-gray-600 mb-4">{cohortDetails.description || 'No description provided'}</p>
+                    
+                    <div className="flex items-center space-x-4">
+                      <Badge className="bg-gray-100 text-gray-700 text-xs px-2 py-1 hover:bg-black hover:text-white transition-colors duration-200 cursor-pointer">
+                        ID: {cohortDetails.unique_id || cohortDetails.id}
+                      </Badge>
+                      <Badge className={`text-xs px-2 py-1 transition-colors duration-200 ${
+                        cohortDetails.is_active 
+                          ? 'bg-green-100 text-green-700 hover:bg-black hover:text-white' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-black hover:text-white'
+                      }`}>
+                        {cohortDetails.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                      <span className="text-sm text-gray-600">
+                        Created {new Date(cohortDetails.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center space-x-3">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const inviteLink = `${window.location.origin}/cohorts/${cohortDetails.unique_id || cohortDetails.id}/join`;
+                        navigator.clipboard.writeText(inviteLink);
+                      }}
+                      className="border-gray-300 text-gray-700 hover:bg-gray-50"
+                    >
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy Invite Link
+                    </Button>
+                    <Button 
+                      size="sm"
+                      className="bg-black text-white hover:bg-gray-800"
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Invite Students
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      className="text-gray-600 hover:text-black"
+                    >
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Metrics Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                {/* Total Students */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center h-full">
+                    {/* Left Section - Icon */}
+                    <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
+                      <Users className="h-6 w-6 text-blue-600" />
+                    </div>
+                    {/* Right Section - Text Stack */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-600 truncate hover:whitespace-normal hover:overflow-visible transition-all duration-200">Total Students</div>
+                      <div className="text-2xl font-bold text-gray-900 truncate hover:whitespace-normal hover:overflow-visible transition-all duration-200">{cohortStudents?.length || 0}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Active Students */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center h-full">
+                    {/* Left Section - Icon */}
+                    <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
+                      <CheckCircle className="h-6 w-6 text-green-600" />
+                    </div>
+                    {/* Right Section - Text Stack */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-600 truncate hover:whitespace-normal hover:overflow-visible transition-all duration-200">Active Students</div>
+                      <div className="text-2xl font-bold text-gray-900 truncate hover:whitespace-normal hover:overflow-visible transition-all duration-200">
+                        {cohortStudents?.filter(student => student.status === 'approved').length || 0}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Simulations */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center h-full">
+                    {/* Left Section - Icon */}
+                    <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
+                      <BookOpen className="h-6 w-6 text-purple-600" />
+                    </div>
+                    {/* Right Section - Text Stack */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-600 truncate hover:whitespace-normal hover:overflow-visible transition-all duration-200">Simulations</div>
+                      <div className="text-2xl font-bold text-gray-900 truncate hover:whitespace-normal hover:overflow-visible transition-all duration-200">{cohortSimulations?.length || 0}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Avg. Completion */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <div className="flex items-center h-full">
+                    {/* Left Section - Icon */}
+                    <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
+                      <Clock className="h-6 w-6 text-orange-600" />
+                    </div>
+                    {/* Right Section - Text Stack */}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-gray-600 truncate hover:whitespace-normal hover:overflow-visible transition-all duration-200">Avg. Completion</div>
+                      <div className="text-2xl font-bold text-gray-900 truncate hover:whitespace-normal hover:overflow-visible transition-all duration-200">
+                        {cohortStudents?.length > 0 
+                          ? Math.round((cohortStudents.filter(student => student.status === 'approved').length / cohortStudents.length) * 100) 
+                          : 0}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tabs Navigation */}
+              <div className="border-b border-gray-200 mb-6">
+                <nav className="-mb-px flex space-x-8">
+                  {[
+                    { id: 'students', label: 'Students' },
+                    { id: 'simulations', label: 'Simulations' },
+                    { id: 'analytics', label: 'Analytics' },
+                    { id: 'settings', label: 'Settings' }
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                        activeTab === tab.id
+                          ? 'border-black text-black'
+                          : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+
+              {/* Tab Content */}
+              {activeTab === 'students' && (
+                <div>
+                  {/* Search and Filter */}
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="relative flex-1 max-w-md">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Search students..."
+                        value={studentSearchTerm}
+                        onChange={(e) => setStudentSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-black focus:border-transparent"
+                      />
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Filter className="h-4 w-4 text-gray-400" />
+                      <select
+                        value={studentFilter}
+                        onChange={(e) => setStudentFilter(e.target.value)}
+                        className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-black focus:border-transparent"
+                      >
+                        <option value="all">All Students</option>
+                        <option value="active">Active</option>
+                        <option value="pending">Pending</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Student List */}
+                  <div className="space-y-3">
+                    {cohortStudents?.filter(student => {
+                      const matchesSearch = student.student_name.toLowerCase().includes(studentSearchTerm.toLowerCase()) ||
+                                           student.student_email.toLowerCase().includes(studentSearchTerm.toLowerCase())
+                      
+                      if (studentFilter === 'all') return matchesSearch
+                      if (studentFilter === 'active') return student.status === 'approved' && matchesSearch
+                      if (studentFilter === 'pending') return student.status === 'pending' && matchesSearch
+                      if (studentFilter === 'inactive') return student.status === 'inactive' && matchesSearch
+                      return matchesSearch
+                    }).map((student, index) => (
+                      <div key={student.id} className="flex items-center justify-between p-4 bg-white border border-gray-200 rounded-lg hover:shadow-sm transition-shadow">
+                        <div className="flex items-center space-x-4">
+                          {/* Avatar */}
+                          <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                            <span className="text-sm font-medium text-gray-600">
+                              {student.student_name.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
+                            </span>
+                          </div>
+                          
+                          {/* Student Info */}
+                          <div>
+                            <h4 className="font-medium text-gray-900">{student.student_name}</h4>
+                            <p className="text-sm text-gray-500">{student.student_email}</p>
+                            <div className="flex items-center space-x-4 mt-1">
+                              <span className="text-xs text-gray-500">
+                                Completed: {Math.floor(Math.random() * 5)} | Pending: {Math.floor(Math.random() * 3)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-4">
+                          {/* Status Badge */}
+                          <Badge className={`text-xs px-2 py-1 ${
+                            student.status === 'approved' 
+                              ? 'bg-green-100 text-green-700' 
+                              : student.status === 'pending'
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-gray-100 text-gray-600'
+                          }`}>
+                            {student.status === 'approved' ? 'Active' : student.status === 'pending' ? 'Pending' : 'Inactive'}
+                          </Badge>
+                          
+                          {/* Joined Date */}
+                          <span className="text-xs text-gray-500">
+                            Joined {new Date(student.enrollment_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </span>
+                          
+                          {/* Options */}
+                          <button className="p-1 text-gray-400 hover:text-gray-600">
+                            <MoreVertical className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {cohortStudents?.length === 0 && (
+                      <div className="text-center py-8">
+                        <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-500">No students enrolled in this cohort yet.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'simulations' && (
+                <div className="text-center py-8">
+                  <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500">Simulations tab content coming soon.</p>
+                </div>
+              )}
+
+              {activeTab === 'analytics' && (
+                <div className="text-center py-8">
+                  <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500">Analytics tab content coming soon.</p>
+                </div>
+              )}
+
+              {activeTab === 'settings' && (
+                <div className="text-center py-8">
+                  <Settings className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500">Settings tab content coming soon.</p>
+                </div>
+              )}
+
+              {/* Loading State */}
+              {loadingDetails && (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
+                  <p className="text-gray-600 mt-2">Loading cohort details...</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="h-full flex items-center justify-center p-8">
+              <div className="text-center max-w-xl">
               <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
                 <Users className="h-10 w-10 text-gray-400" />
               </div>
@@ -392,13 +799,14 @@ export default function Cohorts() {
               </Button>
             </div>
           </div>
+          )}
         </div>
       </div>
 
       {/* Create Cohort Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900">Create New Cohort</h2>
@@ -478,7 +886,7 @@ export default function Cohorts() {
                       </button>
                       
                       {showSemesterDropdown && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto">
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
                           <button
                             type="button"
                             onClick={() => {
@@ -523,7 +931,7 @@ export default function Cohorts() {
                       </button>
                       
                       {showYearDropdown && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto">
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
                           <button
                             type="button"
                             onClick={() => {
@@ -643,34 +1051,24 @@ export default function Cohorts() {
 
               {/* Tags */}
               <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Tags</h3>
-                <div className="relative mb-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowTagDropdown(!showTagDropdown)}
-                    className="w-full px-3 py-2 pr-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent bg-white cursor-pointer hover:border-gray-400 transition-colors text-left flex items-center justify-between"
-                  >
-                    <span className="text-gray-500">Add a tag...</span>
-                    <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${showTagDropdown ? 'rotate-180' : ''}`} />
-                  </button>
-                  
-                  {showTagDropdown && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Status</h3>
+                <div className="flex gap-3 mb-3">
                       {["Active", "Draft"].map((tag) => (
                         <button
                           key={tag}
                           type="button"
-                          onClick={() => handleAddTag(tag)}
-                          disabled={formData.tags.includes(tag)}
-                          className={`w-full px-3 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none text-sm ${
-                            formData.tags.includes(tag) ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700'
+                      onClick={() => handleSelectTag(tag)}
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border-2 ${
+                        formData.tags.includes(tag)
+                          ? tag === "Active"
+                            ? "bg-green-100 text-green-800 border-green-300 shadow-sm"
+                            : "bg-yellow-100 text-yellow-800 border-yellow-300 shadow-sm"
+                          : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 hover:border-gray-300"
                           }`}
                         >
                           {tag}
                         </button>
                       ))}
-                    </div>
-                  )}
                 </div>
                 {formData.tags.length > 0 && (
                   <div className="flex flex-wrap gap-2">
@@ -714,6 +1112,73 @@ export default function Cohorts() {
                 className="bg-gray-800 text-white hover:bg-gray-700 px-6"
               >
                 Create Cohort
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">Delete Cohort</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowDeleteModal(false)
+                  setCohortToDelete(null)
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6">
+              <div className="flex items-center mb-4">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mr-4">
+                  <Trash2 className="h-6 w-6 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">Are you sure?</h3>
+                  <p className="text-sm text-gray-600">This action cannot be undone.</p>
+                </div>
+              </div>
+              
+              <p className="text-gray-700 mb-4">
+                You are about to delete the cohort <strong>"{cohortToDelete?.title}"</strong>. 
+                This will permanently remove the cohort and all associated data.
+              </p>
+              
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                <p className="text-sm text-yellow-800">
+                  <strong>Warning:</strong> This will also remove all student enrollments and simulation assignments for this cohort.
+                </p>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDeleteModal(false)
+                  setCohortToDelete(null)
+                }}
+                className="px-6"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleDeleteCohort}
+                className="bg-red-600 text-white hover:bg-red-700 px-6"
+              >
+                Delete Cohort
               </Button>
             </div>
           </div>

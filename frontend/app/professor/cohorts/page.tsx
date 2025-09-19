@@ -25,7 +25,7 @@ import {
   Clock,
   MoreVertical
 } from "lucide-react"
-import Sidebar from "@/components/Sidebar"
+import RoleBasedSidebar from "@/components/RoleBasedSidebar"
 import { useAuth } from "@/lib/auth-context"
 import { apiClient } from "@/lib/api"
 
@@ -448,7 +448,7 @@ export default function Cohorts() {
   return (
     <div className="min-h-screen bg-white">
       {/* Fixed Sidebar */}
-      <Sidebar currentPath="/cohorts" />
+      <RoleBasedSidebar currentPath="/professor/cohorts" />
 
       {/* Main Content with left margin for sidebar */}
       <div className="ml-20 flex h-screen">

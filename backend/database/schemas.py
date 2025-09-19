@@ -303,6 +303,7 @@ class UserCreate(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
+    user_id: Optional[str] = None  # Role-based ID (STUD-XXXXX or INSTR-XXXXX)
     email: str
     full_name: str
     username: str
@@ -337,6 +338,7 @@ class UserRegister(BaseModel):
     full_name: str
     username: str
     password: str
+    role: Literal["student", "professor"]  # Required role selection
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
     profile_public: bool = True
@@ -674,3 +676,55 @@ class CohortSimulationCreate(BaseModel):
 class CohortSimulationUpdate(BaseModel):
     due_date: Optional[datetime] = None
     is_required: Optional[bool] = None
+
+
+# --- INVITATION SYSTEM SCHEMAS ---
+
+class StudentInvitation(BaseModel):
+    """Schema for inviting a student to a cohort"""
+    email: str
+    message: Optional[str] = None
+
+class InvitationResponse(BaseModel):
+    """Schema for responding to an invitation"""
+    action: Literal["accept", "decline"]
+
+class RoleSelectionRequest(BaseModel):
+    """Schema for OAuth role selection"""
+    role: Literal["student", "professor"]
+    state: str
+
+class CohortInvitationResponse(BaseModel):
+    """Response schema for cohort invitations"""
+    id: int
+    cohort_id: int
+    professor_id: int
+    student_email: str
+    student_id: Optional[int] = None
+    status: str
+    message: Optional[str] = None
+    expires_at: datetime
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class NotificationResponse(BaseModel):
+    """Response schema for notifications"""
+    id: int
+    type: str
+    title: str
+    message: str
+    data: Optional[dict] = None
+    is_read: bool
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class EmailTemplate(BaseModel):
+    """Schema for email templates"""
+    email_type: str
+    subject: str
+    body: str
+    variables: Optional[dict] = None

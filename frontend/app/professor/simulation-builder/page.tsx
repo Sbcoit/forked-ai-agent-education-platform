@@ -15,7 +15,7 @@ import { Upload, Info, Users, Activity, Sparkles, X, Check } from "lucide-react"
 import Link from "next/link"
 import PersonaCard from "@/components/PersonaCard";
 import SceneCard from "@/components/SceneCard";
-import Sidebar from "@/components/Sidebar";
+import RoleBasedSidebar from "@/components/RoleBasedSidebar";
 import { buildApiUrl, apiClient } from "@/lib/api";
 
 
@@ -482,8 +482,8 @@ export default function ScenarioBuilder() {
    
    localStorage.setItem("chatboxScenario", JSON.stringify(chatboxData));
    
-   // Navigate to chatbox
-   window.open("/chat-box", "_blank");
+  // Navigate to chatbox
+  window.open("/professor/test-simulations", "_blank");
  };
 
  // Transform our scenario data to chatbox format
@@ -1371,7 +1371,7 @@ console.log("[DEBUG] Permanent personas to render:", personas.map(p => p.name));
 return (
    <div className="min-h-screen bg-background text-foreground">
      {/* New Sidebar Component */}
-     <Sidebar currentPath="/simulation-builder" />
+     <RoleBasedSidebar currentPath="/professor/simulation-builder" />
      
      {/* Main content area with left margin for sidebar */}
      <div className="ml-20">

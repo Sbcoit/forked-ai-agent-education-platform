@@ -10,6 +10,10 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 import asyncio
 import logging
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Logger for main application
 logger = logging.getLogger(__name__)
@@ -28,6 +32,8 @@ from utilities.debug_logging import debug_log
 from utilities.rate_limiter import check_test_login_rate_limit
 
 # Import API routers
+from api.professor.invitations import router as professor_invitations_router
+from api.student.notifications import router as student_notifications_router
 from api.parse_pdf import router as pdf_router
 from api.simulation import router as simulation_router
 from api.publishing import router as publishing_router
@@ -126,6 +132,8 @@ app.include_router(simulation_router, tags=["Simulation"])
 app.include_router(publishing_router, tags=["Publishing"])
 app.include_router(oauth_router, tags=["OAuth"])
 app.include_router(cohorts_router, tags=["Cohorts"])
+app.include_router(professor_invitations_router, tags=["Professor Invitations"])
+app.include_router(student_notifications_router, tags=["Student Notifications"])
 
 # Create database tables (development only)
 if settings.environment != "production":
@@ -586,6 +594,10 @@ async def update_scenario_status(
 @app.post("/users/register", response_model=UserResponse)
 async def register_user(user: UserRegister, response: Response, db: Session = Depends(get_db)):
     """Register a new user"""
+    print(f"🔍 Registration request received for role: {user.role}")
+    print(f"📧 Email: {user.email}")
+    print(f"👤 Full name: {user.full_name}")
+    
     # Check if user already exists
     existing_user = db.query(User).filter(
         (User.email == user.email) | (User.username == user.username)
@@ -597,13 +609,25 @@ async def register_user(user: UserRegister, response: Response, db: Session = De
         else:
             raise HTTPException(status_code=400, detail="Username already taken")
     
+    # Generate role-based user ID
+    from utilities.id_generator import generate_unique_user_id
+    
+    try:
+        user_id = generate_unique_user_id(db, user.role)
+        print(f"✅ Generated user ID: {user_id} for role: {user.role}")
+    except Exception as e:
+        print(f"❌ Failed to generate user ID: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate user ID: {str(e)}")
+    
     # Create new user
     hashed_password = get_password_hash(user.password)
     db_user = User(
+        user_id=user_id,
         email=user.email,
         full_name=user.full_name,
         username=user.username,
         password_hash=hashed_password,
+        role=user.role,  # Set the role from registration
         bio=user.bio,
         avatar_url=user.avatar_url,
         profile_public=user.profile_public,

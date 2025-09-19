@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -13,7 +13,7 @@ import { AccountLinkingData } from "@/lib/google-oauth"
 
 export default function LoginPage() {
   const router = useRouter()
-  const { login, loginWithGoogle, linkGoogleAccount } = useAuth()
+  const { user, login, loginWithGoogle, linkGoogleAccount } = useAuth()
   
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -23,6 +23,21 @@ export default function LoginPage() {
   const [showLinkingDialog, setShowLinkingDialog] = useState(false)
   const [linkingData, setLinkingData] = useState<AccountLinkingData | null>(null)
 
+  // Handle redirect after successful login
+  useEffect(() => {
+    if (user && !loading) {
+      // User just logged in, redirect based on role
+      if (user.role === 'professor' || user.role === 'admin') {
+        router.push('/professor/dashboard')
+      } else if (user.role === 'student') {
+        router.push('/student/dashboard')
+      } else {
+        // Fallback to generic dashboard
+        router.push('/dashboard')
+      }
+    }
+  }, [user, loading, router])
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -30,7 +45,7 @@ export default function LoginPage() {
 
     try {
       await login(email, password)
-      router.push("/dashboard")
+      // Redirect is handled by useEffect when user state changes
     } catch (error) {
       setError(error instanceof Error ? error.message : "Login failed. Please try again.")
     } finally {

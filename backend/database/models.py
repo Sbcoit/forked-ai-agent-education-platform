@@ -44,13 +44,14 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(15), unique=True, nullable=True, index=True)  # Role-based ID (STUD-XXXXX or INSTR-XXXXX)
     email = Column(String, unique=True, index=True)
     full_name = Column(String)
     username = Column(String, unique=True, index=True)
     password_hash = Column(String, nullable=True)  # Make nullable for OAuth users
     bio = Column(Text, nullable=True)
     avatar_url = Column(String, nullable=True)
-    role = Column(String, default="user")  # admin, teacher, student, user
+    role = Column(String, default="user")  # admin, teacher, professor, student, user
     
     # OAuth fields
     google_id = Column(String, unique=True, nullable=True, index=True)
@@ -77,6 +78,11 @@ class User(Base):
     scenario_reviews = relationship("ScenarioReview", back_populates="reviewer")
     user_progress = relationship("UserProgress", back_populates="user")
     created_cohorts = relationship("Cohort", back_populates="creator")
+    
+    # Invitation and notification relationships
+    sent_invitations = relationship("CohortInvitation", foreign_keys="CohortInvitation.professor_id", back_populates=None)
+    received_invitations = relationship("CohortInvitation", foreign_keys="CohortInvitation.student_id", back_populates=None)
+    notifications = relationship("Notification", back_populates="user")
     
     # PostgreSQL indexes for better performance
     __table_args__ = (
@@ -666,4 +672,86 @@ class CacheEntries(Base):
 
 
 # Alias for backward compatibility
-EmbeddingStore = VectorEmbeddings 
+EmbeddingStore = VectorEmbeddings
+
+
+class CohortInvitation(Base):
+    """Cohort invitations sent by professors to students"""
+    __tablename__ = "cohort_invitations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    cohort_id = Column(Integer, ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False)
+    professor_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    student_email = Column(String(255), nullable=False)
+    student_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    invitation_token = Column(String(255), nullable=False, unique=True, index=True)
+    status = Column(String(50), nullable=False, default="pending")  # pending, accepted, declined, expired
+    message = Column(Text, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    cohort = relationship("Cohort")
+    professor = relationship("User", foreign_keys=[professor_id], back_populates=None, viewonly=True)
+    student = relationship("User", foreign_keys=[student_id], back_populates=None, viewonly=True)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_cohort_invitations_cohort_id', 'cohort_id'),
+        Index('idx_cohort_invitations_professor_id', 'professor_id'),
+        Index('idx_cohort_invitations_student_email', 'student_email'),
+        Index('idx_cohort_invitations_token', 'invitation_token'),
+        Index('idx_cohort_invitations_status', 'status'),
+    )
+
+
+class Notification(Base):
+    """User notifications for in-app messaging"""
+    __tablename__ = "notifications"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    type = Column(String(50), nullable=False)  # invitation, assignment, grade, etc.
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    data = Column(JSON, nullable=True)  # Additional data like cohort_id, invitation_id, etc.
+    is_read = Column(Boolean, nullable=False, default=False)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    user = relationship("User")
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_notifications_user_id', 'user_id'),
+        Index('idx_notifications_type', 'type'),
+        Index('idx_notifications_is_read', 'is_read'),
+        Index('idx_notifications_created_at', 'created_at'),
+    )
+
+
+class EmailQueue(Base):
+    """Email queue for sending notifications"""
+    __tablename__ = "email_queue"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    to_email = Column(String(255), nullable=False)
+    subject = Column(String(255), nullable=False)
+    body = Column(Text, nullable=False)
+    email_type = Column(String(50), nullable=False)  # invitation, reminder, etc.
+    status = Column(String(50), nullable=False, default="pending")  # pending, sent, failed
+    scheduled_at = Column(DateTime(timezone=True), server_default=func.now())
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    max_retries = Column(Integer, nullable=False, default=3)
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_email_queue_status', 'status'),
+        Index('idx_email_queue_scheduled_at', 'scheduled_at'),
+        Index('idx_email_queue_email_type', 'email_type'),
+    ) 

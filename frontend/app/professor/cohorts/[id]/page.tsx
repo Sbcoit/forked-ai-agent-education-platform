@@ -24,7 +24,7 @@ import {
   Calendar,
   UserPlus
 } from "lucide-react"
-import Sidebar from "@/components/Sidebar"
+import RoleBasedSidebar from "@/components/RoleBasedSidebar"
 import { useAuth } from "@/lib/auth-context"
 import { apiClient } from "@/lib/api"
 
@@ -236,7 +236,7 @@ export default function CohortDetail() {
   return (
     <div className="min-h-screen bg-white">
       {/* Fixed Sidebar */}
-      <Sidebar currentPath="/cohorts" />
+      <RoleBasedSidebar currentPath="/professor/cohorts" />
 
       {/* Main Content with left margin for sidebar */}
       <div className="ml-20 bg-white">
@@ -245,7 +245,7 @@ export default function CohortDetail() {
           {/* Back Navigation */}
           <div className="mb-6">
             <Link 
-              href="/cohorts" 
+              href="/professor/cohorts" 
               className="inline-flex items-center text-sm text-gray-600 hover:text-black transition-colors"
             >
               <ArrowLeft className="h-4 w-4 mr-2" />

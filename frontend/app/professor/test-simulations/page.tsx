@@ -23,7 +23,7 @@ import {
   User
 } from "lucide-react"
 import { buildApiUrl, apiClient } from "@/lib/api"
-import Sidebar from "@/components/Sidebar"
+import RoleBasedSidebar from "@/components/RoleBasedSidebar"
 
 // Types aligned with backend database schema
 interface Scenario {
@@ -158,7 +158,7 @@ const ScenarioSelector = ({
           <p className="text-gray-600 mb-4">
             You need to create a simulation first using the Simulation Builder.
           </p>
-          <Button onClick={() => window.open("/simulation-builder", "_blank")}>
+          <Button onClick={() => window.open("/professor/simulation-builder", "_blank")}>
             Create Simulation
           </Button>
         </CardContent>
@@ -791,7 +791,7 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
   if (!simulationData) {
     return (
       <div className="min-h-screen bg-gray-50 flex">
-        <Sidebar currentPath="/chat-box" />
+        <RoleBasedSidebar currentPath="/professor/test-simulations" />
         <div className="flex-1 ml-20 p-4">
           <div className="max-w-6xl mx-auto py-8">
             <div className="text-center mb-8">
@@ -1073,7 +1073,7 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      <Sidebar currentPath="/chat-box" />
+      <RoleBasedSidebar currentPath="/professor/test-simulations" />
       <div className="flex-1 ml-20 p-4">
         <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
           

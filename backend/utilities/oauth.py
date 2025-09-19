@@ -59,6 +59,17 @@ def get_google_auth_url(state: str) -> str:
 
 async def exchange_code_for_token(code: str) -> Optional[Dict[str, Any]]:
     """Exchange authorization code for access token and id_token"""
+    
+    logger.info(f"🔄 Attempting to exchange authorization code: {code[:10]}..." if code else "No code provided")
+    
+    # Validate OAuth configuration
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET or not GOOGLE_REDIRECT_URI:
+        logger.error("Google OAuth configuration is incomplete")
+        logger.error(f"CLIENT_ID: {'SET' if GOOGLE_CLIENT_ID else 'NOT SET'}")
+        logger.error(f"CLIENT_SECRET: {'SET' if GOOGLE_CLIENT_SECRET else 'NOT SET'}")
+        logger.error(f"REDIRECT_URI: {'SET' if GOOGLE_REDIRECT_URI else 'NOT SET'}")
+        return None
+    
     data = {
         "client_id": GOOGLE_CLIENT_ID,
         "client_secret": GOOGLE_CLIENT_SECRET,
@@ -75,6 +86,12 @@ async def exchange_code_for_token(code: str) -> Optional[Dict[str, Any]]:
             return response.json()
         except httpx.HTTPError as e:
             logger.error(f"Error exchanging code for token: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    error_detail = e.response.json()
+                    logger.error(f"Google token exchange error details: {error_detail}")
+                except:
+                    logger.error(f"Google token exchange error response text: {e.response.text}")
             return None
 
 def verify_google_id_token(id_token_str: str) -> Dict[str, Any]:
@@ -224,8 +241,10 @@ def find_oauth_user_by_original_email(db: Session, original_email: str) -> Optio
             User.provider == "google"
         ).first()
 
-def create_oauth_user(db: Session, google_data: Dict[str, Any], force_create: bool = False) -> User:
-    """Create a new user from Google OAuth data"""
+def create_oauth_user(db: Session, google_data: Dict[str, Any], force_create: bool = False, role: str = "student") -> User:
+    """Create a new user from Google OAuth data with role-based ID"""
+    from utilities.id_generator import generate_unique_user_id
+    
     # Generate username from email
     username = google_data["email"].split("@")[0]
     
@@ -271,7 +290,14 @@ def create_oauth_user(db: Session, google_data: Dict[str, Any], force_create: bo
             user_email = f"{local_part}+google{counter}@{domain}"
             counter += 1
     
+    # Generate role-based user ID
+    try:
+        user_id = generate_unique_user_id(db, role)
+    except Exception as e:
+        raise ValueError(f"Failed to generate user ID: {str(e)}")
+    
     user = User(
+        user_id=user_id,
         email=user_email,
         full_name=google_data.get("name", ""),
         username=username,
@@ -279,6 +305,7 @@ def create_oauth_user(db: Session, google_data: Dict[str, Any], force_create: bo
         avatar_url=google_data.get("picture"),
         google_id=google_data.get("sub") or google_data.get("id"),
         provider="google",
+        role=role,  # Set the role
         is_verified=True,  # Google accounts are considered verified
     )
     

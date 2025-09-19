@@ -24,7 +24,7 @@ import {
   Trash2,
   Edit
 } from "lucide-react"
-import Sidebar from "@/components/Sidebar"
+import RoleBasedSidebar from "@/components/RoleBasedSidebar"
 import { useAuth } from "@/lib/auth-context"
 import { apiClient, Agent, Scenario } from "@/lib/api"
 
@@ -219,8 +219,8 @@ export default function Dashboard() {
     
     localStorage.setItem("chatboxScenario", JSON.stringify(chatboxData))
     
-    // Navigate to chat-box
-    router.push("/chat-box")
+    // Navigate to test-simulations
+    router.push("/professor/test-simulations")
   }
 
   // Delete draft simulation
@@ -281,7 +281,7 @@ export default function Dashboard() {
         const draftSimulation = simulations.find(s => s.published_version_id === simulation.id && s.is_draft)
         if (draftSimulation) {
           console.log("Found draft scenario:", draftSimulation.id)
-          router.push(`/simulation-builder?edit=${draftSimulation.id}`)
+          router.push(`/professor/simulation-builder?edit=${draftSimulation.id}`)
           return
         } else {
           console.log("No draft found for published scenario:", simulation.id)
@@ -292,7 +292,7 @@ export default function Dashboard() {
       }
       
       // Navigate directly with the draft ID as a URL parameter
-      router.push(`/simulation-builder?edit=${simulation.id}`)
+      router.push(`/professor/simulation-builder?edit=${simulation.id}`)
       
     } catch (error) {
       console.error('Failed to navigate to draft editing:', error)
@@ -359,7 +359,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-white">
       {/* Fixed Sidebar */}
-      <Sidebar currentPath="/dashboard" />
+      <RoleBasedSidebar currentPath="/professor/dashboard" />
 
       {/* Main Content with left margin for sidebar */}
       <div className="ml-20 bg-white">
@@ -431,7 +431,7 @@ export default function Dashboard() {
               <div className="flex justify-center">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl">
               {/* Create a simulation */}
-              <Link href="/simulation-builder">
+              <Link href="/professor/simulation-builder">
                 <Card className="bg-gray-50 border-gray-200 hover:shadow-lg transition-shadow cursor-pointer">
                   <div className="w-full h-30 overflow-hidden rounded-t-lg">
                     <img src="/createsim.png" alt="Create simulation" className="h-full w-full object-cover" />
@@ -479,7 +479,7 @@ export default function Dashboard() {
           <div className="mt-16">
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-2xl font-bold text-black">My simulations</h2>
-              <Link href="/simulation-builder">
+              <Link href="/professor/simulation-builder">
                 <Button className="bg-black text-white hover:bg-gray-800 text-sm">
                   <Plus className="h-4 w-4 mr-2" />
                   New Simulation
@@ -669,7 +669,7 @@ export default function Dashboard() {
                         ? "Create your first simulation to get started" 
                         : `No simulations with status "${activeFilter}" found`}
                     </p>
-                    <Link href="/simulation-builder">
+                    <Link href="/professor/simulation-builder">
                       <Button className="bg-black text-white hover:bg-gray-800 text-sm">
                         <Plus className="h-4 w-4 mr-2" />
                         Create Simulation

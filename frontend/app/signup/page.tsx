@@ -13,14 +13,18 @@ import { AccountLinkingData } from "@/lib/google-oauth"
 
 export default function SignupPage() {
   const router = useRouter()
-  const { register, loginWithGoogle, linkGoogleAccount } = useAuth()
+  const { user, register, loginWithGoogle, linkGoogleAccount } = useAuth()
   
   const [step, setStep] = useState(1)
-  const [id, setId] = useState("")
+  
+  // Debug logging
+  console.log("🔍 Current step:", step)
+  const [selectedRole, setSelectedRole] = useState<"student" | "professor" | null>(null)
   const [formData, setFormData] = useState({
     email: "",
     full_name: "",
     password: "",
+    role: "" as "student" | "professor" | "",
     profile_public: true,
     allow_contact: true
   })
@@ -36,19 +40,22 @@ export default function SignupPage() {
     }))
   }
 
-  const handleNext = () => {
-    if (id.trim()) {
-      setError("") // Clear any existing error
-      setStep(2)
-    } else {
-      setError("Please enter your ID")
-    }
+  const handleRoleSelect = (role: "student" | "professor") => {
+    console.log("🎯 Role selected:", role)
+    setSelectedRole(role)
+    setFormData(prev => ({ ...prev, role }))
+    setError("") // Clear any existing error
+    setStep(2)
+    console.log("📝 Form data after role selection:", { ...formData, role })
+    console.log("🔄 Step changed to:", 2)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError("")
+    
+    console.log("🚀 Submitting registration with data:", formData)
 
     // Validate password length
     if (formData.password.length < 6) {
@@ -65,7 +72,20 @@ export default function SignupPage() {
         username: username
       }
       await register(registerData)
-      router.push("/dashboard")
+      
+      // Redirect based on the role the user selected during signup
+      console.log("🎯 Redirecting user with role:", formData.role)
+      if (formData.role === 'professor') {
+        console.log("👨‍🏫 Redirecting to professor dashboard")
+        router.push('/professor/dashboard')
+      } else if (formData.role === 'student') {
+        console.log("👨‍🎓 Redirecting to student dashboard")
+        router.push('/student/dashboard')
+      } else {
+        console.log("❓ Unknown role, redirecting to generic dashboard")
+        // Fallback to generic dashboard
+        router.push('/dashboard')
+      }
     } catch (error) {
       setError(error instanceof Error ? error.message : "Registration failed")
     } finally {
@@ -80,9 +100,9 @@ export default function SignupPage() {
     try {
       const result = await loginWithGoogle()
       
-      if (result.action === 'link_required') {
+      if ('action' in result && result.action === 'link_required') {
         // Show account linking dialog
-        setLinkingData(result)
+        setLinkingData(result as AccountLinkingData)
         setShowLinkingDialog(true)
       } else {
         // Direct login success
@@ -108,62 +128,215 @@ export default function SignupPage() {
     }
   }
 
-  // Step 1: ID Input
-  if (step === 1) {
+  // This duplicate step 2 was removed - step 2 should show registration form
+  if (false) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-        <div className="w-full max-w-md">
+        <div className="w-full max-w-4xl">
           {/* Logo */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-20 h-20 mb-6">
               <img src="/n-aiblelogo.png" alt="Logo" className="w-30 h-16" />
             </div>
-            <h1 className="text-2xl font-semibold text-white">Create an account</h1>
+            <h1 className="text-2xl font-semibold text-white">Choose Your Role</h1>
+            <p className="text-gray-400">How will you be using the platform?</p>
           </div>
 
-          {/* ID Input Section */}
-          <div className="space-y-6">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="id" className="text-white">Enter your ID</Label>
-                <div className="w-4 h-4 rounded-full border border-white flex items-center justify-center">
-                  <span className="text-xs">?</span>
-                </div>
-              </div>
-              <Input
-                id="id"
-                type="text"
-                placeholder="Professor or Student ID"
-                value={id}
-                onChange={(e) => setId(e.target.value)}
-                className="bg-black border-white text-white placeholder-gray-400 focus:border-white"
-                required
-              />
-            </div>
-
-            {/* Progress Indicator */}
-            <div className="flex justify-center gap-2">
-              <div className="w-2 h-2 bg-white rounded-full"></div>
-              <div className="w-2 h-2 bg-gray-600 rounded-full"></div>
-            </div>
-
-            {error && (
-              <div className="bg-red-900/20 border border-red-500/50 rounded-md p-3 mb-4">
-                <div className="flex items-center">
-                  <svg className="w-5 h-5 text-red-400 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                  <p className="text-red-400 text-sm font-medium">{error}</p>
-                </div>
-              </div>
-            )}
-
-            <Button
-              onClick={handleNext}
-              className="w-full bg-white text-black hover:bg-gray-100"
+          {/* Role Selection Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            {/* Student Card */}
+            <div 
+              className={`cursor-pointer p-6 rounded-lg border-2 transition-all duration-200 ${
+                selectedRole === "student" 
+                  ? "border-blue-500 bg-blue-900/20" 
+                  : "border-gray-600 bg-gray-900/20 hover:border-gray-500"
+              }`}
+              onClick={() => setSelectedRole("student")}
             >
-              Next
+              <div className="text-center">
+                <div className="mx-auto mb-4 p-4 rounded-full bg-blue-600/20">
+                  <svg className="h-12 w-12 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l9-5-9-5-9 5 9 5z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">Student</h3>
+                <p className="text-gray-400 mb-4">Join cohorts and participate in simulations</p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                    <span className="text-white">Access assigned simulations</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                    <span className="text-white">Track progress and achievements</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                    <span className="text-white">Join professor-led cohorts</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Professor Card */}
+            <div 
+              className={`cursor-pointer p-6 rounded-lg border-2 transition-all duration-200 ${
+                selectedRole === "professor" 
+                  ? "border-purple-500 bg-purple-900/20" 
+                  : "border-gray-600 bg-gray-900/20 hover:border-gray-500"
+              }`}
+              onClick={() => setSelectedRole("professor")}
+            >
+              <div className="text-center">
+                <div className="mx-auto mb-4 p-4 rounded-full bg-purple-600/20">
+                  <svg className="h-12 w-12 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">Professor</h3>
+                <p className="text-gray-400 mb-4">Create cohorts and manage student learning</p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
+                    <span className="text-white">Build custom simulations</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
+                    <span className="text-white">Create and manage cohorts</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
+                    <span className="text-white">Track student progress</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Progress Indicator */}
+          <div className="flex justify-center gap-2 mb-6">
+            <div className="w-2 h-2 bg-white rounded-full"></div>
+            <div className="w-2 h-2 bg-white rounded-full"></div>
+            <div className="w-2 h-2 bg-gray-600 rounded-full"></div>
+          </div>
+
+          {/* Continue Button */}
+          <div className="text-center">
+            <Button
+              onClick={() => selectedRole && handleRoleSelect(selectedRole)}
+              disabled={!selectedRole}
+              className={`px-8 py-3 text-lg font-medium transition-all duration-200 ${
+                selectedRole === "student"
+                  ? "bg-blue-600 hover:bg-blue-700 text-white"
+                  : selectedRole === "professor"
+                  ? "bg-purple-600 hover:bg-purple-700 text-white"
+                  : "bg-gray-600 text-gray-400 cursor-not-allowed"
+              }`}
+            >
+              Continue as {selectedRole === "student" ? "Student" : selectedRole === "professor" ? "Professor" : "..."}
             </Button>
+          </div>
+
+          {/* Back Button */}
+          <div className="text-center mt-4">
+            <button
+              onClick={() => setStep(1)}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              ← Back
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Step 1: Role Selection
+  if (step === 1) {
+    console.log("🎯 Rendering Step 1 - Role Selection")
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
+        <div className="w-full max-w-4xl">
+          {/* Logo */}
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-20 h-20 mb-6">
+              <img src="/n-aiblelogo.png" alt="Logo" className="w-30 h-16" />
+            </div>
+            <h1 className="text-2xl font-semibold text-white">Choose Your Role</h1>
+            <p className="text-gray-400">How will you be using the platform?</p>
+          </div>
+
+          {/* Role Selection Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            {/* Student Card */}
+            <div 
+              className={`cursor-pointer p-6 rounded-lg border-2 transition-all duration-200 ${
+                selectedRole === "student" 
+                  ? "border-blue-500 bg-blue-900/20" 
+                  : "border-gray-600 bg-gray-900/20 hover:border-gray-500"
+              }`}
+              onClick={() => handleRoleSelect("student")}
+            >
+              <div className="text-center">
+                <div className="mx-auto mb-4 p-4 rounded-full bg-blue-600/20">
+                  <svg className="h-12 w-12 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l9-5-9-5-9 5 9 5z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">Student</h3>
+                <p className="text-gray-400 mb-4">Join cohorts and participate in simulations</p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                    <span className="text-white">Access assigned simulations</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                    <span className="text-white">Track your progress</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                    <span className="text-white">Receive notifications</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Professor Card */}
+            <div 
+              className={`cursor-pointer p-6 rounded-lg border-2 transition-all duration-200 ${
+                selectedRole === "professor" 
+                  ? "border-green-500 bg-green-900/20" 
+                  : "border-gray-600 bg-gray-900/20 hover:border-gray-500"
+              }`}
+              onClick={() => handleRoleSelect("professor")}
+            >
+              <div className="text-center">
+                <div className="mx-auto mb-4 p-4 rounded-full bg-green-600/20">
+                  <svg className="h-12 w-12 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">Professor</h3>
+                <p className="text-gray-400 mb-4">Create and manage educational content</p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <span className="text-white">Create simulations</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <span className="text-white">Manage cohorts</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                    <span className="text-white">Invite students</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Sign In Link */}
@@ -179,6 +352,7 @@ export default function SignupPage() {
   }
 
   // Step 2: Registration Form
+  console.log("🎯 Rendering Step 2 - Registration Form")
   return (
     <div className="min-h-screen bg-black text-white flex items-center justify-center p-4 py-8 md:py-16 lg:py-20">
       <div className="w-full max-w-md">
@@ -270,6 +444,7 @@ export default function SignupPage() {
 
           {/* Progress Indicator */}
           <div className="flex justify-center gap-2">
+            <div className="w-2 h-2 bg-white rounded-full"></div>
             <div className="w-2 h-2 bg-white rounded-full"></div>
             <div className="w-2 h-2 bg-white rounded-full"></div>
           </div>

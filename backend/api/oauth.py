@@ -21,7 +21,8 @@ from database.schemas import (
     GoogleOAuthRequest, 
     AccountLinkingRequest, 
     OAuthUserData,
-    UserLoginResponse
+    UserLoginResponse,
+    RoleSelectionRequest
 )
 from utilities.oauth import (
     generate_state,
@@ -168,12 +169,91 @@ class OAuthStateStore:
             logger.error(f"Failed to delete OAuth state: {e}")
             return False
 
+# Create the OAuth router
+router = APIRouter(prefix="/auth", tags=["oauth"])
+
 # Initialize OAuth state store
 oauth_state_store = OAuthStateStore()
 
+# Global cache to track used authorization codes (in-memory, will reset on restart)
+used_authorization_codes = set()
 
-# Background cleanup task
-cleanup_task = None
+@router.post("/clear-cache")
+async def clear_oauth_cache():
+    """Clear the OAuth authorization code cache (for debugging)"""
+    global used_authorization_codes
+    cleared_count = len(used_authorization_codes)
+    used_authorization_codes.clear()
+    logger.info(f"Cleared {cleared_count} authorization codes from cache")
+    return {"message": f"Cleared {cleared_count} authorization codes from cache"}
+
+@router.get("/google/login")
+async def google_login():
+    """Initiate Google OAuth login"""
+    try:
+        state = generate_state()
+        auth_url = get_google_auth_url(state)
+        
+        # Store initial state
+        oauth_state_store.set_state(state, {"status": "pending", "created_at": time.time()})
+        
+        return {"auth_url": auth_url, "state": state}
+    except Exception as e:
+        logger.error(f"Google login initiation failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to initiate Google login"
+        )
+
+@router.post("/google/select-role")
+async def select_role_for_oauth(
+    role_data: RoleSelectionRequest,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    """Select role for OAuth user after Google authentication"""
+    
+    # Validate OAuth state
+    state_data = validate_oauth_state(role_data.state)
+    if not state_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OAuth state"
+        )
+    
+    # Check if this is a role selection request
+    if state_data.get("status") != "role_selection_required":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Role selection not required for this OAuth flow"
+        )
+    
+    # Get user info from state
+    user_info = state_data.get("user_info")
+    if not user_info:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing user information in OAuth state"
+        )
+    
+    # Create new user with selected role
+    new_user = create_oauth_user(db, user_info, role=role_data.role)
+    
+    # Set HttpOnly cookie for new user
+    access_token = create_access_token(data={"sub": str(new_user.id)})
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,  # HttpOnly cookie - not accessible via JavaScript
+        secure=True,    # Only send over HTTPS in production
+        samesite="lax", # CSRF protection
+        max_age=30 * 60  # 30 minutes (same as token expiry)
+    )
+    
+    # Clean up state
+    oauth_state_store.delete_state(role_data.state)
+    
+    return create_user_login_response(new_user)
 
 def validate_oauth_state(state: str) -> Dict[str, Any]:
     """Validate OAuth state and return state data if valid"""
@@ -224,8 +304,6 @@ async def lifespan(app):
             pass
         print("[INFO] Stopped OAuth state cleanup task")
 
-router = APIRouter(prefix="/auth", tags=["oauth"])
-
 def cleanup_expired_states():
     """Clean up expired OAuth states (older than 10 minutes)"""
     # For Redis, TTL is handled automatically
@@ -246,6 +324,56 @@ async def google_login():
     
     auth_url = get_google_auth_url(state)
     return {"auth_url": auth_url, "state": state}
+
+@router.post("/google/select-role")
+async def select_role_for_oauth(
+    role_data: RoleSelectionRequest,
+    response: Response,
+    db: Session = Depends(get_db)
+):
+    """Select role for OAuth user after Google authentication"""
+    
+    # Validate OAuth state
+    state_data = validate_oauth_state(role_data.state)
+    if not state_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OAuth state"
+        )
+    
+    # Check if this is a role selection request
+    if state_data.get("status") != "role_selection_required":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Role selection not required for this OAuth flow"
+        )
+    
+    # Get user info from state
+    user_info = state_data.get("user_info")
+    if not user_info:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing user information in OAuth state"
+        )
+    
+    # Create new user with selected role
+    new_user = create_oauth_user(db, user_info, role=role_data.role)
+    
+    # Set HttpOnly cookie for new user
+    access_token = create_access_token(data={"sub": str(new_user.id)})
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,  # HttpOnly cookie - not accessible via JavaScript
+        secure=True,    # Only send over HTTPS in production
+        samesite="lax", # CSRF protection
+        max_age=30 * 60  # 30 minutes (same as token expiry)
+    )
+    
+    # Clean up state
+    oauth_state_store.delete_state(role_data.state)
+    
+    return create_user_login_response(new_user)
 
 @router.get("/google/callback")
 async def google_callback(
@@ -275,12 +403,45 @@ async def google_callback(
             detail="Invalid or expired state parameter. Please try logging in again."
         )
     
+    # Check if this callback has already been processed
+    if state_data.get("status") == "completed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth callback has already been processed. Please try logging in again."
+        )
+    
+    # Check if this authorization code has already been used globally
+    if code in used_authorization_codes:
+        logger.warning(f"Authorization code already used: {code[:10]}...")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Authorization code has already been used. Please try logging in again."
+        )
+    
+    # Check if this authorization code has already been used for this state
+    if state_data.get("status") == "processing":
+        logger.warning(f"Authorization code already being processed for state: {state}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth callback is already being processed. Please wait."
+        )
+    
+    # Mark state as being processed to prevent duplicate calls
+    # Don't add code to used set yet - only after successful user creation
+    oauth_state_store.set_state(state, {
+        **state_data,
+        "status": "processing",
+        "authorization_code": code  # Track the code to prevent reuse
+    })
+    
     # Exchange code for token
     token_data = await exchange_code_for_token(code)
     if not token_data:
+        # Clean up state on failure
+        oauth_state_store.delete_state(state)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to exchange code for token"
+            detail="Failed to exchange code for token. The authorization code may have expired or been used already. Please try logging in again."
         )
     
     # Verify id_token for secure user authentication
@@ -381,8 +542,36 @@ async def google_callback(
                 "state": state
             }
     
-    # Create new user
-    new_user = create_oauth_user(db, {**user_info, "id": google_id})
+    # Check if role is selected in state
+    selected_role = state_data.get("role")
+    
+    # If no role is selected, require role selection
+    if not selected_role:
+        # Store OAuth data in state for role selection
+        existing_state = oauth_state_store.get_state(state) or {}
+        oauth_state_store.set_state(state, {
+            "status": "role_selection_required",
+            "created_at": existing_state.get("created_at") if isinstance(existing_state, dict) else None,
+            "user_info": {
+                "google_id": google_id,
+                "email": user_info.get("email", ""),
+                "name": user_info.get("name", ""),
+                "picture": user_info.get("picture")
+            }
+        })
+        
+        return {
+            "requires_role_selection": True,
+            "state": state,
+            "user_info": {
+                "email": user_info.get("email", ""),
+                "name": user_info.get("name", ""),
+                "picture": user_info.get("picture")
+            }
+        }
+    
+    # Create new user with selected role
+    new_user = create_oauth_user(db, {**user_info, "id": google_id}, role=selected_role)
     
     # Set HttpOnly cookie for new user
     access_token = create_access_token(data={"sub": str(new_user.id)})
@@ -469,8 +658,8 @@ async def link_google_account(
             "sub": server_google_data["id"],
             "id": server_google_data["id"]
         }
-        # Create separate account with Google OAuth
-        new_user = create_oauth_user(db, google_user_data, force_create=True)
+        # Create separate account with Google OAuth (default to student role for separate accounts)
+        new_user = create_oauth_user(db, google_user_data, force_create=True, role="student")
         
         # Set HttpOnly cookie for new separate user
         access_token = create_access_token(data={"sub": str(new_user.id)})

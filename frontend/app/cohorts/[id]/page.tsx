@@ -19,7 +19,10 @@ import {
   Clock,
   MoreVertical,
   ChevronDown,
-  Plus
+  Plus,
+  X,
+  Calendar,
+  UserPlus
 } from "lucide-react"
 import Sidebar from "@/components/Sidebar"
 import { useAuth } from "@/lib/auth-context"
@@ -36,6 +39,14 @@ export default function CohortDetail() {
   const [simulations, setSimulations] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // Simulation assignment modal state
+  const [showAssignModal, setShowAssignModal] = useState(false)
+  const [availableScenarios, setAvailableScenarios] = useState<any[]>([])
+  const [selectedScenario, setSelectedScenario] = useState<any>(null)
+  const [dueDate, setDueDate] = useState("")
+  const [isRequired, setIsRequired] = useState(true)
+  const [assigning, setAssigning] = useState(false)
 
   // Fetch cohort data on component mount
   useEffect(() => {
@@ -79,6 +90,51 @@ export default function CohortDetail() {
   const [searchTerm, setSearchTerm] = useState("")
   const [studentFilter, setStudentFilter] = useState("All Students")
   const [showStudentFilterDropdown, setShowStudentFilterDropdown] = useState(false)
+
+  // Fetch available scenarios for assignment
+  const fetchAvailableScenarios = async () => {
+    try {
+      const scenarios = await apiClient.getScenarios()
+      setAvailableScenarios(scenarios)
+    } catch (error) {
+      console.error('Failed to fetch scenarios:', error)
+    }
+  }
+
+  // Handle simulation assignment
+  const handleAssignSimulation = async () => {
+    if (!selectedScenario || !cohortData) return
+    
+    try {
+      setAssigning(true)
+      
+      // Create the assignment data
+      const assignmentData = {
+        simulation_id: selectedScenario.id,
+        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+        is_required: isRequired
+      }
+      
+      // Call the API to assign simulation to cohort
+      await apiClient.assignSimulationToCohort(cohortData.id, assignmentData)
+      
+      // Refresh simulations data
+      const updatedSimulations = await apiClient.getCohortSimulations(params.id as string)
+      setSimulations(updatedSimulations)
+      
+      // Close modal and reset form
+      setShowAssignModal(false)
+      setSelectedScenario(null)
+      setDueDate("")
+      setIsRequired(true)
+      
+    } catch (error) {
+      console.error('Failed to assign simulation:', error)
+      alert('Failed to assign simulation. Please try again.')
+    } finally {
+      setAssigning(false)
+    }
+  }
 
   // Handle redirect when user is not authenticated
   useEffect(() => {
@@ -428,7 +484,13 @@ export default function CohortDetail() {
               {/* Header */}
               <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-bold text-black">Assigned Simulations</h3>
-                <Button className="bg-black text-white hover:bg-gray-800 text-sm">
+                <Button 
+                  onClick={() => {
+                    fetchAvailableScenarios()
+                    setShowAssignModal(true)
+                  }}
+                  className="bg-black text-white hover:bg-gray-800 text-sm"
+                >
                   <BookOpen className="h-4 w-4 mr-2" />
                   Assign Simulation
                 </Button>
@@ -436,40 +498,74 @@ export default function CohortDetail() {
 
               {/* Simulations List */}
               <div className="space-y-4">
-                {simulations.map((simulation) => {
-                  const completionPercentage = (simulation.completed / simulation.total) * 100
-                  
-                  return (
-                    <Card key={simulation.id} className="bg-white border border-gray-200">
-                      <CardContent className="p-6">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-gray-900 mb-2">{simulation.title}</h4>
-                            <div className="flex items-center space-x-4 mb-3">
-                              <span className="text-sm text-gray-600">Assigned {simulation.assignedDate}</span>
-                              <span className="text-sm text-gray-600">Due {simulation.dueDate}</span>
-                              <Badge className={`text-xs ${simulation.statusColor}`}>
-                                {simulation.status}
-                              </Badge>
+                {simulations.length === 0 ? (
+                  <div className="text-center py-8">
+                    <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-500 mb-4">No simulations assigned yet</p>
+                    <Button 
+                      onClick={() => {
+                        fetchAvailableScenarios()
+                        setShowAssignModal(true)
+                      }}
+                      className="bg-black text-white hover:bg-gray-800"
+                    >
+                      <BookOpen className="h-4 w-4 mr-2" />
+                      Assign First Simulation
+                    </Button>
+                  </div>
+                ) : (
+                  simulations.map((simulation) => {
+                    // Calculate completion data (mock data for now - would come from API)
+                    const totalStudents = students.filter(s => s.status === 'approved').length
+                    const completedStudents = Math.floor(Math.random() * totalStudents) // Mock completion
+                    const completionPercentage = totalStudents > 0 ? (completedStudents / totalStudents) * 100 : 0
+                    
+                    return (
+                      <Card key={simulation.id} className="bg-white border border-gray-200">
+                        <CardContent className="p-6">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <h4 className="font-semibold text-gray-900 mb-2">
+                                {simulation.simulation?.title || `Simulation ${simulation.simulation_id}`}
+                              </h4>
+                              <div className="flex items-center space-x-4 mb-3">
+                                <span className="text-sm text-gray-600">
+                                  Assigned {new Date(simulation.assigned_at).toLocaleDateString('en-US', { 
+                                    month: 'short', 
+                                    day: 'numeric' 
+                                  })}
+                                </span>
+                                {simulation.due_date && (
+                                  <span className="text-sm text-gray-600">
+                                    Due {new Date(simulation.due_date).toLocaleDateString('en-US', { 
+                                      month: 'short', 
+                                      day: 'numeric' 
+                                    })}
+                                  </span>
+                                )}
+                                <Badge className="bg-green-100 text-green-800 text-xs">
+                                  Active
+                                </Badge>
+                              </div>
+                            </div>
+                            
+                            <div className="text-right">
+                              <div className="text-sm text-gray-600 mb-2">
+                                {completedStudents}/{totalStudents} completed
+                              </div>
+                              <div className="w-32 bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="bg-gray-800 h-2 rounded-full transition-all duration-300"
+                                  style={{ width: `${completionPercentage}%` }}
+                                ></div>
+                              </div>
                             </div>
                           </div>
-                          
-                          <div className="text-right">
-                            <div className="text-sm text-gray-600 mb-2">
-                              {simulation.completed}/{simulation.total} completed
-                            </div>
-                            <div className="w-32 bg-gray-200 rounded-full h-2">
-                              <div 
-                                className="bg-gray-800 h-2 rounded-full transition-all duration-300"
-                                style={{ width: `${completionPercentage}%` }}
-                              ></div>
-                            </div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )
-                })}
+                        </CardContent>
+                      </Card>
+                    )
+                  })
+                )}
               </div>
             </div>
           )}
@@ -487,6 +583,93 @@ export default function CohortDetail() {
           )}
         </div>
       </div>
+
+      {/* Assign Simulation Modal */}
+      {showAssignModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Assign Simulation</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAssignModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Scenario Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Simulation
+                </label>
+                <select
+                  value={selectedScenario?.id || ""}
+                  onChange={(e) => {
+                    const scenario = availableScenarios.find(s => s.id === parseInt(e.target.value))
+                    setSelectedScenario(scenario)
+                  }}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
+                >
+                  <option value="">Choose a simulation...</option>
+                  {availableScenarios.map((scenario) => (
+                    <option key={scenario.id} value={scenario.id}>
+                      {scenario.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Due Date */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Due Date (Optional)
+                </label>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
+                />
+              </div>
+
+              {/* Required Checkbox */}
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="isRequired"
+                  checked={isRequired}
+                  onChange={(e) => setIsRequired(e.target.checked)}
+                  className="h-4 w-4 text-black focus:ring-gray-200 border-gray-300 rounded"
+                />
+                <label htmlFor="isRequired" className="ml-2 text-sm text-gray-700">
+                  Required assignment
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <Button
+                variant="outline"
+                onClick={() => setShowAssignModal(false)}
+                disabled={assigning}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAssignSimulation}
+                disabled={!selectedScenario || assigning}
+                className="bg-black text-white hover:bg-gray-800"
+              >
+                {assigning ? "Assigning..." : "Assign Simulation"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

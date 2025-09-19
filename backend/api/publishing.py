@@ -13,6 +13,7 @@ from datetime import datetime
 from database.connection import get_db
 from utilities.rate_limiter import check_anonymous_review_rate_limit
 from utilities.auth import get_current_user, get_current_user_optional
+from utilities.debug_logging import debug_log
 from database.models import (
     Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, 
     ScenarioReview, User, scene_personas, UserProgress,
@@ -46,27 +47,27 @@ async def save_scenario_draft(
     """
     
     try:
-        print("[DEBUG] Saving scenario as draft...")
-        print(f"[DEBUG] AI result keys: {list(ai_result.keys())}")
-        print(f"[DEBUG] Scenario ID: {scenario_id}")
-        print(f"[DEBUG] Current user: {current_user.id if current_user else 'None'}")
-        print(f"[DEBUG] Scenario ID type: {type(scenario_id)}")
-        print(f"[DEBUG] Scenario ID is None: {scenario_id is None}")
+        debug_log("Saving scenario as draft...")
+        debug_log(f"AI result keys: {list(ai_result.keys())}")
+        debug_log(f"Scenario ID: {scenario_id}")
+        debug_log(f"Current user: {current_user.id if current_user else 'None'}")
+        debug_log(f"Scenario ID type: {type(scenario_id)}")
+        debug_log(f"Scenario ID is None: {scenario_id is None}")
         
         # Check if we received the wrapper response instead of direct AI result
         if "ai_result" in ai_result and isinstance(ai_result["ai_result"], dict):
-            print("[DEBUG] Detected wrapper response, extracting ai_result...")
+            debug_log("Detected wrapper response, extracting ai_result...")
             actual_ai_result = ai_result["ai_result"]
         else:
             actual_ai_result = ai_result
         
-        print(f"[DEBUG] Actual AI result keys: {list(actual_ai_result.keys())}")
-        print(f"[DEBUG] Key figures count: {len(actual_ai_result.get('key_figures', []))}")
-        print(f"[DEBUG] Scenes count: {len(actual_ai_result.get('scenes', []))}")
+        debug_log(f"Actual AI result keys: {list(actual_ai_result.keys())}")
+        debug_log(f"Key figures count: {len(actual_ai_result.get('key_figures', []))}")
+        debug_log(f"Scenes count: {len(actual_ai_result.get('scenes', []))}")
         
         # Extract title from AI result
         title = actual_ai_result.get("title", "Untitled Scenario")
-        print(f"[DEBUG] Extracted title: {title}")
+        debug_log(f"Extracted title: {title}")
         
         scenario = None
         
@@ -93,7 +94,7 @@ async def save_scenario_draft(
                     detail="You can only update scenarios you created"
                 )
             
-            print(f"[DEBUG] Updating existing scenario with ID: {scenario.id}")
+            debug_log(f"Updating existing scenario with ID: {scenario.id}")
             scenario.title = title
             scenario.description = actual_ai_result.get("description", "")
             scenario.challenge = actual_ai_result.get("description", "")
@@ -105,14 +106,14 @@ async def save_scenario_draft(
             # Store existing scene and persona IDs for cleanup
             existing_scene_ids = [id for (id,) in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario.id).all()]
             existing_persona_ids = [id for (id,) in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario.id).all()]
-            print(f"[DEBUG] Found {len(existing_scene_ids)} existing scenes and {len(existing_persona_ids)} existing personas to potentially clean up")
+            debug_log(f"Found {len(existing_scene_ids)} existing scenes and {len(existing_persona_ids)} existing personas to potentially clean up")
         
         # Handle create case: no scenario_id provided
         else:
             # Generate unique ID for new scenario
             import secrets
             unique_id = f"SC-{secrets.token_urlsafe(8).upper()}"
-            print(f"[DEBUG] Generated unique_id: {unique_id}")
+            debug_log(f"Generated unique_id: {unique_id}")
             
             # Create scenario record as draft
             scenario = Scenario(
@@ -139,14 +140,14 @@ async def save_scenario_draft(
             )
             db.add(scenario)
             db.flush()
-            print(f"[DEBUG] Created draft scenario with ID: {scenario.id}")
+            debug_log(f"Created draft scenario with ID: {scenario.id}")
 
         # Save personas - update existing or create new
         persona_mapping = {}
         key_figures = actual_ai_result.get("key_figures", [])
         personas = actual_ai_result.get("personas", [])
         persona_list = key_figures if key_figures else personas
-        print(f"[DEBUG] Saving {len(persona_list)} personas...")
+        debug_log(f"Saving {len(persona_list)} personas...")
         new_persona_ids = []
         
         # Get existing personas for updates
@@ -162,7 +163,7 @@ async def save_scenario_draft(
             if isinstance(figure, dict) and figure.get("name"):
                 # Debug: Log the traits being received
                 traits = figure.get("personality_traits", {}) or figure.get("traits", {})
-                print(f"[DEBUG] Persona {figure['name']} traits received: {traits}")
+                debug_log(f"Persona {figure['name']} traits received: {traits}")
                 
                 # Check if this persona already exists
                 if figure["name"] in existing_personas:
@@ -177,7 +178,7 @@ async def save_scenario_draft(
                     db.add(existing_persona)
                     persona_mapping[figure["name"]] = existing_persona.id
                     new_persona_ids.append(existing_persona.id)
-                    print(f"[DEBUG] Updated existing persona: {figure['name']} with ID: {existing_persona.id}")
+                    debug_log(f"Updated existing persona: {figure['name']} with ID: {existing_persona.id}")
                 else:
                     # Create new persona
                     persona = ScenarioPersona(
@@ -195,11 +196,11 @@ async def save_scenario_draft(
                     db.flush()
                     persona_mapping[figure["name"]] = persona.id
                     new_persona_ids.append(persona.id)
-                    print(f"[DEBUG] Created new persona: {figure['name']} with ID: {persona.id} and traits: {persona.personality_traits}")
+                    debug_log(f"Created new persona: {figure['name']} with ID: {persona.id} and traits: {persona.personality_traits}")
 
         # Save scenes - update existing or create new
         scenes = actual_ai_result.get("scenes", [])
-        print(f"[DEBUG] Saving {len(scenes)} scenes...")
+        debug_log(f"Saving {len(scenes)} scenes...")
         new_scene_ids = []
         
         # Get existing scenes for updates
@@ -239,7 +240,7 @@ async def save_scenario_draft(
                     existing_scene.updated_at = datetime.utcnow()
                     db.add(existing_scene)
                     new_scene_ids.append(existing_scene.id)
-                    print(f"[DEBUG] Updated existing scene: {scene_title}, success_metric: {success_metric}")
+                    debug_log(f"Updated existing scene: {scene_title}, success_metric: {success_metric}")
                     
                     # Update scene-persona relationships
                     # First, remove existing relationships for this scene
@@ -258,7 +259,7 @@ async def save_scenario_draft(
                                     involvement_level="participant"
                                 )
                             )
-                            print(f"[DEBUG] Updated persona {persona_name} link to scene {scene_title}")
+                            debug_log(f"Updated persona {persona_name} link to scene {scene_title}")
                 else:
                     # Create new scene
                     scene_record = ScenarioScene(
@@ -278,7 +279,7 @@ async def save_scenario_draft(
                     db.add(scene_record)
                     db.flush()
                     new_scene_ids.append(scene_record.id)
-                    print(f"[DEBUG] Created new scene: {scene_record.title}, success_metric: {scene_record.success_metric}")
+                    debug_log(f"Created new scene: {scene_record.title}, success_metric: {scene_record.success_metric}")
                     
                     # Link only involved personas to each scene
                     personas_involved = scene.get("personas_involved", [])
@@ -293,14 +294,14 @@ async def save_scenario_draft(
                                     involvement_level="participant"
                                 )
                             )
-                            print(f"[DEBUG] Linked persona {persona_name} to scene {scene_title}")
+                            debug_log(f"Linked persona {persona_name} to scene {scene_title}")
         
         # Clean up old scenes and personas that are no longer needed (only for existing scenarios)
         if 'existing_scene_ids' in locals() and existing_scene_ids:
             # Find scenes that were deleted (exist in old but not in new)
             deleted_scene_ids = [sid for sid in existing_scene_ids if sid not in new_scene_ids]
             if deleted_scene_ids:
-                print(f"[DEBUG] Checking if {len(deleted_scene_ids)} scenes can be safely deleted: {deleted_scene_ids}")
+                debug_log(f"Checking if {len(deleted_scene_ids)} scenes can be safely deleted: {deleted_scene_ids}")
                 
                 # Check if any of these scenes are still referenced by user_progress or conversation_logs
                 from database.models import UserProgress, ConversationLog
@@ -320,15 +321,15 @@ async def save_scenario_draft(
                 unsafe_to_delete = [sid for sid in deleted_scene_ids if sid in referenced_scene_ids]
                 
                 if unsafe_to_delete:
-                    print(f"[DEBUG] Cannot delete {len(unsafe_to_delete)} scenes as they are still referenced by user_progress or conversation_logs: {unsafe_to_delete}")
+                    debug_log(f"Cannot delete {len(unsafe_to_delete)} scenes as they are still referenced by user_progress or conversation_logs: {unsafe_to_delete}")
                 
                 if safe_to_delete:
-                    print(f"[DEBUG] Safely deleting {len(safe_to_delete)} scenes: {safe_to_delete}")
+                    debug_log(f"Safely deleting {len(safe_to_delete)} scenes: {safe_to_delete}")
                     # Delete scene-persona relationships for safe-to-delete scenes
                     db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(safe_to_delete)))
                 # Delete the scenes themselves
                     db.query(ScenarioScene).filter(ScenarioScene.id.in_(safe_to_delete)).delete()
-                    print(f"[DEBUG] Deleted safe scenes and their relationships")
+                    debug_log(f"Deleted safe scenes and their relationships")
         
         # Initialize deleted_persona_ids outside the if block
         deleted_persona_ids = []
@@ -336,7 +337,7 @@ async def save_scenario_draft(
             # Find personas that were deleted (exist in old but not in new)
             deleted_persona_ids = [pid for pid in existing_persona_ids if pid not in new_persona_ids]
             if deleted_persona_ids:
-                print(f"[DEBUG] Checking if {len(deleted_persona_ids)} personas can be safely deleted: {deleted_persona_ids}")
+                debug_log(f"Checking if {len(deleted_persona_ids)} personas can be safely deleted: {deleted_persona_ids}")
         
         # Only proceed with deletion if there are personas to delete
         if deleted_persona_ids:
@@ -353,18 +354,18 @@ async def save_scenario_draft(
             unsafe_to_delete_personas = [pid for pid in deleted_persona_ids if pid in referenced_persona_ids]
             
             if unsafe_to_delete_personas:
-                print(f"[DEBUG] Cannot delete {len(unsafe_to_delete_personas)} personas as they are still referenced by conversation_logs: {unsafe_to_delete_personas}")
+                debug_log(f"Cannot delete {len(unsafe_to_delete_personas)} personas as they are still referenced by conversation_logs: {unsafe_to_delete_personas}")
             
             if safe_to_delete_personas:
-                print(f"[DEBUG] Safely deleting {len(safe_to_delete_personas)} personas: {safe_to_delete_personas}")
+                debug_log(f"Safely deleting {len(safe_to_delete_personas)} personas: {safe_to_delete_personas}")
                 # Delete scene-persona relationships for safe-to-delete personas
                 db.execute(scene_personas.delete().where(scene_personas.c.persona_id.in_(safe_to_delete_personas)))
                 # Delete the personas themselves
                 db.query(ScenarioPersona).filter(ScenarioPersona.id.in_(safe_to_delete_personas)).delete()
-                print(f"[DEBUG] Deleted safe personas and their relationships")
+                debug_log(f"Deleted safe personas and their relationships")
         
         db.commit()
-        print(f"[DEBUG] Successfully saved draft scenario {scenario.id}")
+        debug_log(f"Successfully saved draft scenario {scenario.id}")
         return {
             "status": "saved",
             "scenario_id": scenario.id,
@@ -397,15 +398,15 @@ async def publish_scenario(
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
     
-    print(f"[DEBUG] Publishing scenario {scenario_id}")
-    print(f"[DEBUG] Found scenario title: '{scenario.title}'")
-    print(f"[DEBUG] Found scenario description length: {len(scenario.description or '')}")
-    print(f"[DEBUG] Scenario personas count: {len(scenario.personas)}")
-    print(f"[DEBUG] Scenario scenes count: {len(scenario.scenes)}")
+    debug_log(f"Publishing scenario {scenario_id}")
+    debug_log(f"Found scenario title: '{scenario.title}'")
+    debug_log(f"Found scenario description length: {len(scenario.description or '')}")
+    debug_log(f"Scenario personas count: {len(scenario.personas)}")
+    debug_log(f"Scenario scenes count: {len(scenario.scenes)}")
     
     # Validate scenario is ready for publishing
     if not scenario.title or not scenario.description:
-        print(f"[DEBUG] Validation failed - title: '{scenario.title}', description: '{scenario.description}'")
+        debug_log(f"Validation failed - title: '{scenario.title}', description: '{scenario.description}'")
         raise HTTPException(
             status_code=400, 
             detail="Scenario must have title and description to publish"
@@ -425,26 +426,26 @@ async def publish_scenario(
     
     # Check if this draft already has a published version
     existing_published = None
-    print(f"[DEBUG] Draft scenario {scenario.id} (unique_id: {scenario.unique_id}) has published_version_id: {scenario.published_version_id}")
+    debug_log(f"Draft scenario {scenario.id} (unique_id: {scenario.unique_id}) has published_version_id: {scenario.published_version_id}")
     
     # Refresh the scenario from the database to get the latest published_version_id
     db.refresh(scenario)
-    print(f"[DEBUG] After refresh - published_version_id: {scenario.published_version_id}")
+    debug_log(f"After refresh - published_version_id: {scenario.published_version_id}")
     
     if scenario.published_version_id:
         existing_published = db.query(Scenario).filter(
             Scenario.id == scenario.published_version_id
         ).first()
         if existing_published:
-            print(f"[DEBUG] Found existing published version: {existing_published.id} (unique_id: {existing_published.unique_id})")
+            debug_log(f"Found existing published version: {existing_published.id} (unique_id: {existing_published.unique_id})")
         else:
-            print(f"[DEBUG] Published version {scenario.published_version_id} not found - will create new one")
+            debug_log(f"Published version {scenario.published_version_id} not found - will create new one")
     else:
-        print(f"[DEBUG] No published version exists - will create new one")
+        debug_log(f"No published version exists - will create new one")
     
     # ALWAYS update the existing scenario instead of creating a new one
-    print(f"[DEBUG] Publishing scenario {scenario.id} (unique_id: {scenario.unique_id})")
-    print(f"[DEBUG] Converting draft to published - keeping same ID and unique_id")
+    debug_log(f"Publishing scenario {scenario.id} (unique_id: {scenario.unique_id})")
+    debug_log(f"Converting draft to published - keeping same ID and unique_id")
     
     # Update the existing scenario to be published
     scenario.is_draft = False  # Convert to published
@@ -459,10 +460,10 @@ async def publish_scenario(
     # The scenario keeps its original ID and unique_id
     published_scenario = scenario
     
-    print(f"[DEBUG] Converted scenario {scenario.id} to published with unique_id: {scenario.unique_id}")
+    debug_log(f"Converted scenario {scenario.id} to published with unique_id: {scenario.unique_id}")
     
     # No need to copy personas and scenes - we're using the same scenario
-    print(f"[DEBUG] Using existing personas and scenes for published scenario {published_scenario.id}")
+    debug_log(f"Using existing personas and scenes for published scenario {published_scenario.id}")
     
     db.commit()
     db.refresh(published_scenario)

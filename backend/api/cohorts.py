@@ -13,6 +13,7 @@ import secrets
 
 from database.connection import get_db
 from utilities.auth import get_current_user, require_admin
+from utilities.debug_logging import debug_log
 from database.models import (
     Cohort, CohortStudent, CohortSimulation, User, UserProgress, Scenario, generate_cohort_id
 )
@@ -310,8 +311,8 @@ async def delete_cohort(
         db.commit()
         
         # Log the deletion for audit purposes
-        print(f"Cohort '{cohort.title}' (ID: {cohort.unique_id}) deleted by user {current_user.id}")
-        print(f"Deleted {student_count} student enrollments and {simulation_count} simulation assignments")
+        debug_log(f"Cohort '{cohort.title}' (ID: {cohort.unique_id}) deleted by user {current_user.id}")
+        debug_log(f"Deleted {student_count} student enrollments and {simulation_count} simulation assignments")
         
         return {
             "message": "Cohort deleted successfully",
@@ -321,7 +322,7 @@ async def delete_cohort(
         
     except Exception as e:
         db.rollback()
-        print(f"Error deleting cohort {cohort.unique_id}: {str(e)}")
+        debug_log(f"Error deleting cohort {cohort.unique_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to delete cohort. Please try again.")
 
 # --- STUDENT MANAGEMENT ENDPOINTS ---
@@ -428,22 +429,55 @@ async def get_cohort_simulations(
     if cohort.created_by != current_user.id and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized to view this cohort")
     
-    # Get simulations
+    # Get simulations with scenario details
     simulations = db.query(CohortSimulation).filter(
         CohortSimulation.cohort_id == cohort.id
     ).all()
     
-    result = []
-    for simulation in simulations:
-        result.append(CohortSimulationResponse(
-            id=simulation.id,
-            simulation_id=simulation.simulation_id,
-            assigned_by=simulation.assigned_by,
-            assigned_at=simulation.assigned_at,
-            due_date=simulation.due_date,
-            is_required=simulation.is_required
-        ))
+    debug_log(f"Found {len(simulations)} simulations for cohort {cohort.id}")
     
+    result = []
+    for cohort_simulation in simulations:
+        debug_log(f"Processing simulation {cohort_simulation.id} with simulation_id {cohort_simulation.simulation_id}")
+        
+        # Get the scenario details
+        scenario = db.query(Scenario).filter(Scenario.id == cohort_simulation.simulation_id).first()
+        
+        debug_log(f"Found scenario: {scenario}")
+        
+        simulation_data = {
+            "id": cohort_simulation.id,
+            "simulation_id": cohort_simulation.simulation_id,
+            "assigned_by": cohort_simulation.assigned_by,
+            "assigned_at": cohort_simulation.assigned_at,
+            "due_date": cohort_simulation.due_date,
+            "is_required": cohort_simulation.is_required,
+        }
+        
+        if scenario:
+            debug_log(f"Adding scenario details: {scenario.title}")
+            simulation_data["simulation"] = {
+                "id": scenario.id,
+                "title": scenario.title,
+                "description": scenario.description,
+                "is_draft": scenario.is_draft,
+                "status": scenario.status
+            }
+        else:
+            debug_log(f"Scenario not found for ID {cohort_simulation.simulation_id}")
+            # Fallback if scenario not found
+            simulation_data["simulation"] = {
+                "id": cohort_simulation.simulation_id,
+                "title": f"Scenario {cohort_simulation.simulation_id}",
+                "description": "Scenario details not found",
+                "is_draft": False,
+                "status": "unknown"
+            }
+        
+        debug_log(f"Final simulation_data: {simulation_data}")
+        result.append(simulation_data)
+    
+    debug_log(f"Returning {len(result)} simulations")
     return result
 
 @router.post("/{cohort_id}/simulations", response_model=CohortSimulationResponse)
@@ -488,3 +522,60 @@ async def assign_simulation_to_cohort(
         due_date=cohort_simulation.due_date,
         is_required=cohort_simulation.is_required
     )
+
+@router.delete("/{cohort_id}/simulations/{simulation_assignment_id}")
+async def remove_simulation_from_cohort(
+    cohort_id: int,
+    simulation_assignment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Remove a simulation assignment from a cohort"""
+    # Check if cohort exists and user has access
+    cohort = db.query(Cohort).filter(Cohort.id == cohort_id).first()
+    if not cohort:
+        raise HTTPException(status_code=404, detail="Cohort not found")
+    
+    if cohort.created_by != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to manage this cohort")
+    
+    # Check if simulation assignment exists
+    simulation_assignment = db.query(CohortSimulation).filter(
+        CohortSimulation.id == simulation_assignment_id,
+        CohortSimulation.cohort_id == cohort_id
+    ).first()
+    
+    if not simulation_assignment:
+        raise HTTPException(status_code=404, detail="Simulation assignment not found")
+    
+    # Delete the assignment
+    db.delete(simulation_assignment)
+    db.commit()
+    
+    return {"message": "Simulation removed from cohort successfully"}
+
+@router.get("/debug/scenario/{scenario_id}")
+async def debug_scenario(
+    scenario_id: int,
+    db: Session = Depends(get_db)
+):
+    """Debug endpoint to check if a scenario exists"""
+    scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+    
+    if scenario:
+        return {
+            "found": True,
+            "scenario": {
+                "id": scenario.id,
+                "title": scenario.title,
+                "description": scenario.description,
+                "is_draft": scenario.is_draft,
+                "status": scenario.status
+            }
+        }
+    else:
+        return {
+            "found": False,
+            "scenario_id": scenario_id,
+            "message": "Scenario not found"
+        }

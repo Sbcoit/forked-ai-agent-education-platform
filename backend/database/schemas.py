@@ -615,6 +615,7 @@ class CohortSimulationResponse(BaseModel):
     assigned_at: datetime
     due_date: Optional[datetime]
     is_required: bool
+    simulation: Optional[dict] = None
     
     class Config:
         from_attributes = True

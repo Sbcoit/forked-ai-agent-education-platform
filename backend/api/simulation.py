@@ -19,6 +19,7 @@ from database.models import (
     UserProgress, SceneProgress, ConversationLog
 )
 from utilities.auth import get_current_user
+from utilities.debug_logging import debug_log
 from database.schemas import (
     SimulationStartRequest, SimulationStartResponse, SimulationScenarioResponse,
     SimulationChatRequest, SimulationChatResponse,
@@ -1121,15 +1122,15 @@ async def linear_simulation_chat(
             orchestrator.state.current_scene_index = saved_state.get('current_scene_index', 0)
             orchestrator.state.turn_count = saved_state.get('turn_count', 0)
             orchestrator.state.state_variables = saved_state.get('state_variables', {})
-            print(f"[DEBUG] Loaded state - simulation_started: {orchestrator.state.simulation_started}")
-            print(f"[DEBUG] NEW SCENE START (after load): index={orchestrator.state.current_scene_index}, turn_count={orchestrator.state.turn_count}")
+            debug_log(f"Loaded state - simulation_started: {orchestrator.state.simulation_started}")
+            debug_log(f"NEW SCENE START (after load): index={orchestrator.state.current_scene_index}, turn_count={orchestrator.state.turn_count}")
         else:
-            print(f"[DEBUG] No saved state found. orchestrator_data keys: {list(user_progress.orchestrator_data.keys()) if user_progress.orchestrator_data else 'None'}")
+            debug_log(f"No saved state found. orchestrator_data keys: {list(user_progress.orchestrator_data.keys()) if user_progress.orchestrator_data else 'None'}")
         
         # Get current scene and timeout_turns
         current_scene = orchestrator.scenario.get('scenes', [{}])[orchestrator.state.current_scene_index]
         timeout_turns = current_scene.get('timeout_turns') or current_scene.get('max_turns', 15)
-        print(f"[DEBUG] Current scene index: {orchestrator.state.current_scene_index}, timeout_turns: {timeout_turns}")
+        debug_log(f"Current scene index: {orchestrator.state.current_scene_index}, timeout_turns: {timeout_turns}")
         
         # Ensure we're using the correct scene_id (frontend might send wrong one after scene change)
         correct_scene_id = current_scene.get('id')

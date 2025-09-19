@@ -4,6 +4,7 @@ import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { debugLog } from "@/lib/debug";
 
 interface Persona {
   name: string;
@@ -73,7 +74,7 @@ export default function PersonaCard({
       detail_oriented: 5, risk_taking: 5, empathetic: 5, decisive: 5,
     };
     const fullTraits = { ...defaultTraitValues, ...persona.traits };
-    console.log(`[DEBUG] PersonaCard: Syncing traits for ${persona.name}:`, {
+    debugLog(`PersonaCard: Syncing traits for ${persona.name}:`, {
       original: persona.traits,
       full: fullTraits,
       defaultTraitsProvided: !!defaultTraits
@@ -95,7 +96,7 @@ export default function PersonaCard({
   }, [persona.traits, editMode]);
 
   const handleSliderChange = (key: string, value: number[]) => {
-    console.log(`[DEBUG] PersonaCard: Slider changed for ${persona.name} - ${key}: ${value[0]}`);
+    debugLog(`PersonaCard: Slider changed for ${persona.name} - ${key}: ${value[0]}`);
     
     if (editMode) {
       setEditFields(fields => ({
@@ -116,7 +117,7 @@ export default function PersonaCard({
           [key]: value[0],
         },
       }));
-      console.log(`[DEBUG] PersonaCard: Calling onTraitsChange with:`, newTraits);
+      debugLog(`PersonaCard: Calling onTraitsChange with:`, newTraits);
       if (onTraitsChange) onTraitsChange(newTraits);
     }
   };
@@ -222,7 +223,7 @@ export default function PersonaCard({
         <div className="flex flex-col justify-center min-w-[220px]">
           {traitLabels.map(({ key, label }) => {
             const traitValue = traits[key as keyof typeof traits] ?? 5;
-            console.log(`[DEBUG] PersonaCard Display: Showing trait ${key} for ${persona.name}: ${traitValue}`);
+            debugLog(`PersonaCard Display: Showing trait ${key} for ${persona.name}: ${traitValue}`);
             return (
               <div key={key} className="flex items-center mb-1.5">
                 <span className="w-32 text-right pr-2 text-sm font-medium text-gray-800">{label}</span>
@@ -303,7 +304,7 @@ export default function PersonaCard({
               
               // Debug log for first render
               if (key === 'analytical') {
-                console.log(`[DEBUG] PersonaCard: Rendering sliders for ${persona.name} (editMode: ${editMode}):`, {
+                debugLog(`PersonaCard: Rendering sliders for ${persona.name} (editMode: ${editMode}):`, {
                   traits,
                   editFields: editFields.traits,
                   sliderValue,

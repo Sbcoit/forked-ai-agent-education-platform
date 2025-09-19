@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useRef, useEffect } from "react"
+import { debugLog } from "@/lib/debug"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -158,11 +159,11 @@ export default function ScenarioBuilder() {
        const editId = urlParams.get('edit')
        
        if (editId) {
-         console.log("Loading draft data for editing ID:", editId)
+         debugLog("Loading draft data for editing ID:", editId)
          
          // Fetch draft data directly from the database
          const draftData = await apiClient.getDraftScenario(parseInt(editId))
-         console.log("Fetched draft data:", draftData)
+         debugLog("Fetched draft data:", draftData)
          
          if (draftData && draftData.id) {
            // Load the draft data into the form
@@ -207,7 +208,7 @@ export default function ScenarioBuilder() {
              
              // Use scene personas if available, otherwise fall back to global personas
              if (allScenePersonas.length > 0) {
-               console.log("Using scene personas:", JSON.stringify(allScenePersonas, null, 2))
+               debugLog("Using scene personas:", JSON.stringify(allScenePersonas, null, 2))
                // Transform personas to match PersonaCard expected structure
                const transformedPersonas = allScenePersonas.map((persona: any) => ({
                  name: persona.name,
@@ -217,10 +218,10 @@ export default function ScenarioBuilder() {
                  traits: persona.personality_traits || {},
                  imageUrl: persona.image_url
                }))
-               console.log("Transformed scene personas:", JSON.stringify(transformedPersonas, null, 2))
+               debugLog("Transformed scene personas:", JSON.stringify(transformedPersonas, null, 2))
                setPersonas(transformedPersonas)
              } else if (draftData.personas && draftData.personas.length > 0) {
-               console.log("Using global personas:", draftData.personas)
+               debugLog("Using global personas:", draftData.personas)
                // Transform global personas to match PersonaCard expected structure
                const transformedPersonas = draftData.personas.map((persona: any) => ({
                  name: persona.name,
@@ -230,7 +231,7 @@ export default function ScenarioBuilder() {
                  traits: persona.personality_traits || {},
                  imageUrl: persona.image_url
                }))
-               console.log("Transformed global personas:", JSON.stringify(transformedPersonas, null, 2))
+               debugLog("Transformed global personas:", JSON.stringify(transformedPersonas, null, 2))
                setPersonas(transformedPersonas)
              }
            } else {
@@ -253,12 +254,12 @@ export default function ScenarioBuilder() {
            setSavedScenarioId(draftData.id)
            setIsSaved(true) // Mark as already saved
            
-           console.log("Draft data loaded successfully")
+           debugLog("Draft data loaded successfully")
          } else {
            throw new Error("Invalid draft data received")
          }
        } else if (!editId) {
-         console.log("No draft ID found - creating new simulation")
+         debugLog("No draft ID found - creating new simulation")
          // Ensure form is clean for new simulation
          setName("")
          setDescription("")
@@ -307,7 +308,7 @@ export default function ScenarioBuilder() {
  const handleSave = async (): Promise<number | null> => {
    // Prevent duplicate save requests
    if (isSaving) {
-     console.log("[DEBUG] Save already in progress, ignoring duplicate request")
+     debugLog("Save already in progress, ignoring duplicate request")
      return null;
    }
    
@@ -338,20 +339,20 @@ export default function ScenarioBuilder() {
   };
 
   // Debug log to check scenes state before saving
-  console.log("Scenes state before save:", scenes);
-  console.log("Personas state before save:", personas);
+  debugLog("Scenes state before save:", scenes);
+  debugLog("Personas state before save:", personas);
   
   // Debug: Log persona traits specifically
   personas.forEach((persona, index) => {
-    console.log(`[DEBUG] Persona ${index} (${persona.name}) traits being sent:`, persona.traits);
+    debugLog(`Persona ${index} (${persona.name}) traits being sent:`, persona.traits);
   });
   
   // Debug: Log the full payload structure
-  console.log("Full payload being sent:", JSON.stringify(payload, null, 2));
+  debugLog("Full payload being sent:", JSON.stringify(payload, null, 2));
 
    setIsSaving(true);
    try {
-     console.log("[DEBUG] Sending to save endpoint:", {
+     debugLog("Sending to save endpoint:", {
        keys: Object.keys(payload),
        title: payload.title,
        key_figures_count: payload.key_figures?.length || 0,
@@ -363,8 +364,8 @@ export default function ScenarioBuilder() {
        ? `/api/scenarios/save?scenario_id=${savedScenarioId}`
        : "/api/scenarios/save";
      
-     console.log("[DEBUG] Save endpoint:", endpoint)
-     console.log("[DEBUG] savedScenarioId:", savedScenarioId)
+     debugLog("Save endpoint:", endpoint)
+     debugLog("savedScenarioId:", savedScenarioId)
      
      const response = await apiClient.apiRequest(endpoint, {
        method: "POST",
@@ -375,7 +376,7 @@ export default function ScenarioBuilder() {
        const result = await response.json();
        setIsSaved(true);
        setSavedScenarioId(result.scenario_id); // Store the scenario ID
-       console.log("Scenario saved:", result);
+       debugLog("Scenario saved:", result);
        
        // Reset save status after 3 seconds to show it's temporary
        setTimeout(() => {
@@ -434,7 +435,7 @@ export default function ScenarioBuilder() {
      if (response.ok) {
        const result = await response.json();
        setIsPublished(true);
-       console.log("Scenario published:", result);
+       debugLog("Scenario published:", result);
        
        // Reset publish status after 3 seconds
        setTimeout(() => {
@@ -680,7 +681,7 @@ export default function ScenarioBuilder() {
    if (e.target.files) {
      const filesArray = Array.from(e.target.files);
      setUploadedFiles(filesArray);
-     console.log("[DEBUG] Context files selected:", filesArray.map(f => f.name));
+     debugLog("Context files selected:", filesArray.map(f => f.name));
    }
  };
  const handleUploadFilesClick = () => {
@@ -712,8 +713,8 @@ export default function ScenarioBuilder() {
          formData.append("context_files", file);
        });
      }
-     console.log("[DEBUG] handleAutofill: PDF file to upload:", uploadedFile.name);
-     console.log("[DEBUG] handleAutofill: Context files to upload:", uploadedFiles.map(f => f.name));
+     debugLog("handleAutofill: PDF file to upload:", uploadedFile.name);
+     debugLog("handleAutofill: Context files to upload:", uploadedFiles.map(f => f.name));
      
      setAutofillStep("Sending files to backend...");
      setAutofillProgress(50);
@@ -732,10 +733,10 @@ export default function ScenarioBuilder() {
      setAutofillProgress(75);
      
      const resultData = await response.json();
-     console.log("Backend response:", resultData);
-     console.log("Response status:", resultData.status);
-     console.log("AI result exists:", !!resultData.ai_result);
-     console.log("Response keys:", Object.keys(resultData));
+     debugLog("Backend response:", resultData);
+     debugLog("Response status:", resultData.status);
+     debugLog("AI result exists:", !!resultData.ai_result);
+     debugLog("Response keys:", Object.keys(resultData));
     
      if (resultData.status === "completed" && resultData.ai_result) {
        setAutofillStep("Complete!");
@@ -744,15 +745,15 @@ export default function ScenarioBuilder() {
       
        // Populate form fields with AI results
        const aiData = resultData.ai_result;
-       console.log("AI Result:", aiData);
-       console.log("AI Result keys:", Object.keys(aiData));
+       debugLog("AI Result:", aiData);
+       debugLog("AI Result keys:", Object.keys(aiData));
       
        // Set the title
        if (aiData.title) {
-         console.log("Setting title:", aiData.title);
+         debugLog("Setting title:", aiData.title);
          setName(aiData.title);
        } else {
-         console.log("No title found in AI result");
+         debugLog("No title found in AI result");
        }
       
        // Set the description
@@ -762,26 +763,26 @@ export default function ScenarioBuilder() {
          console.log("Formatted description:", formattedDescription);
          setDescription(formattedDescription);
        } else {
-         console.log("No description found in AI result");
+         debugLog("No description found in AI result");
          console.log("Description field value:", aiData.description);
        }
       
       // Set the learning outcomes with proper formatting
       if (aiData.learning_outcomes && Array.isArray(aiData.learning_outcomes)) {
-        console.log("Setting learning outcomes:", aiData.learning_outcomes);
+        debugLog("Setting learning outcomes:", aiData.learning_outcomes);
         const formattedOutcomes = formatLearningOutcomes(aiData.learning_outcomes);
         console.log("Formatted learning outcomes:", formattedOutcomes);
         setLearningOutcomes(formattedOutcomes);
       } else {
-        console.log("No learning outcomes found in AI result");
+        debugLog("No learning outcomes found in AI result");
       }
        
        // Create personas from key figures (excluding the student role)
-       console.log("[DEBUG] Checking for key_figures in aiData:", aiData.key_figures);
+       debugLog("Checking for key_figures in aiData:", aiData.key_figures);
        if (aiData.key_figures && Array.isArray(aiData.key_figures)) {
-         console.log("=== KEY FIGURES DEBUG ===");
-         console.log("Total key figures identified:", aiData.key_figures.length);
-         console.log("All key figures:", aiData.key_figures);
+         debugLog("=== KEY FIGURES DEBUG ===");
+         debugLog("Total key figures identified:", aiData.key_figures.length);
+         debugLog("All key figures:", aiData.key_figures);
          console.log("Student role:", aiData.student_role);
          
          console.log("=== FILTERING PROCESS ===");
@@ -815,11 +816,11 @@ export default function ScenarioBuilder() {
            return true;
          });
          
-         console.log(`[DEBUG] After filtering: ${filteredFigures.length} figures remain out of ${aiData.key_figures.length} total`);
+         debugLog(`After filtering: ${filteredFigures.length} figures remain out of ${aiData.key_figures.length} total`);
          
          const newPersonas = filteredFigures
            .map((figure: any, index: number) => {
-             console.log(`[DEBUG] Processing key figure ${index + 1}:`, figure);
+             debugLog(`Processing key figure ${index + 1}:`, figure);
              console.log(`[DEBUG] Personality traits for ${figure.name}:`, figure.personality_traits);
              console.log(`[DEBUG] Primary goals for ${figure.name}:`, figure.primary_goals);
              
@@ -877,15 +878,15 @@ export default function ScenarioBuilder() {
          });
          setPersonas(newPersonas);
        } else {
-         console.log("[DEBUG] No key_figures found in aiData, creating empty personas array");
+         debugLog("No key_figures found in aiData, creating empty personas array");
          setPersonas([]);
        }
        
        // Process scenes from AI results
-       console.log("[DEBUG] Checking for scenes in aiData:", aiData.scenes);
+       debugLog("Checking for scenes in aiData:", aiData.scenes);
        if (aiData.scenes && Array.isArray(aiData.scenes)) {
          console.log("=== SCENES DEBUG ===");
-         console.log("Total scenes identified:", aiData.scenes.length);
+         debugLog("Total scenes identified:", aiData.scenes.length);
          console.log("All scenes:", aiData.scenes);
          
          const processedScenes = aiData.scenes
@@ -991,7 +992,7 @@ const handleAutofillWithTeachingNotes = async () => {
     console.log(`Backend response (${teachingNotesFile ? 'Teaching Notes priority' : 'Business Case Study only'}):`, resultData);
     console.log("Response status:", resultData.status);
     console.log("AI result exists:", !!resultData.ai_result);
-    console.log("Response keys:", Object.keys(resultData));
+    debugLog("Response keys:", Object.keys(resultData));
    
     if (resultData.status === "completed" && resultData.ai_result) {
       setAutofillStep("Complete!");
@@ -1022,20 +1023,20 @@ const handleAutofillWithTeachingNotes = async () => {
       
       // Set the learning outcomes with proper formatting
       if (aiData.learning_outcomes && Array.isArray(aiData.learning_outcomes)) {
-        console.log("Setting learning outcomes:", aiData.learning_outcomes);
+        debugLog("Setting learning outcomes:", aiData.learning_outcomes);
         const formattedOutcomes = formatLearningOutcomes(aiData.learning_outcomes);
         console.log("Formatted learning outcomes:", formattedOutcomes);
         setLearningOutcomes(formattedOutcomes);
       } else {
-        console.log("No learning outcomes found in AI result");
+        debugLog("No learning outcomes found in AI result");
       }
       
       // Process personas from key_figures with Teaching Notes context (same logic as main handler)
-      console.log("[DEBUG] Checking for key_figures in aiData (Teaching Notes):", aiData.key_figures);
+      debugLog("Checking for key_figures in aiData (Teaching Notes):", aiData.key_figures);
       if (aiData.key_figures && Array.isArray(aiData.key_figures)) {
-        console.log(`=== KEY FIGURES DEBUG (${teachingNotesFile ? 'Teaching Notes Priority' : 'Business Case Study Only'}) ===`);
-        console.log("Total key figures identified:", aiData.key_figures.length);
-        console.log("All key figures:", aiData.key_figures);
+        debugLog(`=== KEY FIGURES DEBUG (${teachingNotesFile ? 'Teaching Notes Priority' : 'Business Case Study Only'}) ===`);
+        debugLog("Total key figures identified:", aiData.key_figures.length);
+        debugLog("All key figures:", aiData.key_figures);
         console.log("Student role:", aiData.student_role);
         
         console.log("=== FILTERING PROCESS (Teaching Notes) ===");
@@ -1069,11 +1070,11 @@ const handleAutofillWithTeachingNotes = async () => {
           return true;
         });
         
-        console.log(`[DEBUG] After filtering: ${filteredFigures.length} figures remain out of ${aiData.key_figures.length} total`);
+        debugLog(`After filtering: ${filteredFigures.length} figures remain out of ${aiData.key_figures.length} total`);
         
         const newPersonas = filteredFigures
           .map((figure: any, index: number) => {
-            console.log(`[DEBUG] Processing key figure ${index + 1}:`, figure);
+            debugLog(`Processing key figure ${index + 1}:`, figure);
             console.log(`[DEBUG] Personality traits for ${figure.name}:`, figure.personality_traits);
             console.log(`[DEBUG] Primary goals for ${figure.name}:`, figure.primary_goals);
             
@@ -1131,7 +1132,7 @@ const handleAutofillWithTeachingNotes = async () => {
         });
         setPersonas(newPersonas);
       } else {
-        console.log("[DEBUG] No key_figures found in aiData (Teaching Notes), creating empty personas array");
+        debugLog("No key_figures found in aiData (Teaching Notes), creating empty personas array");
         setPersonas([]);
       }
       

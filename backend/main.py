@@ -24,6 +24,7 @@ from utilities.auth import (
     get_password_hash, authenticate_user, create_access_token, 
     get_current_user, get_current_user_optional, require_admin
 )
+from utilities.debug_logging import debug_log
 from utilities.rate_limiter import check_test_login_rate_limit
 
 # Import API routers
@@ -346,7 +347,7 @@ async def delete_scenario_by_unique_id(
         scenario_title = scenario.title
         scenario_id = scenario.id
         
-        print(f"[DEBUG] Soft deleting scenario {unique_id} (ID: {scenario_id})")
+        debug_log(f"Soft deleting scenario {unique_id} (ID: {scenario_id})")
         
         # Use soft deletion service
         service = SoftDeletionService(db)
@@ -370,7 +371,7 @@ async def delete_scenario_by_unique_id(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error deleting scenario {unique_id}: {str(e)}")
+        debug_log(f"Error deleting scenario {unique_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete scenario: {str(e)}")
 
 @app.delete("/api/scenarios/drafts/{scenario_id}")
@@ -397,7 +398,7 @@ async def delete_draft_scenario(
         # Store scenario title before deletion
         scenario_title = scenario.title
         
-        print(f"[DEBUG] Soft deleting draft scenario {scenario_id}")
+        debug_log(f"Soft deleting draft scenario {scenario_id}")
         
         # Use soft deletion service
         service = SoftDeletionService(db)

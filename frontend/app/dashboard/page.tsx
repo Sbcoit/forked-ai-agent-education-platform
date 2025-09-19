@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { debugLog } from "@/lib/debug"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -147,7 +148,7 @@ export default function Dashboard() {
   const updateSimulationStatus = async (simulationId: number, newStatus: string) => {
     try {
       setStatusUpdating(simulationId)
-      console.log(`[DEBUG] Updating scenario ${simulationId} to status: ${newStatus}`)
+      debugLog(`Updating scenario ${simulationId} to status: ${newStatus}`)
       
       await apiClient.updateScenarioStatus(simulationId, newStatus)
       
@@ -164,15 +165,34 @@ export default function Dashboard() {
           : sim
       ))
       
+      // If simulation was published (draft -> active), refresh cohorts data
+      // This ensures any cohorts with this simulation will show the updated status
+      if (newStatus === 'active') {
+        debugLog('Simulation published, refreshing cohorts data...')
+        try {
+          const cohortsData = await apiClient.getCohorts()
+          setCohorts(cohortsData)
+          
+          // Notify cohorts page to refresh simulation data
+          localStorage.setItem('simulationStatusChanged', JSON.stringify({
+            simulationId,
+            newStatus,
+            timestamp: Date.now()
+          }))
+        } catch (error) {
+          console.warn('Failed to refresh cohorts data:', error)
+        }
+      }
+      
       setEditingStatus(null)
-      console.log(`[DEBUG] Successfully updated scenario ${simulationId} to ${newStatus}`)
+      debugLog(`Successfully updated scenario ${simulationId} to ${newStatus}`)
     } catch (error) {
       console.error('Failed to update status:', error)
-      console.log(`[DEBUG] Error updating scenario ${simulationId}:`, error)
+      debugLog(`Error updating scenario ${simulationId}:`, error)
       
       // If scenario not found, refresh the data to get current state
       if (error instanceof Error && error.message.includes('Scenario not found')) {
-        console.log('[DEBUG] Scenario not found, refreshing data...')
+        debugLog('Scenario not found, refreshing data...')
         await refreshData()
         alert('Scenario not found. Data has been refreshed.')
       } else {
@@ -230,16 +250,16 @@ export default function Dashboard() {
     
     // Prevent duplicate requests
     if (pendingRequests.has(requestKey)) {
-      console.log(`[DEBUG] Request already pending for ${requestKey}`)
+      debugLog(`Request already pending for ${requestKey}`)
       return
     }
     
     try {
       setPendingRequests(prev => new Set(prev).add(requestKey))
       
-      console.log("=== EDIT DRAFT SIMULATION DEBUG ===")
-      console.log("Navigating to edit draft simulation:", simulation.id)
-      console.log("Simulation is_draft:", simulation.is_draft)
+      debugLog("=== EDIT DRAFT SIMULATION DEBUG ===")
+      debugLog("Navigating to edit draft simulation:", simulation.id)
+      debugLog("Simulation is_draft:", simulation.is_draft)
       console.log("Simulation published_version_id:", simulation.published_version_id)
       console.log("Simulation status:", simulation.status)
       console.log("Simulation full object:", simulation)
@@ -292,7 +312,7 @@ export default function Dashboard() {
   const activeSimulations = simulations.filter(sim => sim.status === "Active").length
   
   // Debug: Log simulations data
-  console.log('[DEBUG] All simulations:', simulations.map(s => ({ 
+  debugLog('All simulations:', simulations.map(s => ({ 
     id: s.id, 
     unique_id: s.unique_id,
     is_draft: s.is_draft, 
@@ -604,7 +624,7 @@ export default function Dashboard() {
                               <Button
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  console.log('[DEBUG] Edit button clicked for simulation:', simulation)
+                                  debugLog('Edit button clicked for simulation:', simulation)
                                   editDraftSimulation(simulation)
                                 }}
                                 variant="outline"

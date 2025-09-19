@@ -30,11 +30,13 @@ from database.models import Scenario, ScenarioPersona, ScenarioScene, ScenarioFi
 LLAMAPARSE_API_KEY = settings.llamaparse_api_key
 OPENAI_API_KEY = settings.openai_api_key
 from utilities.secure_logging import secure_print_api_key_status
+from utilities.debug_logging import debug_log
 
 secure_print_api_key_status("LLAMAPARSE_API_KEY", LLAMAPARSE_API_KEY)
 secure_print_api_key_status("OPENAI_API_KEY", OPENAI_API_KEY)
 
 router = APIRouter()
+
 
 LLAMAPARSE_API_URL = "https://api.cloud.llamaindex.ai/api/parsing/upload"
 LLAMAPARSE_JOB_URL = "https://api.cloud.llamaindex.ai/api/parsing/job"
@@ -81,7 +83,7 @@ async def parse_file_flexible(file: UploadFile) -> str:
     
     else:
         # Fallback: try LlamaParse for other file types
-        print(f"[DEBUG] Unknown file type {file.content_type}, trying LlamaParse as fallback...")
+        debug_log(f"Unknown file type {file.content_type}, trying LlamaParse as fallback...")
         return await parse_with_llamaparse(file)
 
 async def extract_text_from_file(file: UploadFile) -> str:
@@ -98,20 +100,74 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
     if not LLAMAPARSE_API_KEY:
         raise HTTPException(status_code=500, detail="LlamaParse API key not configured.")
     
+    # Check network connectivity first
+    debug_log(f"Attempting to connect to LlamaParse API at: {LLAMAPARSE_API_URL}")
+    
+    # Test basic connectivity
+    try:
+        import socket
+        from urllib.parse import urlparse
+        parsed_url = urlparse(LLAMAPARSE_API_URL)
+        hostname = parsed_url.hostname
+        port = parsed_url.port or (443 if parsed_url.scheme == 'https' else 80)
+        debug_log(f"Testing connectivity to {hostname}:{port}")
+        
+        # Quick socket test
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        result = sock.connect_ex((hostname, port))
+        sock.close()
+        
+        if result != 0:
+            debug_log(f"Socket connection test failed with error code: {result}")
+            raise HTTPException(
+                status_code=503,
+                detail=f"Cannot reach LlamaParse service at {hostname}:{port}. Please check your internet connection."
+            )
+        else:
+            debug_log(f"Socket connection test successful to {hostname}:{port}")
+    except Exception as e:
+        debug_log(f"Network connectivity test failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Network connectivity test failed: {str(e)}. Please check your internet connection."
+        )
+    
     try:
         # Read file contents once and store them
         contents = await file.read()
         headers = {"Authorization": f"Bearer {LLAMAPARSE_API_KEY}"}
         files = {"file": (file.filename, contents, file.content_type)}
         
-        print(f"[DEBUG] Sending {file.filename} to LlamaParse...")
+        debug_log(f"Sending {file.filename} to LlamaParse...")
         
         async with httpx.AsyncClient(timeout=120.0) as client:
-            upload_response = await client.post(LLAMAPARSE_API_URL, headers=headers, files=files)
-            upload_response.raise_for_status()
+            try:
+                upload_response = await client.post(LLAMAPARSE_API_URL, headers=headers, files=files)
+                upload_response.raise_for_status()
+            except httpx.ConnectError as e:
+                debug_log(f"Network connection error to LlamaParse: {e}")
+                debug_log(f"LlamaParse API URL: {LLAMAPARSE_API_URL}")
+                debug_log(f"Error details: {str(e)}")
+                raise HTTPException(
+                    status_code=503, 
+                    detail=f"LlamaParse service is currently unavailable. Network error: {str(e)}. Please check your internet connection and try again later."
+                )
+            except httpx.TimeoutException as e:
+                debug_log(f"Timeout error connecting to LlamaParse: {e}")
+                raise HTTPException(
+                    status_code=504, 
+                    detail="LlamaParse service request timed out. Please try again later."
+                )
+            except Exception as e:
+                debug_log(f"Unexpected error connecting to LlamaParse: {e}")
+                raise HTTPException(
+                    status_code=500, 
+                    detail=f"Failed to connect to LlamaParse service: {str(e)}"
+                )
             
             job_data = upload_response.json()
-            print(f"[DEBUG] LlamaParse upload response: {job_data}")
+            debug_log(f"LlamaParse upload response: {job_data}")
             
             if not job_data or not isinstance(job_data, dict):
                 raise HTTPException(status_code=500, detail="Invalid response from LlamaParse")
@@ -121,27 +177,27 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
             if not job_id:
                 raise HTTPException(status_code=500, detail=f"No job ID in LlamaParse response. Got keys: {list(job_data.keys())}")
             
-            print(f"[DEBUG] Got job ID: {job_id}")
+            debug_log(f"Got job ID: {job_id}")
             
             # Poll for completion
             for attempt in range(60):
-                print(f"[DEBUG] Polling attempt {attempt + 1}/60 for job {job_id}")
+                debug_log(f"Polling attempt {attempt + 1}/60 for job {job_id}")
                 status_response = await client.get(f"{LLAMAPARSE_JOB_URL}/{job_id}", headers=headers)
                 status_response.raise_for_status()
                 status_data = status_response.json()
                 
                 status = status_data.get("status")
                 if status in ["COMPLETED", "SUCCESS"]:
-                    print(f"[DEBUG] Job {job_id} completed, retrieving result...")
+                    debug_log(f"Job {job_id} completed, retrieving result...")
                     # Try to get markdown result
                     try:
                         markdown_response = await client.get(f"{LLAMAPARSE_JOB_URL}/{job_id}/result/markdown", headers=headers)
                         markdown_response.raise_for_status()
                         result = markdown_response.text
-                        print(f"[DEBUG] Retrieved markdown result, length: {len(result)}")
+                        debug_log(f"Retrieved markdown result, length: {len(result)}")
                         return result
                     except Exception as e:
-                        print(f"[DEBUG] Markdown retrieval failed: {e}")
+                        debug_log(f"Markdown retrieval failed: {e}")
                     
                     # Fallback: try text
                     try:
@@ -149,31 +205,31 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
                         result_response.raise_for_status()
                         parsed_content = result_response.json()
                         result = parsed_content.get("text", "")
-                        print(f"[DEBUG] Retrieved text result, length: {len(result)}")
+                        debug_log(f"Retrieved text result, length: {len(result)}")
                         return result
                     except Exception as e:
-                        print(f"[DEBUG] Text retrieval failed: {e}")
+                        debug_log(f"Text retrieval failed: {e}")
                     
                     # Final fallback: check if result is in status_data
                     if "parsed_document" in status_data:
                         parsed_doc = status_data["parsed_document"]
                         if isinstance(parsed_doc, dict) and "text" in parsed_doc:
                             result = parsed_doc["text"]
-                            print(f"[DEBUG] Retrieved result from status_data, length: {len(result)}")
+                            debug_log(f"Retrieved result from status_data, length: {len(result)}")
                             return result
                     
-                    print(f"[DEBUG] No result found in any format")
+                    debug_log(f"No result found in any format")
                     return ""
                     
                 elif status == "FAILED":
                     error_msg = status_data.get("error", "Unknown error")
-                    print(f"[DEBUG] Job {job_id} failed: {error_msg}")
+                    debug_log(f"Job {job_id} failed: {error_msg}")
                     raise HTTPException(status_code=500, detail=f"LlamaParse job failed for {file.filename}: {error_msg}")
                 elif status in ["PENDING", "PROCESSING"]:
-                    print(f"[DEBUG] Job {job_id} still {status}, waiting 3s...")
+                    debug_log(f"Job {job_id} still {status}, waiting 3s...")
                     await asyncio.sleep(3)
                 else:
-                    print(f"[DEBUG] Unknown status '{status}', waiting 3s...")
+                    debug_log(f"Unknown status '{status}', waiting 3s...")
                     await asyncio.sleep(3)
             
             raise HTTPException(status_code=500, detail=f"LlamaParse job timed out for {file.filename}")
@@ -190,7 +246,7 @@ async def parse_pdf(
     db: Session = Depends(get_db)
 ):
     """Main endpoint: Parse PDF and context files, then process with AI"""
-    print("[DEBUG] /api/parse-pdf/ endpoint hit")
+    debug_log("/api/parse-pdf/ endpoint hit")
     
     # Normalize context_files to empty list if None
     if context_files is None:
@@ -207,7 +263,7 @@ async def parse_pdf(
     
     try:
         # Process all files in parallel
-        print("[DEBUG] Starting parallel processing of all files...")
+        debug_log("Starting parallel processing of all files...")
         
         # Create tasks for all files (main PDF + context files)
         tasks = []
@@ -709,7 +765,7 @@ CASE STUDY CONTENT (context files first, then main PDF):
         response = None
         for attempt, max_tokens in enumerate(max_tokens_attempts):
             try:
-                print(f"[DEBUG] Attempting OpenAI call with max_tokens={max_tokens} (attempt {attempt + 1})")
+                debug_log(f"Attempting OpenAI call with max_tokens={max_tokens} (attempt {attempt + 1})")
                 response = await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: client.chat.completions.create(
@@ -724,7 +780,7 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 )
                 break  # Success, exit the retry loop
             except Exception as api_error:
-                print(f"[DEBUG] OpenAI call failed with max_tokens={max_tokens}: {str(api_error)}")
+                debug_log(f"OpenAI call failed with max_tokens={max_tokens}: {str(api_error)}")
                 if attempt == len(max_tokens_attempts) - 1:  # Last attempt
                     raise api_error  # Re-raise the last error
                 # Try next lower token limit
@@ -739,13 +795,13 @@ CASE STUDY CONTENT (context files first, then main PDF):
         finish_reason = response.choices[0].finish_reason
         print(f"[DEBUG] OpenAI finish_reason: {finish_reason}")
         if finish_reason == "length":
-            print("[WARNING] OpenAI response was truncated due to max_tokens limit!")
-            print("[WARNING] Consider using a more concise prompt or higher token limit")
+            debug_log("[WARNING] OpenAI response was truncated due to max_tokens limit!")
+            debug_log("[WARNING] Consider using a more concise prompt or higher token limit")
         # Check if response contains key fields
         if '"key_figures"' in generated_text:
-            print("[DEBUG] ✓ Response contains 'key_figures' field")
+            debug_log("✓ Response contains 'key_figures' field")
         else:
-            print("[WARNING] ✗ Response does NOT contain 'key_figures' field")
+            debug_log("✗ Response does NOT contain 'key_figures' field")
         
         # Try to extract JSON from the response using regex
         match = re.search(r'({[\s\S]*})', generated_text)
@@ -766,8 +822,8 @@ CASE STUDY CONTENT (context files first, then main PDF):
             try:
                 ai_result = json.loads(json_str)
                 print("[DEBUG] First AI call successful, now generating scenes...")
-                print(f"[DEBUG] First AI result keys: {list(ai_result.keys())}")
-                print(f"[DEBUG] Number of key figures: {len(ai_result.get('key_figures', []))}")
+                debug_log(f"First AI result keys: {list(ai_result.keys())}")
+                debug_log(f"Number of key figures: {len(ai_result.get('key_figures', []))}")
                 
                 # Second AI call to generate scenes
                 try:
@@ -870,10 +926,10 @@ CASE STUDY CONTENT (context files first, then main PDF):
                         "5. Apply business concepts and frameworks to real-world scenarios"
                     ]
                 }
-                print(f"[DEBUG] Successfully parsed JSON! Final AI result sent to frontend with {len(final_result.get('key_figures', []))} key figures and {len(processed_scenes)} scenes")
-                print("[DEBUG] Key figures names:", [fig.get('name', 'Unknown') for fig in final_result.get('key_figures', [])])
+                debug_log(f"Successfully parsed JSON! Final AI result sent to frontend with {len(final_result.get('key_figures', []))} key figures and {len(processed_scenes)} scenes")
+                debug_log("Key figures names:", [fig.get('name', 'Unknown') for fig in final_result.get('key_figures', [])])
                 print("[DEBUG] Scene titles:", [scene.get('title', 'Unknown') for scene in processed_scenes])
-                print(f"[DEBUG] Final result keys: {list(final_result.keys())}")
+                debug_log(f"Final result keys: {list(final_result.keys())}")
                 print(f"[DEBUG] Scenes in final result: {len(final_result.get('scenes', []))}")
                 print("[DEBUG] Raw AI scenes:", ai_result.get("scene_cards", []))
                 
@@ -885,7 +941,7 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 filtered_key_figures = []
                 for fig in key_figures:
                     if fig.get("is_main_character", False):
-                        print(f"[DEBUG] Removing main character from key_figures: {fig.get('name', '')}")
+                        debug_log(f"Removing main character from key_figures: {fig.get('name', '')}")
                         continue
                     filtered_key_figures.append(fig)
                 final_result["key_figures"] = filtered_key_figures

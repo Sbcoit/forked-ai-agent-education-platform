@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { debugLog } from "@/lib/debug"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -70,6 +71,82 @@ export default function Cohorts() {
   const [studentSearchTerm, setStudentSearchTerm] = useState('')
   const [studentFilter, setStudentFilter] = useState('all')
   
+  // Simulation assignment state
+  const [showAssignModal, setShowAssignModal] = useState(false)
+  const [availableScenarios, setAvailableScenarios] = useState<any[]>([])
+  const [selectedScenario, setSelectedScenario] = useState<any>(null)
+  const [dueDate, setDueDate] = useState("")
+  const [isRequired, setIsRequired] = useState(true)
+  const [assigning, setAssigning] = useState(false)
+  const [deletingSimulation, setDeletingSimulation] = useState<number | null>(null)
+  
+  // Fetch available scenarios for assignment
+  const fetchAvailableScenarios = async () => {
+    try {
+      const scenarios = await apiClient.getScenarios()
+      setAvailableScenarios(scenarios)
+    } catch (error) {
+      console.error('Failed to fetch scenarios:', error)
+    }
+  }
+
+  // Handle simulation assignment
+  const handleAssignSimulation = async () => {
+    if (!selectedScenario || !selectedCohort) return
+    
+    try {
+      setAssigning(true)
+      
+      // Create the assignment data
+      const assignmentData = {
+        simulation_id: selectedScenario.id,
+        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+        is_required: isRequired
+      }
+      
+      // Call the API to assign simulation to cohort
+      await apiClient.assignSimulationToCohort(selectedCohort.id, assignmentData)
+      
+      // Refresh simulations data
+      const updatedSimulations = await apiClient.getCohortSimulations(selectedCohort.unique_id)
+      setCohortSimulations(updatedSimulations)
+      
+      // Close modal and reset form
+      setShowAssignModal(false)
+      setSelectedScenario(null)
+      setDueDate("")
+      setIsRequired(true)
+      
+    } catch (error) {
+      console.error('Failed to assign simulation:', error)
+      alert('Failed to assign simulation. Please try again.')
+    } finally {
+      setAssigning(false)
+    }
+  }
+
+  // Handle simulation deletion
+  const handleDeleteSimulation = async (simulationAssignmentId: number) => {
+    if (!selectedCohort) return
+    
+    try {
+      setDeletingSimulation(simulationAssignmentId)
+      
+      // Call the API to remove simulation from cohort
+      await apiClient.removeSimulationFromCohort(selectedCohort.id, simulationAssignmentId)
+      
+      // Refresh simulations data
+      const updatedSimulations = await apiClient.getCohortSimulations(selectedCohort.unique_id)
+      setCohortSimulations(updatedSimulations)
+      
+    } catch (error) {
+      console.error('Failed to delete simulation:', error)
+      alert('Failed to delete simulation. Please try again.')
+    } finally {
+      setDeletingSimulation(null)
+    }
+  }
+
   // Fetch cohorts data on component mount
   useEffect(() => {
     const fetchCohorts = async () => {
@@ -88,6 +165,47 @@ export default function Cohorts() {
     
     fetchCohorts()
   }, [])
+
+  // Listen for simulation status changes from dashboard
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'simulationStatusChanged' && e.newValue) {
+        try {
+          const changeData = JSON.parse(e.newValue)
+          debugLog('Simulation status changed, refreshing cohorts data:', changeData)
+          
+          // Refresh cohorts data to get updated simulation statuses
+          const refreshCohorts = async () => {
+            try {
+              const cohortsData = await apiClient.getCohorts()
+              setCohorts(cohortsData)
+              
+              // If we have a selected cohort, refresh its simulation data too
+              if (selectedCohort) {
+                const updatedSimulations = await apiClient.getCohortSimulations(selectedCohort.unique_id)
+                setCohortSimulations(updatedSimulations)
+              }
+            } catch (error) {
+              console.warn('Failed to refresh cohorts data after simulation status change:', error)
+            }
+          }
+          
+          refreshCohorts()
+          
+          // Clear the notification
+          localStorage.removeItem('simulationStatusChanged')
+        } catch (error) {
+          console.error('Failed to parse simulation status change notification:', error)
+        }
+      }
+    }
+    
+    window.addEventListener('storage', handleStorageChange)
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+    }
+  }, [selectedCohort])
 
   // Handle redirect when user is not authenticated
   useEffect(() => {
@@ -731,9 +849,114 @@ export default function Cohorts() {
               )}
 
               {activeTab === 'simulations' && (
-                <div className="text-center py-8">
-                  <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500">Simulations tab content coming soon.</p>
+                <div>
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-bold text-black">Assigned Simulations</h3>
+                    <Button 
+                      onClick={() => {
+                        fetchAvailableScenarios()
+                        setShowAssignModal(true)
+                      }}
+                      className="bg-black text-white hover:bg-gray-800 text-sm"
+                    >
+                      <BookOpen className="h-4 w-4 mr-2" />
+                      Assign Simulation
+                    </Button>
+                  </div>
+
+                  {/* Simulations List */}
+                  <div className="space-y-4">
+                    {cohortSimulations.length === 0 ? (
+                      <div className="text-center py-8">
+                        <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                        <p className="text-gray-500 mb-4">No simulations assigned yet</p>
+                        <Button 
+                          onClick={() => {
+                            fetchAvailableScenarios()
+                            setShowAssignModal(true)
+                          }}
+                          className="bg-black text-white hover:bg-gray-800"
+                        >
+                          <BookOpen className="h-4 w-4 mr-2" />
+                          Assign First Simulation
+                        </Button>
+                      </div>
+                    ) : (
+                      cohortSimulations.map((simulation) => {
+                        
+                        // Calculate completion data (mock data for now - would come from API)
+                        const totalStudents = cohortStudents.filter(s => s.status === 'approved').length
+                        const completedStudents = Math.floor(Math.random() * totalStudents) // Mock completion
+                        const completionPercentage = totalStudents > 0 ? (completedStudents / totalStudents) * 100 : 0
+                        
+                        return (
+                          <div key={simulation.id} className="bg-white border border-gray-200 rounded-lg p-6">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h4 className="font-semibold text-gray-900">
+                                    {simulation.simulation?.title || `Simulation ${simulation.simulation_id}`}
+                                  </h4>
+                                  <button
+                                    onClick={() => handleDeleteSimulation(simulation.id)}
+                                    disabled={deletingSimulation === simulation.id}
+                                    className="text-red-500 hover:text-red-700 disabled:opacity-50"
+                                  >
+                                    {deletingSimulation === simulation.id ? (
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
+                                    ) : (
+                                      <X className="h-4 w-4" />
+                                    )}
+                                  </button>
+                                </div>
+                                <div className="flex items-center space-x-4 mb-3">
+                                  <span className="text-sm text-gray-600">
+                                    Assigned {new Date(simulation.assigned_at).toLocaleDateString('en-US', { 
+                                      month: 'short', 
+                                      day: 'numeric' 
+                                    })}
+                                  </span>
+                                  {simulation.due_date && (
+                                    <span className="text-sm text-gray-600">
+                                      Due {new Date(simulation.due_date).toLocaleDateString('en-US', { 
+                                        month: 'short', 
+                                        day: 'numeric' 
+                                      })}
+                                    </span>
+                                  )}
+                                  <span className={`text-xs px-2 py-1 rounded-full ${
+                                    simulation.is_required 
+                                      ? 'bg-red-100 text-red-800' 
+                                      : 'bg-blue-100 text-blue-800'
+                                  }`}>
+                                    {simulation.is_required ? 'Required' : 'Optional'}
+                                  </span>
+                                  {simulation.simulation?.is_draft && (
+                                    <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">
+                                      Draft
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              <div className="text-right">
+                                <div className="text-sm text-gray-600 mb-2">
+                                  {completedStudents}/{totalStudents} completed
+                                </div>
+                                <div className="w-32 bg-gray-200 rounded-full h-2">
+                                  <div 
+                                    className="bg-gray-800 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${completionPercentage}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1179,6 +1402,93 @@ export default function Cohorts() {
                 className="bg-red-600 text-white hover:bg-red-700 px-6"
               >
                 Delete Cohort
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Simulation Modal */}
+      {showAssignModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Assign Simulation</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAssignModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Scenario Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Select Simulation
+                </label>
+                <select
+                  value={selectedScenario?.id || ""}
+                  onChange={(e) => {
+                    const scenario = availableScenarios.find(s => s.id === parseInt(e.target.value))
+                    setSelectedScenario(scenario)
+                  }}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
+                >
+                  <option value="">Choose a simulation...</option>
+                  {availableScenarios.map((scenario) => (
+                    <option key={scenario.id} value={scenario.id}>
+                      {scenario.title} {scenario.is_draft ? '(Draft)' : '(Active)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Due Date */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Due Date (Optional)
+                </label>
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
+                />
+              </div>
+
+              {/* Required Checkbox */}
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="isRequired"
+                  checked={isRequired}
+                  onChange={(e) => setIsRequired(e.target.checked)}
+                  className="h-4 w-4 text-black focus:ring-gray-200 border-gray-300 rounded"
+                />
+                <label htmlFor="isRequired" className="ml-2 text-sm text-gray-700">
+                  Required assignment
+                </label>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <Button
+                variant="outline"
+                onClick={() => setShowAssignModal(false)}
+                disabled={assigning}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAssignSimulation}
+                disabled={!selectedScenario || assigning}
+                className="bg-black text-white hover:bg-gray-800"
+              >
+                {assigning ? "Assigning..." : "Assign Simulation"}
               </Button>
             </div>
           </div>

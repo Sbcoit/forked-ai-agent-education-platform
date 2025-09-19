@@ -16,6 +16,7 @@ from datetime import datetime
 from langchain_config import langchain_manager, settings
 from database.models import ConversationLog
 from services.vector_store import vector_store_service
+from utilities.debug_logging import debug_log
 
 class SummarizationAgent:
     """LangChain-based agent for conversation summarization and context management"""
@@ -102,7 +103,7 @@ Format as a bulleted list of key points:"""
             return response.content
             
         except Exception as e:
-            print(f"Error in extract_key_points: {e}")
+            debug_log(f"Error in extract_key_points: {e}")
             return "Key points extraction unavailable due to processing error."
     
     async def _identify_learning_moments_tool(self, conversation_text: str) -> str:
@@ -124,7 +125,7 @@ Provide a structured analysis of the learning moments:"""
             return response.content
             
         except Exception as e:
-            print(f"Error in identify_learning_moments: {e}")
+            debug_log(f"Error in identify_learning_moments: {e}")
             return "Learning moments analysis unavailable due to processing error."
     
     async def _create_context_summary_tool(self, scene_context: str, persona_context: str) -> str:
@@ -423,10 +424,10 @@ Use your tools to analyze and synthesize these summaries.
             # First, try to parse the entire response as JSON (in case it's clean JSON)
             try:
                 result = json.loads(response.strip())
-                logger.debug("Successfully parsed entire response as JSON")
+                debug_log("Successfully parsed entire response as JSON")
                 return self._validate_and_format_result(result, response)
             except json.JSONDecodeError:
-                logger.debug("Response is not clean JSON, attempting extraction")
+                debug_log("Response is not clean JSON, attempting extraction")
             
             # Extract JSON using balanced bracket matching
             json_str = self._extract_json_from_response(response)
@@ -434,7 +435,7 @@ Use your tools to analyze and synthesize these summaries.
             if json_str:
                 try:
                     result = json.loads(json_str)
-                    logger.debug("Successfully extracted and parsed JSON from response")
+                    debug_log("Successfully extracted and parsed JSON from response")
                     return self._validate_and_format_result(result, response)
                 except json.JSONDecodeError as e:
                     logger.warning(f"Failed to parse extracted JSON: {e}")

@@ -1,4 +1,5 @@
 // Real API client for connecting to the backend
+import { debugLog } from './debug'
 const getApiBaseUrl = () => {
   if (typeof window === 'undefined') {
     // Server-side rendering - return a placeholder
@@ -153,7 +154,7 @@ export const apiClient = {
   register: async (data: RegisterData): Promise<{ user: User; access_token: string }> => {
     // Log sanitized data (without password)
     const sanitizedData = { ...data, password: '[REDACTED]' }
-    console.log('[DEBUG] API register called with data:', sanitizedData)
+    debugLog('API register called with data:', sanitizedData)
     const response = await apiRequest('/users/register', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -212,7 +213,7 @@ export const apiClient = {
       const user = await response.json()
       return user
     } catch (error) {
-      console.log('No current user found:', error)
+      debugLog('No current user found:', error)
       return null
     }
   },
@@ -407,6 +408,21 @@ export const apiClient = {
 
   getCohortSimulations: async (cohortId: string): Promise<any[]> => {
     const response = await apiRequest(`/cohorts/${cohortId}/simulations`)
+    return response.json()
+  },
+
+  assignSimulationToCohort: async (cohortId: number, simulationData: any): Promise<any> => {
+    const response = await apiRequest(`/cohorts/${cohortId}/simulations`, {
+      method: 'POST',
+      body: JSON.stringify(simulationData),
+    })
+    return response.json()
+  },
+
+  removeSimulationFromCohort: async (cohortId: number, simulationAssignmentId: number): Promise<any> => {
+    const response = await apiRequest(`/cohorts/${cohortId}/simulations/${simulationAssignmentId}`, {
+      method: 'DELETE',
+    })
     return response.json()
   },
 

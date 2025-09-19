@@ -771,10 +771,17 @@ async def delete_scenario(
     db: Session = Depends(get_db)
 ):
     """
-    Delete a scenario and all related data by scenario ID.
+    Soft delete a scenario by marking it as deleted.
     Only the scenario creator can delete their scenarios.
+    User progress data is preserved in the archive.
     """
-    scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+    from services.soft_deletion import SoftDeletionService
+    
+    scenario = db.query(Scenario).filter(
+        Scenario.id == scenario_id,
+        Scenario.deleted_at.is_(None)  # Only get non-deleted scenarios
+    ).first()
+    
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
     
@@ -785,82 +792,80 @@ async def delete_scenario(
             detail="You can only delete scenarios you created"
         )
 
-    # Handle draft/published scenario relationships
-    # If this is a published scenario, first update any drafts that reference it
-    if not scenario.is_draft:
-        # Find any draft scenarios that reference this published scenario
-        draft_scenarios = db.query(Scenario).filter(
-            Scenario.published_version_id == scenario_id
-        ).all()
-        
-        # Clear the published_version_id reference for these drafts
-        for draft in draft_scenarios:
-            draft.published_version_id = None
-            draft.status = "draft"  # Ensure it stays as draft
-            db.add(draft)
-        
-        # Commit the relationship updates before proceeding with deletion
-        db.commit()
+    # Use soft deletion service
+    service = SoftDeletionService(db)
+    success = service.soft_delete_scenario(
+        scenario_id=scenario_id,
+        deleted_by=current_user.id,
+        reason="User deletion"
+    )
     
-    # If this is a draft scenario, check if it has a published version
-    elif scenario.is_draft and scenario.published_version_id:
-        # If deleting a draft that has a published version, we should delete both
-        published_scenario = db.query(Scenario).filter(
-            Scenario.id == scenario.published_version_id
-        ).first()
-        
-        if published_scenario:
-            # Delete the published version first (it has no dependencies)
-            db.delete(published_scenario)
-            db.commit()  # Commit the published scenario deletion
-            # The draft will be deleted below
+    if not success:
+        raise HTTPException(
+            status_code=500, 
+            detail="Failed to delete scenario"
+        )
+    
+    return {
+        "status": "success", 
+        "message": f"Scenario {scenario_id} deleted successfully. User progress data has been archived."
+    }
 
-    # Get all related IDs first (for the main scenario being deleted)
-    scene_ids = [id for (id,) in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario_id).all()]
-    persona_ids = [id for (id,) in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario_id).all()]
-    user_progress_ids = [id for (id,) in db.query(UserProgress.id).filter(UserProgress.scenario_id == scenario_id).all()]
+@router.post("/cleanup/archives")
+async def cleanup_archives(
+    days_old: int = Query(30, ge=1, le=365, description="Days after which to clean up archives"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Clean up old archived user progress records
+    Only admin users can perform cleanup
+    """
+    from services.soft_deletion import SoftDeletionService
+    
+    # Check if user is admin (you can adjust this logic)
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403, 
+            detail="Only admin users can perform cleanup"
+        )
+    
+    service = SoftDeletionService(db)
+    
+    # Get stats before cleanup
+    stats_before = service.get_archive_stats()
+    
+    # Run cleanup
+    cleaned_count = service.cleanup_old_archives(days_old)
+    
+    # Get stats after cleanup
+    stats_after = service.get_archive_stats()
+    
+    return {
+        "status": "success",
+        "message": f"Cleanup completed. Removed {cleaned_count} records older than {days_old} days.",
+        "stats_before": stats_before,
+        "stats_after": stats_after,
+        "records_cleaned": cleaned_count
+    }
 
-    # Delete conversation logs first (they reference multiple tables)
-    # Use OR condition to delete all related logs in one query
-    from sqlalchemy import or_
-    conditions = []
-    if scene_ids:
-        conditions.append(ConversationLog.scene_id.in_(scene_ids))
-    if persona_ids:
-        conditions.append(ConversationLog.persona_id.in_(persona_ids))
-    if user_progress_ids:
-        conditions.append(ConversationLog.user_progress_id.in_(user_progress_ids))
+@router.get("/cleanup/stats")
+async def get_cleanup_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get archive statistics
+    """
+    from services.soft_deletion import SoftDeletionService
     
-    if conditions:
-        db.query(ConversationLog).filter(or_(*conditions)).delete(synchronize_session=False)
-
-    # Delete scene progress (references user_progress and scenes)
-    if user_progress_ids:
-        db.query(SceneProgress).filter(SceneProgress.user_progress_id.in_(user_progress_ids)).delete()
-
-    # Delete related user progress
-    db.query(UserProgress).filter(UserProgress.scenario_id == scenario_id).delete()
+    service = SoftDeletionService(db)
+    stats = service.get_archive_stats()
     
-    # Delete related scene_personas links
-    if scene_ids:
-        db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(scene_ids)))
-    
-    # Delete related personas
-    db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == scenario_id).delete()
-    
-    # Delete related scenes
-    db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario_id).delete()
-    
-    # Delete related files
-    db.query(ScenarioFile).filter(ScenarioFile.scenario_id == scenario_id).delete()
-    
-    # Delete related reviews
-    db.query(ScenarioReview).filter(ScenarioReview.scenario_id == scenario_id).delete()
-    
-    # Delete the scenario itself
-    db.delete(scenario)
-    db.commit()
-    return {"status": "success", "message": f"Scenario {scenario_id} deleted."}
+    return {
+        "status": "success",
+        "archive_stats": stats
+    }
 
 # --- SCENARIO REVIEW ENDPOINTS ---
 

@@ -129,7 +129,8 @@ async def get_scenarios(
     try:
         scenarios = db.query(Scenario).filter(
             Scenario.created_by == current_user.id,
-            Scenario.is_draft == False  # Only show published scenarios
+            Scenario.is_draft == False,  # Only show published scenarios
+            Scenario.deleted_at.is_(None)  # Exclude soft-deleted scenarios
         ).order_by(Scenario.created_at.desc()).all()
         
         result = []
@@ -198,7 +199,8 @@ async def get_draft_scenarios(
     try:
         scenarios = db.query(Scenario).filter(
             Scenario.created_by == current_user.id,
-            Scenario.is_draft == True  # Only show draft scenarios
+            Scenario.is_draft == True,  # Only show draft scenarios
+            Scenario.deleted_at.is_(None)  # Exclude soft-deleted scenarios
         ).order_by(Scenario.created_at.desc()).all()
         
         result = []
@@ -298,61 +300,44 @@ async def delete_scenario_by_unique_id(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete a scenario by unique_id (draft or published)"""
+    """Delete a scenario by unique_id using soft deletion"""
+    from services.soft_deletion import SoftDeletionService
+    
     try:
         # Find the scenario by unique_id
         scenario = db.query(Scenario).filter(
             Scenario.unique_id == unique_id,
-            Scenario.created_by == current_user.id
+            Scenario.created_by == current_user.id,
+            Scenario.deleted_at.is_(None)  # Only get non-deleted scenarios
         ).first()
         
         if not scenario:
             raise HTTPException(status_code=404, detail="Scenario not found")
         
-        # If this is a published scenario, first update any drafts that reference it
-        if not scenario.is_draft:
-            draft_scenarios = db.query(Scenario).filter(
-                Scenario.published_version_id == scenario_id
-            ).all()
-            for draft in draft_scenarios:
-                draft.published_version_id = None
-                draft.status = "draft"  # Ensure it stays as draft
-                db.add(draft)
-            db.commit()
-        elif scenario.is_draft and scenario.published_version_id:
-            published_scenario = db.query(Scenario).filter(
-                Scenario.id == scenario.published_version_id
-            ).first()
-            if published_scenario:
-                db.delete(published_scenario)
-                db.commit()
+        # Store scenario info before deletion
+        scenario_title = scenario.title
+        scenario_id = scenario.id
         
-        # Get all related IDs first (for the main scenario being deleted)
-        scenario_id = scenario.id  # Get the integer ID for cleanup operations
-        scene_ids = [id for (id,) in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario_id).all()]
-        persona_ids = [id for (id,) in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario_id).all()]
+        print(f"[DEBUG] Soft deleting scenario {unique_id} (ID: {scenario_id})")
         
-        # Clear references in user_progress and conversation_logs
-        from database.models import UserProgress, ConversationLog
-        db.query(UserProgress).filter(UserProgress.current_scene_id.in_(scene_ids)).update({UserProgress.current_scene_id: None}, synchronize_session=False)
-        db.query(ConversationLog).filter(ConversationLog.scene_id.in_(scene_ids)).delete()
-        db.query(ConversationLog).filter(ConversationLog.persona_id.in_(persona_ids)).delete()
+        # Use soft deletion service
+        service = SoftDeletionService(db)
+        success = service.soft_delete_scenario(
+            scenario_id=scenario_id,
+            deleted_by=current_user.id,
+            reason="Unique ID deletion"
+        )
         
-        # Delete scene-persona relationships
-        from database.models import scene_personas
-        db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(scene_ids)))
+        if not success:
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to delete scenario"
+            )
         
-        # Delete related records
-        db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == scenario_id).delete()
-        db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario_id).delete()
-        db.query(ScenarioFile).filter(ScenarioFile.scenario_id == scenario_id).delete()
-        db.query(ScenarioReview).filter(ScenarioReview.scenario_id == scenario_id).delete()
-        
-        # Delete the scenario itself
-        db.delete(scenario)
-        db.commit()
-        
-        return {"status": "success", "message": f"Scenario {unique_id} deleted."}
+        return {
+            "status": "success", 
+            "message": f"Scenario '{scenario_title}' deleted successfully. User progress data has been archived."
+        }
         
     except HTTPException:
         raise
@@ -366,104 +351,42 @@ async def delete_draft_scenario(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Delete a draft scenario"""
+    """Soft delete a draft scenario"""
+    from services.soft_deletion import SoftDeletionService
+    
     try:
         # Find the draft scenario
         scenario = db.query(Scenario).filter(
             Scenario.id == scenario_id,
             Scenario.created_by == current_user.id,
-            Scenario.is_draft == True
+            Scenario.is_draft == True,
+            Scenario.deleted_at.is_(None)  # Only get non-deleted scenarios
         ).first()
         
         if not scenario:
             raise HTTPException(status_code=404, detail="Draft scenario not found")
         
-        # Check if it has a published version and handle it
-        if scenario.published_version_id:
-            # Find the published version
-            published_scenario = db.query(Scenario).filter(
-                Scenario.id == scenario.published_version_id
-            ).first()
-            
-            if published_scenario:
-                # Delete the published version first
-                print(f"[DEBUG] Deleting published version {published_scenario.id} first")
-                
-                # Get all related IDs for the published scenario
-                pub_scene_ids = [id for (id,) in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == published_scenario.id).all()]
-                pub_persona_ids = [id for (id,) in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == published_scenario.id).all()]
-                
-                # Clear references for published scenario
-                db.query(UserProgress).filter(
-                    UserProgress.current_scene_id.in_(pub_scene_ids)
-                ).update({UserProgress.current_scene_id: None}, synchronize_session=False)
-                
-                db.query(ConversationLog).filter(
-                    ConversationLog.scene_id.in_(pub_scene_ids)
-                ).delete()
-                
-                db.query(ConversationLog).filter(
-                    ConversationLog.persona_id.in_(pub_persona_ids)
-                ).delete()
-                
-                # Delete scene-persona relationships for published scenario
-                db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(pub_scene_ids)))
-                
-                # Delete published scenario records
-                db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == published_scenario.id).delete()
-                db.query(ScenarioScene).filter(ScenarioScene.scenario_id == published_scenario.id).delete()
-                db.delete(published_scenario)
-                
-                print(f"[DEBUG] Deleted published version {published_scenario.id}")
-            
-            # Clear the reference from the draft
-            scenario.published_version_id = None
+        # Store scenario title before deletion
+        scenario_title = scenario.title
         
-        # Delete related records first
-        # Get all scene IDs for this scenario
-        scene_ids = db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario.id).all()
-        scene_id_list = [s[0] for s in scene_ids]
+        print(f"[DEBUG] Soft deleting draft scenario {scenario_id}")
         
-        # Get all persona IDs for this scenario
-        persona_ids = db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario.id).all()
-        persona_id_list = [p[0] for p in persona_ids]
+        # Use soft deletion service
+        service = SoftDeletionService(db)
+        success = service.soft_delete_scenario(
+            scenario_id=scenario_id,
+            deleted_by=current_user.id,
+            reason="Draft deletion"
+        )
         
-        # For draft scenarios, we can be more aggressive with deletion
-        # since they shouldn't have user progress or conversation logs yet
-        from database.models import UserProgress, ConversationLog
-        
-        # Clear current_scene_id references in user_progress
-        db.query(UserProgress).filter(
-            UserProgress.current_scene_id.in_(scene_id_list)
-        ).update({UserProgress.current_scene_id: None}, synchronize_session=False)
-        
-        # Delete conversation logs that reference these scenes
-        db.query(ConversationLog).filter(
-            ConversationLog.scene_id.in_(scene_id_list)
-        ).delete()
-        
-        # Delete conversation logs that reference these personas
-        db.query(ConversationLog).filter(
-            ConversationLog.persona_id.in_(persona_id_list)
-        ).delete()
-        
-        print(f"[DEBUG] Cleared references for {len(scene_id_list)} scenes and {len(persona_id_list)} personas")
-        
-        # Delete all scene-persona relationships for this scenario
-        db.execute(scene_personas.delete().where(scene_personas.c.scene_id.in_(scene_id_list)))
-        
-        # Delete all personas for this scenario
-        db.query(ScenarioPersona).filter(ScenarioPersona.scenario_id == scenario.id).delete()
-        
-        # Delete all scenes for this scenario
-        db.query(ScenarioScene).filter(ScenarioScene.scenario_id == scenario.id).delete()
-        
-        # Delete the scenario itself
-        db.delete(scenario)
-        db.commit()
+        if not success:
+            raise HTTPException(
+                status_code=500, 
+                detail="Failed to delete draft scenario"
+            )
         
         return {
-            "message": f"Draft scenario '{scenario.title}' deleted successfully",
+            "message": f"Draft scenario '{scenario_title}' deleted successfully. User progress data has been archived.",
             "deleted_id": scenario_id
         }
         
@@ -808,7 +731,8 @@ async def get_public_scenarios(
 ):
     """Get public scenarios for marketplace"""
     scenarios = db.query(Scenario).filter(
-        Scenario.is_public == True
+        Scenario.is_public == True,
+        Scenario.deleted_at.is_(None)  # Exclude soft-deleted scenarios
     ).offset(skip).limit(limit).all()
     
     return [

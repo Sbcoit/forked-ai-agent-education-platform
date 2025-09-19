@@ -73,7 +73,7 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
-    scenarios = relationship("Scenario", back_populates="creator")
+    scenarios = relationship("Scenario", back_populates="creator", foreign_keys="Scenario.created_by")
     scenario_reviews = relationship("ScenarioReview", back_populates="reviewer")
     user_progress = relationship("UserProgress", back_populates="user")
     created_cohorts = relationship("Cohort", back_populates="creator")
@@ -136,13 +136,19 @@ class Scenario(Base):
     usage_count = Column(Integer, default=0)
     clone_count = Column(Integer, default=0)
     
+    # Soft deletion fields
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    deleted_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    deletion_reason = Column(String, nullable=True)
+    
     # Metadata
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
-    creator = relationship("User", back_populates="scenarios")
+    creator = relationship("User", back_populates="scenarios", foreign_keys=[created_by])
+    deleted_by_user = relationship("User", foreign_keys=[deleted_by])
     personas = relationship("ScenarioPersona", back_populates="scenario", cascade="all, delete-orphan")
     scenes = relationship("ScenarioScene", back_populates="scenario", cascade="all, delete-orphan")
     files = relationship("ScenarioFile", back_populates="scenario", cascade="all, delete-orphan")
@@ -295,6 +301,10 @@ class UserProgress(Base):
     total_time_spent = Column(Integer, default=0)
     session_count = Column(Integer, default=0)
     final_score = Column(Float, nullable=True)
+    
+    # Soft deletion fields
+    archived_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    archived_reason = Column(String, nullable=True)
     
     # Metadata
     started_at = Column(DateTime(timezone=True), server_default=func.now())

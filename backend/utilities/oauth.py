@@ -301,12 +301,10 @@ def link_google_to_existing_user(db: Session, user: User, google_data: Dict[str,
     return user
 
 def create_user_login_response(user: User) -> Dict[str, Any]:
-    """Create login response for OAuth user"""
-    access_token = create_access_token(data={"sub": str(user.id)})
-    
+    """Create login response for OAuth user (HttpOnly cookie only)"""
     return {
-        "access_token": access_token,
-        "token_type": "bearer",
+        "access_token": "",  # Empty token - authentication via HttpOnly cookie only
+        "token_type": "cookie",
         "user": {
             "id": user.id,
             "email": user.email,

@@ -3,11 +3,15 @@ Immediate Cleanup Service
 Programmatic functions for immediate data cleanup
 """
 
+import logging
 from datetime import datetime
 from typing import Dict, Any, Tuple
 from sqlalchemy import text
 from services.soft_deletion import SoftDeletionService
 from database.connection import get_db
+
+# Create module-level logger
+logger = logging.getLogger(__name__)
 
 
 def immediate_cleanup_all_archives() -> Tuple[int, Dict[str, Any], Dict[str, Any]]:
@@ -33,7 +37,7 @@ def immediate_cleanup_all_archives() -> Tuple[int, Dict[str, Any], Dict[str, Any
         return cleaned_count, stats_before, stats_after
         
     except Exception as e:
-        print(f"Error during immediate cleanup: {e}")
+        logger.exception("Error during immediate cleanup")
         return 0, {}, {}
     
     finally:
@@ -72,7 +76,7 @@ def immediate_cleanup_scenario_archives(scenario_id: int) -> Tuple[int, Dict[str
         return cleaned_count, stats_after
         
     except Exception as e:
-        print(f"Error cleaning up scenario {scenario_id}: {e}")
+        logger.error(f"Error cleaning up scenario {scenario_id}", exc_info=True)
         return 0, {}
     
     finally:
@@ -111,7 +115,7 @@ def immediate_cleanup_user_archives(user_id: int) -> Tuple[int, Dict[str, Any]]:
         return cleaned_count, stats_after
         
     except Exception as e:
-        print(f"Error cleaning up user {user_id}: {e}")
+        logger.error(f"Error cleaning up user {user_id}", exc_info=True)
         return 0, {}
     
     finally:

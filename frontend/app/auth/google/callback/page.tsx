@@ -52,6 +52,7 @@ export default function GoogleCallbackPage() {
           headers: {
             'Content-Type': 'application/json',
           },
+          credentials: 'include',
         })
 
         if (!response.ok) {
@@ -61,14 +62,8 @@ export default function GoogleCallbackPage() {
 
         const result = await response.json()
 
-        // Store the access token if present (for successful login)
-        if (result.access_token) {
-          localStorage.setItem('auth_token', result.access_token)
-          // Only log in development environment, never log the actual token
-          if (process.env.NODE_ENV === 'development') {
-            console.log('Google OAuth token stored successfully in callback page')
-          }
-        }
+        // Token is now handled server-side via HttpOnly cookies
+        // No client-side token storage for security
 
         // Send success data to parent window
         if (window.opener) {

@@ -6,8 +6,7 @@ from typing import Optional, Union
 import os
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-from fastapi import HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import HTTPException, status, Depends, Request
 from sqlalchemy.orm import Session
 from database.connection import get_db, settings
 from database.models import User
@@ -26,8 +25,7 @@ if not SECRET_KEY or not SECRET_KEY.strip():
 if len(SECRET_KEY) < 32:
     raise RuntimeError("SECRET_KEY must be at least 32 characters long for security.")
 
-# Security scheme
-security = HTTPBearer()
+# HttpOnly cookie-based authentication only
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
@@ -56,6 +54,15 @@ def verify_token(token: str) -> Optional[dict]:
     except JWTError:
         return None
 
+def extract_token_from_request(request: Request) -> Optional[str]:
+    """Extract JWT token from HttpOnly cookie only"""
+    # Only get token from HttpOnly cookie for maximum security
+    token_cookie = request.cookies.get("access_token")
+    if token_cookie:
+        return token_cookie
+    
+    return None
+
 def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     """Authenticate a user with email and password"""
     user = db.query(User).filter(User.email == email).first()
@@ -66,21 +73,20 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     return user
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+    request: Request,
     db: Session = Depends(get_db)
 ) -> User:
-    """Get the current authenticated user from JWT token"""
+    """Get the current authenticated user from HttpOnly cookie only"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
     )
     
-    # Check if credentials are provided
-    if credentials is None:
+    # Extract token from HttpOnly cookie only
+    token = extract_token_from_request(request)
+    if token is None:
         raise credentials_exception
     
-    token = credentials.credentials
     payload = verify_token(token)
     if payload is None:
         raise credentials_exception
@@ -121,15 +127,16 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
 
 # Optional authentication (for endpoints that work with or without auth)
 async def get_current_user_optional(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+    request: Request,
     db: Session = Depends(get_db)
 ) -> Optional[User]:
     """Get current user if authenticated, None otherwise"""
-    if not credentials:
-        return None
-    
     try:
-        token = credentials.credentials
+        # Extract token from HttpOnly cookie only
+        token = extract_token_from_request(request)
+        if token is None:
+            return None
+        
         payload = verify_token(token)
         if payload is None:
             return None

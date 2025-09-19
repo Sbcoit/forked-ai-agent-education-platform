@@ -11,7 +11,8 @@ DATABASE_URL=REPLACE_WITH_YOUR_DATABASE_URL
 OPENAI_API_KEY=REPLACE_WITH_YOUR_OPENAI_API_KEY_HERE
 ANTHROPIC_API_KEY=REPLACE_WITH_YOUR_ANTHROPIC_API_KEY_HERE
 
-# Redis Configuration (optional)
+# Redis Configuration (REQUIRED)
+# Redis is required for session management, caching, and performance optimization
 REDIS_URL=REPLACE_WITH_YOUR_REDIS_URL
 
 # Security - Change this to a strong random key

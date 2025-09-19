@@ -75,6 +75,7 @@ flask-admin==1.6.1
 # Additional utilities
 pathlib2==2.3.7
 typing-extensions==4.12.2
+schedule==1.2.2
 
 # Scientific Computing
 numpy>=1.26.0,<2.0.0  # Used in vector_store.py for array operations, compatible with LangChain

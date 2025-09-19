@@ -1,5 +1,5 @@
 # AI Agent Education Platform - Main FastAPI Application
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -8,6 +8,11 @@ import uvicorn
 from datetime import datetime, timedelta
 from pathlib import Path
 from contextlib import asynccontextmanager
+import asyncio
+import logging
+
+# Logger for main application
+logger = logging.getLogger(__name__)
 
 from database.connection import get_db, engine, settings, _validate_environment
 from database.models import Base, User, Scenario, ScenarioPersona, ScenarioScene, ScenarioFile, ScenarioReview, scene_personas
@@ -35,18 +40,41 @@ from startup_check import run_startup_checks, auto_setup_if_needed
 # Import session manager for cleanup task
 from services.session_manager import session_manager
 
+# Import Redis services
+from utilities.redis_manager import redis_manager, redis_cleanup_task
+from services.ai_cache_service import ai_cache_service
+from services.db_cache_service import db_cache_service
+
 # Combined lifespan manager for all background tasks
 @asynccontextmanager
 async def combined_lifespan(app):
-    """Combined lifespan manager for OAuth and session cleanup tasks"""
+    """Combined lifespan manager for OAuth, session, and Redis cleanup tasks"""
     # Validate environment on startup
     _validate_environment()
+    
+    # Test Redis connection on startup
+    try:
+        if not redis_manager.is_available():
+            raise RuntimeError("Redis is not available. Please check your Redis configuration.")
+        logger.info("Redis connection verified successfully")
+    except Exception as e:
+        logger.error(f"Redis connection failed: {e}")
+        raise RuntimeError(f"Redis initialization failed: {e}")
     
     # Start OAuth cleanup task
     async with oauth_lifespan(app):
         # Start session manager cleanup task
         async with session_manager_lifespan(app):
-            yield
+            # Start Redis cleanup task
+            redis_task = asyncio.create_task(redis_cleanup_task())
+            try:
+                yield
+            finally:
+                redis_task.cancel()
+                try:
+                    await redis_task
+                except asyncio.CancelledError:
+                    pass
 
 # Create FastAPI app
 app = FastAPI(
@@ -555,7 +583,7 @@ async def update_scenario_status(
 
 # --- USER AUTHENTICATION & MANAGEMENT ---
 @app.post("/users/register", response_model=UserResponse)
-async def register_user(user: UserRegister, db: Session = Depends(get_db)):
+async def register_user(user: UserRegister, response: Response, db: Session = Depends(get_db)):
     """Register a new user"""
     # Check if user already exists
     existing_user = db.query(User).filter(
@@ -585,24 +613,44 @@ async def register_user(user: UserRegister, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_user)
     
+    # Create access token and set HttpOnly cookie
+    access_token = create_access_token(data={"sub": str(db_user.id)})
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,  # HttpOnly cookie - not accessible via JavaScript
+        secure=True,    # Only send over HTTPS in production
+        samesite="lax", # CSRF protection
+        max_age=30 * 60  # 30 minutes (same as token expiry)
+    )
+    
     return db_user
 
 @app.post("/users/login", response_model=UserLoginResponse)
-async def login_user(user: UserLogin, db: Session = Depends(get_db)):
+async def login_user(user: UserLogin, response: Response, db: Session = Depends(get_db)):
     """Login user and return access token"""
     db_user = authenticate_user(db, user.email, user.password)
     if not db_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
         )
     
     access_token = create_access_token(data={"sub": str(db_user.id)})
     
+    # Set HttpOnly cookie for secure authentication
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,  # HttpOnly cookie - not accessible via JavaScript
+        secure=True,    # Only send over HTTPS in production
+        samesite="lax", # CSRF protection
+        max_age=30 * 60  # 30 minutes (same as token expiry)
+    )
+    
     return UserLoginResponse(
-        access_token=access_token,
-        token_type="bearer",
+        access_token="",  # Empty token - authentication via HttpOnly cookie only
+        token_type="cookie",
         user=UserResponse(
             id=db_user.id,
             email=db_user.email,
@@ -622,6 +670,17 @@ async def login_user(user: UserLogin, db: Session = Depends(get_db)):
             updated_at=db_user.updated_at
         )
     )
+
+@app.post("/users/logout")
+async def logout_user(response: Response):
+    """Logout user by clearing HttpOnly cookie"""
+    response.delete_cookie(
+        key="access_token",
+        httponly=True,
+        secure=True,
+        samesite="lax"
+    )
+    return {"message": "Successfully logged out"}
 
 @app.get("/users/me", response_model=UserResponse)
 async def get_current_user_profile(current_user: User = Depends(get_current_user)):
@@ -883,6 +942,78 @@ async def get_scenario_full(scenario_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         print(f"[ERROR] get_scenario_full failed: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+# --- REDIS CACHE MANAGEMENT ---
+@app.get("/api/cache/stats")
+async def get_cache_stats(current_user: User = Depends(require_admin)):
+    """Get cache statistics (admin only)"""
+    try:
+        ai_stats = ai_cache_service.get_cache_stats()
+        db_stats = db_cache_service.get_cache_stats()
+        redis_info = {
+            "redis_available": redis_manager.is_available(),
+            "total_keys": len(redis_manager.get_keys("*"))
+        }
+        
+        return {
+            "ai_cache": ai_stats,
+            "db_cache": db_stats,
+            "redis_info": redis_info,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Failed to get cache stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get cache statistics: {str(e)}")
+
+@app.post("/api/cache/invalidate/user/{user_id}")
+async def invalidate_user_cache(user_id: int, current_user: User = Depends(require_admin)):
+    """Invalidate all cache entries for a specific user (admin only)"""
+    try:
+        ai_count = ai_cache_service.invalidate_user_cache(user_id)
+        db_count = db_cache_service.invalidate_user_related_cache(user_id)
+        
+        return {
+            "message": f"Invalidated cache for user {user_id}",
+            "ai_cache_invalidated": ai_count,
+            "db_cache_invalidated": db_count,
+            "total_invalidated": ai_count + db_count
+        }
+    except Exception as e:
+        logger.error(f"Failed to invalidate user cache: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to invalidate user cache: {str(e)}")
+
+@app.post("/api/cache/invalidate/scenario/{scenario_id}")
+async def invalidate_scenario_cache(scenario_id: int, current_user: User = Depends(require_admin)):
+    """Invalidate all cache entries for a specific scenario (admin only)"""
+    try:
+        ai_count = ai_cache_service.invalidate_simulation_cache(scenario_id)
+        db_count = db_cache_service.invalidate_scenario_cache(scenario_id)
+        
+        return {
+            "message": f"Invalidated cache for scenario {scenario_id}",
+            "ai_cache_invalidated": ai_count,
+            "db_cache_invalidated": db_count,
+            "total_invalidated": ai_count + db_count
+        }
+    except Exception as e:
+        logger.error(f"Failed to invalidate scenario cache: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to invalidate scenario cache: {str(e)}")
+
+@app.post("/api/cache/cleanup")
+async def cleanup_cache(current_user: User = Depends(require_admin)):
+    """Manually trigger cache cleanup (admin only)"""
+    try:
+        ai_cleaned = ai_cache_service.cleanup_expired_cache()
+        db_cleaned = db_cache_service.cleanup_expired_cache()
+        
+        return {
+            "message": "Cache cleanup completed",
+            "ai_cache_entries": ai_cleaned,
+            "db_cache_entries": db_cleaned
+        }
+    except Exception as e:
+        logger.error(f"Failed to cleanup cache: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup cache: {str(e)}")
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 

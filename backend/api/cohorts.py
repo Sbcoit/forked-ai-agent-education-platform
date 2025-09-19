@@ -6,6 +6,7 @@ Handles cohort creation, student enrollment, and simulation assignments
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import and_, or_, desc, func
+from sqlalchemy.sql.functions import coalesce
 from typing import List, Optional
 from datetime import datetime
 import secrets
@@ -13,7 +14,7 @@ import secrets
 from database.connection import get_db
 from utilities.auth import get_current_user, require_admin
 from database.models import (
-    Cohort, CohortStudent, CohortSimulation, User, UserProgress, generate_cohort_id
+    Cohort, CohortStudent, CohortSimulation, User, UserProgress, Scenario, generate_cohort_id
 )
 from database.schemas import (
     CohortCreate, CohortUpdate, CohortResponse, CohortListResponse,
@@ -58,20 +59,37 @@ async def get_cohorts(
         elif status == "inactive":
             query = query.filter(Cohort.is_active == False)
     
-    # Get cohorts with counts
-    cohorts = query.offset(skip).limit(limit).all()
+    # Create subqueries for counts
+    student_count_subquery = db.query(
+        CohortStudent.cohort_id,
+        func.count(CohortStudent.id).label('student_count')
+    ).filter(
+        CohortStudent.status == "approved"
+    ).group_by(CohortStudent.cohort_id).subquery()
     
-    # Build response with counts
+    simulation_count_subquery = db.query(
+        CohortSimulation.cohort_id,
+        func.count(CohortSimulation.id).label('simulation_count')
+    ).group_by(CohortSimulation.cohort_id).subquery()
+    
+    # Main query with left joins to get counts in single query
+    cohorts_with_counts = query.outerjoin(
+        student_count_subquery,
+        Cohort.id == student_count_subquery.c.cohort_id
+    ).outerjoin(
+        simulation_count_subquery,
+        Cohort.id == simulation_count_subquery.c.cohort_id
+    ).add_columns(
+        coalesce(student_count_subquery.c.student_count, 0).label('student_count'),
+        coalesce(simulation_count_subquery.c.simulation_count, 0).label('simulation_count')
+    ).offset(skip).limit(limit).all()
+    
+    # Build response with counts from single query
     result = []
-    for cohort in cohorts:
-        student_count = db.query(CohortStudent).filter(
-            CohortStudent.cohort_id == cohort.id,
-            CohortStudent.status == "approved"
-        ).count()
-        
-        simulation_count = db.query(CohortSimulation).filter(
-            CohortSimulation.cohort_id == cohort.id
-        ).count()
+    for cohort_row in cohorts_with_counts:
+        cohort = cohort_row[0]  # The Cohort object is first in the tuple
+        student_count = cohort_row[1]  # student_count from coalesce
+        simulation_count = cohort_row[2]  # simulation_count from coalesce
         
         result.append(CohortListResponse(
             id=cohort.id,
@@ -444,10 +462,10 @@ async def assign_simulation_to_cohort(
     if cohort.created_by != current_user.id and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized to manage this cohort")
     
-    # Check if simulation exists
-    simulation = db.query(UserProgress).filter(UserProgress.id == simulation_data.simulation_id).first()
-    if not simulation:
-        raise HTTPException(status_code=404, detail="Simulation not found")
+    # Check if scenario exists
+    scenario = db.query(Scenario).filter(Scenario.id == simulation_data.simulation_id).first()
+    if not scenario:
+        raise HTTPException(status_code=404, detail="Scenario not found")
     
     # Create assignment
     cohort_simulation = CohortSimulation(

@@ -683,7 +683,9 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
           if (chatData.next_scene_id) {
             setInputBlocked(true);
             // Fetch next scene data and update simulationData
-            fetch(buildApiUrl(`/api/simulation/scenes/${chatData.next_scene_id}`))
+            fetch(buildApiUrl(`/api/simulation/scenes/${chatData.next_scene_id}`), {
+              credentials: 'include'
+            })
               .then(response => {
                 if (response.ok) {
                   return response.json();

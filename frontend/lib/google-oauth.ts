@@ -97,6 +97,7 @@ export class GoogleOAuth {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
       })
 
       if (!response.ok) {
@@ -183,6 +184,7 @@ export class GoogleOAuth {
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify({
           action,
           existing_user_id: existingUserId,
@@ -261,6 +263,7 @@ export async function handleOAuthCallback(): Promise<OpenAuthResult> {
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
     })
 
     if (!response.ok) {

@@ -92,54 +92,13 @@ export interface RegisterData {
 // SECURITY: Secure authentication using HttpOnly cookies
 // Tokens are now handled server-side via secure cookies, not localStorage
 // This prevents XSS attacks from accessing authentication tokens
-
-// Persistent token storage for client-side auth state
-let inMemoryToken: string | null = null
-
-const getAuthToken = (): string | null => {
-  // First check in-memory token
-  if (inMemoryToken) {
-    return inMemoryToken
-  }
-  
-  // Fallback to localStorage for persistence across page refreshes
-  if (typeof window !== 'undefined') {
-    const storedToken = localStorage.getItem('auth_token')
-    if (storedToken) {
-      inMemoryToken = storedToken
-      return storedToken
-    }
-  }
-  
-  return null
-}
-
-export const setAuthToken = (token: string): void => {
-  // Store token in both memory and localStorage for persistence
-  inMemoryToken = token
-  if (typeof window !== 'undefined') {
-    localStorage.setItem('auth_token', token)
-  }
-}
-
-const removeAuthToken = (): void => {
-  // Clear token from both memory and localStorage
-  inMemoryToken = null
-  if (typeof window !== 'undefined') {
-    localStorage.removeItem('auth_token')
-  }
-}
+// Client-side token management has been removed for security
 
 // Helper function to make authenticated API requests
 const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAuthError: boolean = false): Promise<Response> => {
-  const token = getAuthToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string>),
-  }
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
   }
 
   try {
@@ -187,7 +146,7 @@ export const apiClient = {
     })
     
     const data = await response.json()
-    setAuthToken(data.access_token)
+    // Token is now handled server-side via HttpOnly cookies
     return data
   },
 
@@ -201,12 +160,18 @@ export const apiClient = {
     })
     
     const responseData = await response.json()
-    setAuthToken(responseData.access_token)
+    // Token is now handled server-side via HttpOnly cookies
     return responseData
   },
 
   logout: async (): Promise<void> => {
-    removeAuthToken()
+    // Call server logout endpoint to clear HttpOnly cookies
+    try {
+      await apiRequest('/users/logout', { method: 'POST' })
+    } catch (error) {
+      // Continue with logout even if server call fails
+      console.warn('Server logout failed, continuing with client logout:', error)
+    }
   },
 
   // Clear all cached data
@@ -469,11 +434,10 @@ export const apiClient = {
 
   // Utility methods
   isAuthenticated: (): boolean => {
-    return getAuthToken() !== null
-  },
-
-  getAuthToken: (): string | null => {
-    return getAuthToken()
+    // Authentication is now determined by server-side HttpOnly cookies
+    // This method is deprecated - use the auth context's isAuthenticated instead
+    console.warn('apiClient.isAuthenticated() is deprecated. Use the auth context instead.')
+    return false
   },
 
   // Generic authenticated request method

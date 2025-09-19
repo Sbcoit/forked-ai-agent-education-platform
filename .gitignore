@@ -8,6 +8,9 @@
 .env.production.local
 .env.backup
 
+# Development encryption keys
+.oauth_encryption_key
+
 # Virtual environments
 venv/
 env/

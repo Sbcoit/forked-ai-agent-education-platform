@@ -721,6 +721,7 @@ export default function ScenarioBuilder() {
      const response = await fetch(buildApiUrl("/api/parse-pdf/"), {
        method: "POST",
        body: formData,
+       credentials: 'include',
      });
     
      if (!response.ok) {
@@ -976,6 +977,7 @@ const handleAutofillWithTeachingNotes = async () => {
     const response = await fetch(buildApiUrl("/api/parse-pdf/"), {
       method: "POST",
       body: formData,
+      credentials: 'include',
     });
    
     if (!response.ok) {

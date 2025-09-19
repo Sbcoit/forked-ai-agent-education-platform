@@ -612,7 +612,7 @@ class CohortSimulation(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     cohort_id = Column(Integer, ForeignKey("cohorts.id"), nullable=False, index=True)
-    simulation_id = Column(Integer, ForeignKey("user_progress.id"), nullable=False, index=True)
+    simulation_id = Column(Integer, ForeignKey("scenarios.id"), nullable=False, index=True)
     
     # Assignment details
     assigned_by = Column(Integer, ForeignKey("users.id"), nullable=False)
@@ -626,7 +626,7 @@ class CohortSimulation(Base):
     
     # Relationships
     cohort = relationship("Cohort", back_populates="simulations")
-    simulation = relationship("UserProgress")
+    simulation = relationship("Scenario")
     assigner = relationship("User", foreign_keys=[assigned_by])
     
     # Indexes for performance

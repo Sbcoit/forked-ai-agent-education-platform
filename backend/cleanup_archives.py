@@ -21,7 +21,12 @@ def main():
     print("=" * 50)
     
     # Get database connection
-    db = next(get_db())
+    db_gen = get_db()
+    db = next(db_gen, None)
+    if db is None:
+        print("❌ Failed to get database connection")
+        return 1
+    service = SoftDeletionService(db)
     service = SoftDeletionService(db)
     
     try:

@@ -20,6 +20,7 @@ from database.models import UserProgress, ScenarioScene, ScenarioPersona
 from database.models import (
     SessionMemory, ConversationSummaries, AgentSessions, CacheEntries, VectorEmbeddings
 )
+from utilities.redis_manager import redis_manager, cache_manager
 
 # Logger for session manager operations
 logger = logging.getLogger(__name__)
@@ -29,10 +30,9 @@ AgentSession = AgentSessions
 CacheEntry = CacheEntries
 
 class SessionManager:
-    """Manages agent sessions, memory, and caching"""
+    """Manages agent sessions, memory, and caching using Redis"""
     
     def __init__(self):
-        self.active_sessions: Dict[str, Dict[str, Any]] = {}
         self.session_timeout = settings.session_timeout
         self.cache_ttl = settings.cache_ttl
         self._cleanup_task: Optional[asyncio.Task] = None
@@ -43,8 +43,7 @@ class SessionManager:
     
     def get_cache_key(self, content_type: str, content_id: int, additional_data: str = "") -> str:
         """Generate cache key for content"""
-        cache_data = f"{content_type}_{content_id}_{additional_data}"
-        return hashlib.md5(cache_data.encode()).hexdigest()
+        return cache_manager.generate_cache_key(f"session_{content_type}", content_id, additional=additional_data)
     
     async def create_agent_session(self, 
                                  user_progress_id: int,
@@ -57,7 +56,24 @@ class SessionManager:
             user_progress_id, 0, 0  # Simplified for agent sessions
         )
         
-        # Create session in database
+        # Store session data in Redis
+        session_data = {
+            "agent_type": agent_type,
+            "agent_id": agent_id,
+            "user_progress_id": user_progress_id,
+            "created_at": datetime.utcnow().isoformat(),
+            "last_activity": datetime.utcnow().isoformat(),
+            "config": session_config or {},
+            "session_state": {},
+            "is_active": True
+        }
+        
+        # Store in Redis with TTL
+        redis_key = f"session:{session_id}"
+        if not redis_manager.set(redis_key, session_data, self.session_timeout):
+            raise RuntimeError("Failed to store session in Redis")
+        
+        # Also store in database for persistence (optional backup)
         db = None
         try:
             db = next(get_db())
@@ -75,23 +91,14 @@ class SessionManager:
             db.add(agent_session)
             db.commit()
             
-            # Store in memory for quick access
-            self.active_sessions[session_id] = {
-                "agent_type": agent_type,
-                "agent_id": agent_id,
-                "user_progress_id": user_progress_id,
-                "created_at": datetime.utcnow(),
-                "last_activity": datetime.utcnow(),
-                "config": session_config or {}
-            }
-            
             return session_id
             
         except Exception as e:
             if db:
                 db.rollback()
-            print(f"Error creating agent session: {e}")
-            raise e
+            logger.error(f"Error creating agent session in database: {e}")
+            # Don't fail if database write fails, Redis is primary
+            return session_id
         finally:
             if db:
                 db.close()

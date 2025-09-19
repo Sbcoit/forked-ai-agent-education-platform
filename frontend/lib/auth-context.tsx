@@ -1,7 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, ReactNode, useEffect } from 'react'
-import { apiClient, User, LoginCredentials, RegisterData, setAuthToken } from './api'
+import { apiClient, User, LoginCredentials, RegisterData } from './api'
 import { GoogleOAuth, AccountLinkingData, OAuthSuccessData, OAuthUserData, OAuthError } from './google-oauth'
 
 // Define proper types for Google OAuth responses
@@ -66,20 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateLastActivity = React.useCallback(async () => {
     const timestamp = Date.now().toString()
     
-    // Store in sessionStorage for per-tab scope (more secure than localStorage)
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('last_activity', timestamp)
-      
-      // Broadcast activity update to other tabs
-      try {
-        const channel = new BroadcastChannel('auth-activity')
-        channel.postMessage({ type: 'activity_update', timestamp })
-        channel.close()
-      } catch (error) {
-        // BroadcastChannel not supported, fallback to storage event
-        localStorage.setItem('auth_activity_broadcast', timestamp)
-      }
-    }
+    // Reuse client-side update logic
+    updateLastActivityLocal()
     
     // Send heartbeat to server for secure activity tracking (only when explicitly called)
     try {
@@ -95,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (process.env.NODE_ENV === 'development') {
       console.log('Activity timestamp updated with server call:', new Date(parseInt(timestamp)).toLocaleTimeString())
     }
-  }, [])
+  }, [updateLastActivityLocal])
 
   const logout = async () => {
     try {
@@ -105,8 +93,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setUser(null)
       sessionStorage.removeItem('last_activity') // Clear activity tracking on logout
+      
+      // Broadcast logout to other tabs
+      try {
+        const channel = new BroadcastChannel('auth-activity')
+        channel.postMessage({ type: 'logout' })
+        channel.close()
+      } catch (error) {
+        // Fallback to localStorage for older browsers
+        localStorage.setItem('logout', Date.now().toString())
+      }
     }
   }
+
+  // Use ref to store latest logout function to avoid circular dependency
+  const logoutRef = React.useRef(logout)
+  React.useEffect(() => {
+    logoutRef.current = logout
+  }, [logout])
 
   const checkInactivity = React.useCallback(() => {
     const lastActivity = sessionStorage.getItem('last_activity')
@@ -135,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log(`User inactive for ${Math.round(timeSinceActivity / 60000)} minutes, logging out...`)
       }
       // Use component's logout handler instead of direct apiClient.logout()
-      logout()
+      logoutRef.current()
       return true
     }
     
@@ -143,7 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log(`User active within last ${Math.round(timeSinceActivity / 60000)} minutes, staying logged in`)
     }
     return false
-  }, [updateLastActivity, logout])
+  }, [updateLastActivity])
 
   // Initialize auth state on mount
   useEffect(() => {
@@ -158,31 +162,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Skip cache version check to avoid clearing auth token on page refresh
         // Cache will be managed by TTL and selective invalidation instead
         
-        // Check if we have a token (now includes localStorage fallback)
+        // Check authentication by attempting to fetch current user
+        // This relies on HttpOnly cookies for authentication
         if (process.env.NODE_ENV === 'development') {
           console.log('Checking authentication status...')
         }
-        if (apiClient.isAuthenticated()) {
+        const currentUser = await apiClient.getCurrentUser()
+        if (currentUser) {
           if (process.env.NODE_ENV === 'development') {
-            console.log('Token found, fetching current user...')
+            console.log('User authenticated successfully:', currentUser.email)
           }
-          const currentUser = await apiClient.getCurrentUser()
-          if (currentUser) {
-            if (process.env.NODE_ENV === 'development') {
-              console.log('User authenticated successfully:', currentUser.email)
-            }
-            setUser(currentUser)
-            updateLastActivity() // Update activity on successful login
-          } else {
-            if (process.env.NODE_ENV === 'development') {
-              console.log('Token invalid, clearing...')
-            }
-            // Token is invalid, clear it
-            apiClient.logout()
-          }
+          setUser(currentUser)
+          updateLastActivity() // Update activity on successful login
         } else {
           if (process.env.NODE_ENV === 'development') {
-            console.log('No token found')
+            console.log('No authenticated user found')
           }
         }
       } catch (error) {
@@ -267,10 +261,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           message: 'Login successful'
         }
         setUser(successResult.user)
-        // Store the access token for API requests
-        if (successResult.access_token) {
-          setAuthToken(successResult.access_token)
-        }
+        // Token is now handled server-side via HttpOnly cookies
         updateLastActivity() // Update activity on successful Google login
         return successResult
       } else {
@@ -298,10 +289,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const result = await googleOAuth.linkAccount(action, existingUserId, oauthUserData, state)
       setUser(result.user)
-      // Store the access token for API requests
-      if (result.access_token) {
-        setAuthToken(result.access_token)
-      }
+      // Token is now handled server-side via HttpOnly cookies
       updateLastActivity() // Update activity on successful account linking
     } catch (error) {
       console.error('Account linking failed:', error)
@@ -356,6 +344,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (e.key === 'auth_activity_broadcast' && e.newValue) {
         // Update activity from other tabs
         sessionStorage.setItem('last_activity', e.newValue)
+      } else if (e.key === 'logout' && e.newValue) {
+        // Handle logout from other tabs via localStorage fallback
+        setUser(null)
+        sessionStorage.removeItem('last_activity')
       }
     }
 

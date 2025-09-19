@@ -5,7 +5,7 @@ Automatically cleans up old archived records on a schedule
 
 import schedule
 import time
-from datetime import datetime
+from datetime import datetime, date
 from services.soft_deletion import SoftDeletionService
 from database.connection import get_db
 
@@ -24,8 +24,9 @@ class ScheduledCleanupService:
         """Run the cleanup process"""
         print(f"[{datetime.now()}] 🧹 Starting scheduled cleanup...")
         
+        db_gen = get_db()
         try:
-            db = next(get_db())
+            db = next(db_gen)
             service = SoftDeletionService(db)
             
             # Get stats before cleanup
@@ -40,10 +41,21 @@ class ScheduledCleanupService:
             print(f"📊 Archives after cleanup: {stats_after['total_archives']}")
             print(f"✅ Cleaned up {cleaned_count} records")
             
-            db.close()
-            
         except Exception as e:
             print(f"❌ Error during scheduled cleanup: {e}")
+        finally:
+            try:
+                next(db_gen)  # Trigger the finally block in get_db()
+            except StopIteration:
+                pass
+    
+    def monthly_cleanup_wrapper(self):
+        """Wrapper that checks if it's the 1st of the month before running cleanup"""
+        if date.today().day == 1:
+            print(f"[{datetime.now()}] 📅 First day of month detected, running monthly cleanup...")
+            self.run_cleanup()
+        else:
+            print(f"[{datetime.now()}] 📅 Daily check completed (not 1st of month)")
     
     def start_daily_cleanup(self):
         """Start daily cleanup at 2 AM"""
@@ -57,8 +69,8 @@ class ScheduledCleanupService:
     
     def start_monthly_cleanup(self):
         """Start monthly cleanup on the 1st at 2 AM"""
-        schedule.every().month.do(self.run_cleanup)
-        print("📅 Monthly cleanup scheduled for the 1st at 2:00 AM")
+        schedule.every().day.at("02:00").do(self.monthly_cleanup_wrapper)
+        print("📅 Daily check scheduled at 02:00; will run cleanup on the 1st of each month")
     
     def run_scheduler(self):
         """Run the scheduler (blocking)"""

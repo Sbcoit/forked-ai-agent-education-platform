@@ -1,7 +1,7 @@
 """
 Google OAuth API endpoints
 """
-from fastapi import APIRouter, HTTPException, Depends, status, Request
+from fastapi import APIRouter, HTTPException, Depends, status, Request, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional
@@ -37,63 +37,79 @@ from utilities.oauth import (
     link_google_to_existing_user,
     create_user_login_response
 )
+from utilities.auth import create_access_token
 
 # Logger for OAuth operations
 logger = logging.getLogger(__name__)
 
 class OAuthStateStore:
-    """Persistent OAuth state storage with Redis or database fallback"""
+    """Persistent OAuth state storage using Redis"""
     
     def __init__(self):
-        self.redis_client = None
-        self.fallback_to_memory = True
-        self._init_redis()
+        from utilities.redis_manager import redis_manager
+        self.redis = redis_manager
         self._init_encryption()
     
     def _init_encryption(self):
         """Initialize encryption cipher for state payloads"""
-        try:
-            encryption_key = os.getenv('OAUTH_ENCRYPTION_KEY')
-            if not encryption_key:
-                # Check if we're in production environment
-                is_production = (
-                    os.getenv('ENVIRONMENT', '').lower() == 'production' or
-                    os.getenv('ENV', '').lower() == 'production' or
-                    os.getenv('FLASK_ENV', '').lower() == 'production' or
-                    os.getenv('APP_ENV', '').lower() == 'production'
-                )
-                
-                if is_production:
-                    raise ValueError("OAUTH_ENCRYPTION_KEY is required in production environment")
-                else:
-                    # Generate a new key for development only
-                    key = Fernet.generate_key()
-                    logger.warning("No OAUTH_ENCRYPTION_KEY found, using generated key for development. Set OAUTH_ENCRYPTION_KEY in production!")
-                    self.cipher = Fernet(key)
+        encryption_key = os.getenv('OAUTH_ENCRYPTION_KEY')
+        if not encryption_key:
+            # Check if we're in production environment
+            is_production = (
+                os.getenv('ENVIRONMENT', '').lower() == 'production' or
+                os.getenv('ENV', '').lower() == 'production' or
+                os.getenv('FLASK_ENV', '').lower() == 'production' or
+                os.getenv('APP_ENV', '').lower() == 'production'
+            )
+            
+            if is_production:
+                raise ValueError("OAUTH_ENCRYPTION_KEY is required in production environment")
             else:
-                # Use provided key (should be base64 encoded)
-                if len(encryption_key) != 44:  # Fernet keys are 44 chars when base64 encoded
-                    raise ValueError("OAUTH_ENCRYPTION_KEY must be a valid Fernet key (44 characters)")
-                self.cipher = Fernet(encryption_key.encode())
-        except Exception as e:
-            logger.error(f"Failed to initialize encryption: {e}")
-            # Fallback to no encryption (not recommended for production)
-            self.cipher = None
+                # Development mode: use or generate persistent key
+                try:
+                    dev_key_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.oauth_encryption_key')
+                    key = self._get_or_create_dev_key(dev_key_file)
+                    logger.warning("No OAUTH_ENCRYPTION_KEY found, using development key from file. Set OAUTH_ENCRYPTION_KEY in production!")
+                    self.cipher = Fernet(key)
+                except Exception as e:
+                    logger.error(f"Failed to initialize development encryption: {e}")
+                    # Fallback to no encryption for development
+                    self.cipher = None
+        else:
+            # Validate and use provided key
+            try:
+                # Convert string to bytes using UTF-8 encoding
+                key_bytes = encryption_key.encode('utf-8')
+                self.cipher = Fernet(key_bytes)
+            except Exception as e:
+                raise ValueError(f"Invalid OAUTH_ENCRYPTION_KEY: {e}. Key must be a valid base64-encoded Fernet key.")
     
-    def _init_redis(self):
-        """Initialize Redis client if available"""
+    def _get_or_create_dev_key(self, key_file_path: str) -> bytes:
+        """Get existing dev key or create and persist a new one"""
         try:
-            import redis
-            redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
-            self.redis_client = redis.from_url(redis_url, decode_responses=True)
-            # Test connection
-            self.redis_client.ping()
-            self.fallback_to_memory = False
-            logger.info("OAuth state store initialized with Redis")
+            # Try to read existing key
+            if os.path.exists(key_file_path):
+                with open(key_file_path, 'rb') as f:
+                    key = f.read()
+                # Validate the key by trying to create a Fernet instance
+                Fernet(key)  # This will raise an exception if invalid
+                return key
         except Exception as e:
-            logger.warning(f"Redis not available, falling back to in-memory storage: {e}")
-            self.redis_client = None
-            self.fallback_to_memory = True
+            logger.warning(f"Invalid or corrupted dev key file, generating new one: {e}")
+        
+        # Generate new key and persist it
+        key = Fernet.generate_key()
+        try:
+            with open(key_file_path, 'wb') as f:
+                f.write(key)
+            # Set restrictive permissions (owner read/write only)
+            os.chmod(key_file_path, 0o600)
+        except Exception as e:
+            logger.error(f"Failed to persist dev encryption key: {e}")
+            # Continue with the generated key even if we can't persist it
+        
+        return key
+    
     
     def set_state(self, state: str, data: Dict[str, Any], ttl: int = 600) -> bool:
         """Store OAuth state with TTL (default 10 minutes)"""
@@ -114,31 +130,8 @@ class OAuthStateStore:
                 # No encryption available, store as JSON
                 encrypted_data = json.dumps(data)
             
-            if self.redis_client and not self.fallback_to_memory:
-                self.redis_client.setex(state, ttl, encrypted_data)
-                return True
-            else:
-                # Fallback to in-memory storage
-                with oauth_states_lock:
-                    # Check if we need to clean up before adding new state
-                    if len(oauth_states) >= 50:
-                        # Sort by created_at and keep only the 50 most recent
-                        def get_created_at(item):
-                            value = item[1]
-                            if isinstance(value, dict):
-                                return value.get("created_at", 0)
-                            else:
-                                return 0
-                        
-                        sorted_states = sorted(oauth_states.items(), 
-                                             key=get_created_at, 
-                                             reverse=True)
-                        oauth_states.clear()
-                        for state_key, data in sorted_states[:50]:
-                            oauth_states[state_key] = data
-                    
-                    oauth_states[state] = encrypted_data
-                return True
+            # Use Redis manager to store the state
+            return self.redis.set(state, encrypted_data, ttl)
         except Exception as e:
             logger.error(f"Failed to store OAuth state: {e}")
             return False
@@ -146,21 +139,15 @@ class OAuthStateStore:
     def get_state(self, state: str) -> Optional[Dict[str, Any]]:
         """Retrieve OAuth state data"""
         try:
-            if self.redis_client and not self.fallback_to_memory:
-                encrypted_data = self.redis_client.get(state)
-                if not encrypted_data:
-                    return None
-            else:
-                # Fallback to in-memory storage
-                with oauth_states_lock:
-                    encrypted_data = oauth_states.get(state)
-                    if not encrypted_data:
-                        return None
+            encrypted_data = self.redis.get(state)
+            if not encrypted_data:
+                return None
             
             # Decrypt the payload if cipher is available
             if self.cipher:
                 try:
-                    encrypted_payload = base64.b64decode(encrypted_data.encode('utf-8'))
+                    # Redis returns strings with decode_responses=True, so use directly
+                    encrypted_payload = base64.b64decode(encrypted_data)
                     decrypted_payload = self.cipher.decrypt(encrypted_payload)
                     return json.loads(decrypted_payload.decode('utf-8'))
                 except Exception as e:
@@ -176,14 +163,7 @@ class OAuthStateStore:
     def delete_state(self, state: str) -> bool:
         """Delete OAuth state"""
         try:
-            if self.redis_client and not self.fallback_to_memory:
-                self.redis_client.delete(state)
-                return True
-            else:
-                # Fallback to in-memory storage
-                with oauth_states_lock:
-                    oauth_states.pop(state, None)
-                return True
+            return self.redis.delete(state)
         except Exception as e:
             logger.error(f"Failed to delete OAuth state: {e}")
             return False
@@ -191,11 +171,6 @@ class OAuthStateStore:
 # Initialize OAuth state store
 oauth_state_store = OAuthStateStore()
 
-# Fallback in-memory storage (used when Redis is not available)
-oauth_states: Dict[str, Dict[str, Any]] = {}
-
-# Lock for thread-safe access to oauth_states
-oauth_states_lock = threading.Lock()
 
 # Background cleanup task
 cleanup_task = None
@@ -216,22 +191,8 @@ def validate_oauth_state(state: str) -> Dict[str, Any]:
             detail="Invalid or missing OAuth state"
         )
     
-    # Check if state is still valid (not expired) - only for in-memory fallback
-    if oauth_state_store.fallback_to_memory:
-        if not isinstance(state_data, dict) or "created_at" not in state_data:
-            # Invalid or malformed state data - treat as expired
-            oauth_state_store.delete_state(state)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OAuth state has expired or is invalid. Please try again."
-            )
-        
-        if time.time() - state_data["created_at"] > 600:  # 10 minutes
-            oauth_state_store.delete_state(state)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OAuth state has expired. Please try again."
-            )
+    # Redis handles TTL expiration automatically
+    # If state_data is None, it means the state has expired or doesn't exist
     
     return state_data
 
@@ -268,43 +229,8 @@ router = APIRouter(prefix="/auth", tags=["oauth"])
 def cleanup_expired_states():
     """Clean up expired OAuth states (older than 10 minutes)"""
     # For Redis, TTL is handled automatically
-    # For in-memory fallback, clean up expired states
-    if oauth_state_store.fallback_to_memory:
-        current_time = time.time()
-        expired_states = []
-        
-        # Create a snapshot to avoid race conditions
-        with oauth_states_lock:
-            states_snapshot = list(oauth_states.items())
-        
-        for state, data in states_snapshot:
-            if isinstance(data, dict) and "created_at" in data:
-                # Check if state is older than 10 minutes (600 seconds)
-                if current_time - data["created_at"] > 600:
-                    expired_states.append(state)
-        
-        # Remove expired states
-        for state in expired_states:
-            oauth_state_store.delete_state(state)
-        
-        # Fallback: limit the number of states to 50 most recent
-        with oauth_states_lock:
-            if len(oauth_states) > 50:
-                # Sort by created_at and keep only the 50 most recent
-                # Handle both dict and string values safely
-                def get_created_at(item):
-                    value = item[1]
-                    if isinstance(value, dict):
-                        return value.get("created_at", 0)
-                    else:
-                        return 0
-                
-                sorted_states = sorted(oauth_states.items(), 
-                                     key=get_created_at, 
-                                     reverse=True)
-                oauth_states.clear()
-                for state, data in sorted_states[:50]:
-                    oauth_states[state] = data
+    # Redis handles TTL expiration automatically
+    # No manual cleanup needed for Redis-based storage
 
 @router.get("/google/login")
 async def google_login():
@@ -326,6 +252,7 @@ async def google_callback(
     code: str = None,
     state: str = None,
     error: str = None,
+    response: Response = None,
     db: Session = Depends(get_db)
 ):
     """Handle Google OAuth callback"""
@@ -339,22 +266,14 @@ async def google_callback(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing authorization code or state"
-        )
-    
-    # Verify state using the store abstraction
-    state_data = oauth_state_store.get_state(state)
-    if not state_data:
-        # Clean up expired states and try again
-        cleanup_expired_states()
-        state_data = oauth_state_store.get_state(state)
-        if not state_data:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid or expired state parameter. Please try logging in again."
             )
-    
     # Validate OAuth state
     state_data = validate_oauth_state(state)
+    if not state_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired state parameter. Please try logging in again."
+        )
     
     # Exchange code for token
     token_data = await exchange_code_for_token(code)
@@ -396,7 +315,16 @@ async def google_callback(
     # Check if user already exists with this Google ID
     existing_google_user = find_existing_user_by_google_id(db, google_id)
     if existing_google_user:
-        # User already linked, return login response
+        # User already linked, set HttpOnly cookie and return login response
+        access_token = create_access_token(data={"sub": str(existing_google_user.id)})
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,  # HttpOnly cookie - not accessible via JavaScript
+            secure=True,    # Only send over HTTPS in production
+            samesite="lax", # CSRF protection
+            max_age=30 * 60  # 30 minutes (same as token expiry)
+        )
         oauth_state_store.delete_state(state)  # Clean up state
         return create_user_login_response(existing_google_user)
     
@@ -406,7 +334,16 @@ async def google_callback(
     if existing_email_user:
         # Check if the existing user is already an OAuth user
         if existing_email_user.provider == "google":
-            # User already has a Google account, just log them in
+            # User already has a Google account, set HttpOnly cookie and log them in
+            access_token = create_access_token(data={"sub": str(existing_email_user.id)})
+            response.set_cookie(
+                key="access_token",
+                value=access_token,
+                httponly=True,  # HttpOnly cookie - not accessible via JavaScript
+                secure=True,    # Only send over HTTPS in production
+                samesite="lax", # CSRF protection
+                max_age=30 * 60  # 30 minutes (same as token expiry)
+            )
             oauth_state_store.delete_state(state)  # Clean up state
             return create_user_login_response(existing_email_user)
         else:
@@ -446,13 +383,25 @@ async def google_callback(
     
     # Create new user
     new_user = create_oauth_user(db, {**user_info, "id": google_id})
-    oauth_state_store.delete_state(state)  # Clean up state
     
+    # Set HttpOnly cookie for new user
+    access_token = create_access_token(data={"sub": str(new_user.id)})
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,  # HttpOnly cookie - not accessible via JavaScript
+        secure=True,    # Only send over HTTPS in production
+        samesite="lax", # CSRF protection
+        max_age=30 * 60  # 30 minutes (same as token expiry)
+    )
+    
+    oauth_state_store.delete_state(state)  # Clean up state
     return create_user_login_response(new_user)
 
 @router.post("/google/link")
 async def link_google_account(
     request: AccountLinkingRequest,
+    response: Response,
     db: Session = Depends(get_db)
 ):
     """Link Google account to existing user or create separate account"""
@@ -496,6 +445,18 @@ async def link_google_account(
         }
         # Link Google account to existing user
         linked_user = link_google_to_existing_user(db, existing_user, google_user_data)
+        
+        # Set HttpOnly cookie for linked user
+        access_token = create_access_token(data={"sub": str(linked_user.id)})
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,  # HttpOnly cookie - not accessible via JavaScript
+            secure=True,    # Only send over HTTPS in production
+            samesite="lax", # CSRF protection
+            max_age=30 * 60  # 30 minutes (same as token expiry)
+        )
+        
         oauth_state_store.delete_state(request.state)  # Clean up state
         return create_user_login_response(linked_user)
     
@@ -510,6 +471,18 @@ async def link_google_account(
         }
         # Create separate account with Google OAuth
         new_user = create_oauth_user(db, google_user_data, force_create=True)
+        
+        # Set HttpOnly cookie for new separate user
+        access_token = create_access_token(data={"sub": str(new_user.id)})
+        response.set_cookie(
+            key="access_token",
+            value=access_token,
+            httponly=True,  # HttpOnly cookie - not accessible via JavaScript
+            secure=True,    # Only send over HTTPS in production
+            samesite="lax", # CSRF protection
+            max_age=30 * 60  # 30 minutes (same as token expiry)
+        )
+        
         oauth_state_store.delete_state(request.state)  # Clean up state
         return create_user_login_response(new_user)
     

@@ -94,31 +94,14 @@ async def save_scenario_draft(
                 )
             
             print(f"[DEBUG] Updating existing scenario with ID: {scenario.id}")
-            print(f"[DEBUG] Current published_version_id: {scenario.published_version_id}")
-            
-            # Store the published_version_id before updating other fields
-            preserved_published_version_id = scenario.published_version_id
-            
             scenario.title = title
             scenario.description = actual_ai_result.get("description", "")
             scenario.challenge = actual_ai_result.get("description", "")
             scenario.learning_objectives = actual_ai_result.get("learning_outcomes", [])
             scenario.student_role = actual_ai_result.get("student_role", "Business Analyst")
             scenario.status = "draft"  # Set status to draft when saving
-            
-            # CRITICAL: Explicitly preserve the published_version_id
-            scenario.published_version_id = preserved_published_version_id
             scenario.updated_at = datetime.utcnow()
-            db.add(scenario)  # Ensure the scenario is tracked by the session
             db.flush()
-            
-            print(f"[DEBUG] Preserved published_version_id: {scenario.published_version_id}")
-            print(f"[DEBUG] Scenario object published_version_id after assignment: {scenario.published_version_id}")
-            
-            # Commit the changes to ensure published_version_id is persisted
-            db.commit()
-            print(f"[DEBUG] Committed changes - published_version_id should now be persisted")
-            
             # Store existing scene and persona IDs for cleanup
             existing_scene_ids = [id for (id,) in db.query(ScenarioScene.id).filter(ScenarioScene.scenario_id == scenario.id).all()]
             existing_persona_ids = [id for (id,) in db.query(ScenarioPersona.id).filter(ScenarioPersona.scenario_id == scenario.id).all()]

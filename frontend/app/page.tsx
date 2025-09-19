@@ -56,9 +56,9 @@ export default function LoginPage() {
     try {
       const result = await loginWithGoogle()
       
-      if (result.action === 'link_required') {
+      if (result && 'action' in result && result.action === 'link_required') {
         // Show account linking dialog
-        setLinkingData(result)
+        setLinkingData(result as AccountLinkingData)
         setShowLinkingDialog(true)
       } else {
         // Direct login success

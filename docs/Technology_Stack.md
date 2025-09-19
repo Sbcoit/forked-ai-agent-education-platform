@@ -108,6 +108,20 @@ The AI Agent Education Platform is built using modern, industry-standard technol
 - **Benefits**: Semantic search, memory systems, AI integration
 - **Usage**: Vector embeddings for context and memory
 
+### Cohort Management Models
+- **Cohort Model**: Educational group management with metadata
+- **CohortStudent Model**: Student enrollment and status tracking
+- **CohortSimulation Model**: Simulation assignments to cohorts
+- **Features**: Enrollment workflows, progress tracking, analytics
+- **Benefits**: Organized learning, administrative efficiency
+
+### Soft Deletion Models
+- **Soft Deletion Fields**: deleted_at, deleted_by, deletion_reason
+- **Archive Tables**: user_progress_archive for historical data
+- **Recovery System**: Restoration procedures and audit trails
+- **Features**: Safe deletion, data recovery, compliance support
+- **Benefits**: Data safety, regulatory compliance, historical analytics
+
 ### Redis (Optional)
 - **Caching**: In-memory data store for performance
 - **Features**: Session storage, caching, pub/sub messaging
@@ -154,7 +168,7 @@ The AI Agent Education Platform is built using modern, industry-standard technol
 - **Benefits**: High accuracy, multiple format support, cloud-based processing
 - **Usage**: PDF-to-scenario conversion, document analysis
 
-### DALL-E (Optional)
+### DALL-E 
 - **Image Generation**: AI-powered image creation
 - **Features**: Scene visualization, custom prompts, high quality
 - **Benefits**: Enhanced user experience, visual learning support
@@ -245,6 +259,18 @@ The AI Agent Education Platform is built using modern, industry-standard technol
 - **Features**: Query optimization, index management, connection pooling
 - **Benefits**: Fast queries, efficient resource usage, scalability
 - **Tools**: SQLAlchemy optimization, PostgreSQL tuning
+
+### Soft Deletion System
+- **Technology**: Custom soft deletion implementation with data archiving
+- **Features**: Safe deletion, data recovery, audit trails, compliance support
+- **Benefits**: Data safety, regulatory compliance, historical analytics
+- **Implementation**: Database triggers, archive tables, restoration procedures
+
+### Cohort Management
+- **Technology**: Educational group management with student tracking
+- **Features**: Enrollment workflows, progress monitoring, assignment management
+- **Benefits**: Organized learning, administrative efficiency, analytics
+- **Implementation**: Cohort models, student relationships, simulation assignments
 
 ### Frontend Optimization
 - **Performance**: Optimized frontend loading and rendering

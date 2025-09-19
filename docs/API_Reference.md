@@ -16,10 +16,12 @@ The AI Agent Education Platform provides a comprehensive REST API for managing e
 4. [PDF Processing](#pdf-processing)
 5. [Simulation System](#simulation-system)
 6. [AI Agents](#ai-agents)
-7. [Publishing & Marketplace](#publishing--marketplace)
-8. [System Endpoints](#system-endpoints)
-9. [Error Handling](#error-handling)
-10. [Rate Limiting](#rate-limiting)
+7. [Cohort Management](#cohort-management)
+8. [Data Management & Soft Deletion](#data-management--soft-deletion)
+9. [Publishing & Marketplace](#publishing--marketplace)
+10. [System Endpoints](#system-endpoints)
+11. [Error Handling](#error-handling)
+12. [Rate Limiting](#rate-limiting)
 
 ---
 
@@ -705,6 +707,317 @@ Get current status and information about an agent session.
   "average_response_time": 0.7,
   "error_count": 0,
   "memory_summary": "User has shown interest in strategic planning and stakeholder management"
+}
+```
+
+---
+
+## 👥 Cohort Management
+
+### List Cohorts
+
+**`GET /cohorts/`**
+
+Get all cohorts with optional filtering.
+
+**Query Parameters:**
+- `skip` (int, optional): Number of records to skip (default: 0)
+- `limit` (int, optional): Maximum number of records to return (default: 100)
+- `search` (string, optional): Search term for title, description, or course code
+- `status` (string, optional): Filter by status ("active", "inactive")
+
+**Response:**
+```json
+[
+  {
+    "id": 1,
+    "unique_id": "CH-ABC123",
+    "title": "Business Strategy Fall 2024",
+    "description": "Advanced business strategy course",
+    "course_code": "BUS-401",
+    "semester": "Fall",
+    "year": 2024,
+    "max_students": 30,
+    "is_active": true,
+    "created_by": 1,
+    "created_at": "2024-09-18T10:00:00Z",
+    "student_count": 15,
+    "simulation_count": 3
+  }
+]
+```
+
+### Create Cohort
+
+**`POST /cohorts/`**
+
+Create a new cohort.
+
+**Request Body:**
+```json
+{
+  "title": "Business Strategy Fall 2024",
+  "description": "Advanced business strategy course",
+  "course_code": "BUS-401",
+  "semester": "Fall",
+  "year": 2024,
+  "max_students": 30,
+  "auto_approve": true,
+  "allow_self_enrollment": false
+}
+```
+
+**Response:**
+```json
+{
+  "id": 1,
+  "unique_id": "CH-ABC123",
+  "title": "Business Strategy Fall 2024",
+  "description": "Advanced business strategy course",
+  "course_code": "BUS-401",
+  "semester": "Fall",
+  "year": 2024,
+  "max_students": 30,
+  "auto_approve": true,
+  "allow_self_enrollment": false,
+  "is_active": true,
+  "created_by": 1,
+  "created_at": "2024-09-18T10:00:00Z",
+  "students": [],
+  "simulations": []
+}
+```
+
+### Get Cohort Details
+
+**`GET /cohorts/{cohort_unique_id}`**
+
+Get detailed information about a specific cohort.
+
+**Response:**
+```json
+{
+  "id": 1,
+  "unique_id": "CH-ABC123",
+  "title": "Business Strategy Fall 2024",
+  "description": "Advanced business strategy course",
+  "course_code": "BUS-401",
+  "semester": "Fall",
+  "year": 2024,
+  "max_students": 30,
+  "auto_approve": true,
+  "allow_self_enrollment": false,
+  "is_active": true,
+  "created_by": 1,
+  "created_at": "2024-09-18T10:00:00Z",
+  "updated_at": "2024-09-18T10:00:00Z",
+  "students": [
+    {
+      "id": 1,
+      "student_id": 2,
+      "student_name": "Jane Smith",
+      "student_email": "jane@example.com",
+      "status": "approved",
+      "enrollment_date": "2024-09-18T10:00:00Z",
+      "approved_at": "2024-09-18T10:00:00Z"
+    }
+  ],
+  "simulations": [
+    {
+      "id": 1,
+      "simulation_id": 1,
+      "assigned_by": 1,
+      "assigned_at": "2024-09-18T10:00:00Z",
+      "due_date": "2024-12-15T23:59:59Z",
+      "is_required": true
+    }
+  ]
+}
+```
+
+### Update Cohort
+
+**`PUT /cohorts/{cohort_unique_id}`**
+
+Update cohort information.
+
+**Request Body:**
+```json
+{
+  "title": "Updated Business Strategy Fall 2024",
+  "description": "Updated description",
+  "max_students": 35,
+  "is_active": false
+}
+```
+
+### Delete Cohort
+
+**`DELETE /cohorts/{cohort_unique_id}`**
+
+Delete a cohort and all related data.
+
+**Response:**
+```json
+{
+  "message": "Cohort deleted successfully",
+  "deleted_students": 15,
+  "deleted_simulations": 3
+}
+```
+
+### Get Cohort Students
+
+**`GET /cohorts/{cohort_unique_id}/students`**
+
+Get all students enrolled in a cohort.
+
+**Response:**
+```json
+[
+  {
+    "id": 1,
+    "student_id": 2,
+    "student_name": "Jane Smith",
+    "student_email": "jane@example.com",
+    "status": "approved",
+    "enrollment_date": "2024-09-18T10:00:00Z",
+    "approved_at": "2024-09-18T10:00:00Z"
+  }
+]
+```
+
+### Add Student to Cohort
+
+**`POST /cohorts/{cohort_id}/students`**
+
+Add a student to a cohort.
+
+**Request Body:**
+```json
+{
+  "student_id": 2,
+  "status": "approved"
+}
+```
+
+### Get Cohort Simulations
+
+**`GET /cohorts/{cohort_unique_id}/simulations`**
+
+Get all simulations assigned to a cohort.
+
+**Response:**
+```json
+[
+  {
+    "id": 1,
+    "simulation_id": 1,
+    "assigned_by": 1,
+    "assigned_at": "2024-09-18T10:00:00Z",
+    "due_date": "2024-12-15T23:59:59Z",
+    "is_required": true
+  }
+]
+```
+
+### Assign Simulation to Cohort
+
+**`POST /cohorts/{cohort_id}/simulations`**
+
+Assign a simulation to a cohort.
+
+**Request Body:**
+```json
+{
+  "simulation_id": 1,
+  "due_date": "2024-12-15T23:59:59Z",
+  "is_required": true
+}
+```
+
+## 🗄️ Data Management & Soft Deletion
+
+### Soft Delete Scenario
+
+**`POST /api/scenarios/{scenario_id}/soft-delete`**
+
+Safely delete a scenario with data archiving.
+
+**Request Body:**
+```json
+{
+  "reason": "User deletion",
+  "deleted_by": 1
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Scenario soft deleted successfully",
+  "archived_progress_records": 25,
+  "deletion_timestamp": "2024-09-18T10:00:00Z"
+}
+```
+
+### Restore Scenario
+
+**`POST /api/scenarios/{scenario_id}/restore`**
+
+Restore a soft-deleted scenario.
+
+**Request Body:**
+```json
+{
+  "restored_by": 1
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Scenario restored successfully",
+  "restoration_timestamp": "2024-09-18T10:00:00Z"
+}
+```
+
+### Get Archive Statistics
+
+**`GET /api/archives/stats`**
+
+Get statistics about archived data.
+
+**Response:**
+```json
+{
+  "total_archives": 150,
+  "unique_scenarios": 5,
+  "unique_users": 25,
+  "oldest_archive": "2024-01-15T10:00:00Z",
+  "newest_archive": "2024-09-18T10:00:00Z"
+}
+```
+
+### Cleanup Old Archives
+
+**`POST /api/archives/cleanup`**
+
+Clean up old archived records.
+
+**Request Body:**
+```json
+{
+  "days_old": 30
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Archive cleanup completed",
+  "records_deleted": 50,
+  "cleanup_timestamp": "2024-09-18T10:00:00Z"
 }
 ```
 

@@ -114,7 +114,7 @@ const getAuthToken = (): string | null => {
   return null
 }
 
-const setAuthToken = (token: string): void => {
+export const setAuthToken = (token: string): void => {
   // Store token in both memory and localStorage for persistence
   inMemoryToken = token
   if (typeof window !== 'undefined') {

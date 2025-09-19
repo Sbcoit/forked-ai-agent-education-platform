@@ -224,7 +224,7 @@ def find_oauth_user_by_original_email(db: Session, original_email: str) -> Optio
             User.provider == "google"
         ).first()
 
-def create_oauth_user(db: Session, google_data: Dict[str, Any]) -> User:
+def create_oauth_user(db: Session, google_data: Dict[str, Any], force_create: bool = False) -> User:
     """Create a new user from Google OAuth data"""
     # Generate username from email
     username = google_data["email"].split("@")[0]
@@ -249,15 +249,30 @@ def create_oauth_user(db: Session, google_data: Dict[str, Any]) -> User:
         db.refresh(existing_user)
         return existing_user
     
-    # Check if user exists with this email
-    existing_email_user = db.query(User).filter(User.email == google_data["email"]).first()
-    if existing_email_user:
-        # Link the OAuth provider to the existing user
-        return link_google_to_existing_user(db, existing_email_user, google_data)
+    # Check if user exists with this email (only if not forcing creation)
+    if not force_create:
+        existing_email_user = db.query(User).filter(User.email == google_data["email"]).first()
+        if existing_email_user:
+            # Link the OAuth provider to the existing user
+            return link_google_to_existing_user(db, existing_email_user, google_data)
     
-    # Create new user with original email
+    # Create new user with original email (or modified email if forcing creation)
+    user_email = google_data["email"]
+    if force_create:
+        # For separate accounts, modify the email to avoid conflicts
+        # Extract the local part and domain
+        local_part, domain = user_email.split('@', 1)
+        # Add a suffix to make it unique
+        user_email = f"{local_part}+google@{domain}"
+        
+        # Ensure the modified email is also unique
+        counter = 1
+        while db.query(User).filter(User.email == user_email).first():
+            user_email = f"{local_part}+google{counter}@{domain}"
+            counter += 1
+    
     user = User(
-        email=google_data["email"],  # Keep original email
+        email=user_email,
         full_name=google_data.get("name", ""),
         username=username,
         password_hash=None,  # OAuth users don't have passwords

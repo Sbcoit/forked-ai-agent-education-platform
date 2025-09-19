@@ -42,6 +42,13 @@ An innovative educational platform that transforms business case studies into im
 - **Remix & Customize**: Clone and adapt existing scenarios for specific needs
 - **Quality Assurance**: Community ratings and reviews ensure high-quality content
 
+### 👥 **Cohort Management System**
+- **Educational Groups**: Create and manage student cohorts for organized learning
+- **Student Enrollment**: Invite students and manage enrollment with approval workflows
+- **Simulation Assignment**: Assign specific simulations to cohorts with due dates
+- **Progress Tracking**: Monitor student progress and completion across cohorts
+- **Cohort Analytics**: Comprehensive metrics and performance insights
+
 ### 🎨 **Modern UI/UX**
 - **Next.js 15 with TypeScript**: Latest version with App Router for optimal performance
 - **Tailwind CSS + shadcn/ui**: Professional, accessible component library with dark/light mode
@@ -111,6 +118,8 @@ graph TB
 - ✅ **Team Collaboration**: Consistent database state across all environments
 - ✅ **Production Ready**: Optimized indexes and connection pooling
 - ✅ **Development Flexibility**: SQLite available when explicitly configured
+- ✅ **Soft Deletion**: Safe deletion with data archiving and recovery capabilities
+- ✅ **Cohort Management**: Full educational group management with student tracking
 
 ## 🚀 Quick Start
 
@@ -361,6 +370,22 @@ POST /api/simulate/                     # Phase-based business simulation
 POST /api/publishing/publish-scenario   # Publish scenario to marketplace
 GET  /api/publishing/marketplace        # Browse published scenarios
 
+# Cohort Management
+GET  /cohorts/                          # List all cohorts
+POST /cohorts/                          # Create new cohort
+GET  /cohorts/{id}                      # Get cohort details
+PUT  /cohorts/{id}                      # Update cohort
+DELETE /cohorts/{id}                    # Delete cohort
+GET  /cohorts/{id}/students             # Get cohort students
+POST /cohorts/{id}/students             # Add student to cohort
+GET  /cohorts/{id}/simulations          # Get cohort simulations
+POST /cohorts/{id}/simulations          # Assign simulation to cohort
+
+# Soft Deletion & Data Management
+POST /api/scenarios/{id}/soft-delete    # Soft delete scenario
+POST /api/scenarios/{id}/restore        # Restore soft-deleted scenario
+GET  /api/archives/stats                # Get archive statistics
+
 # System Health
 GET  /health/                           # System health check
 ```
@@ -374,12 +399,18 @@ GET  /health/                           # System health check
    - AI automatically extracts scenarios, key figures, and learning objectives
    - Review and customize generated personas and scenes
 
-2. **Launch Linear Simulation**
+2. **Create and Manage Cohorts**
+   - Create educational cohorts for organized student groups
+   - Invite students and manage enrollment with approval workflows
+   - Assign specific simulations to cohorts with due dates
+   - Monitor cohort progress and analytics
+
+3. **Launch Linear Simulation**
    - Students progress through structured scenes with clear objectives
    - ChatOrchestrator manages multi-persona interactions
    - Monitor student progress and learning outcomes
 
-3. **Publish to Community**
+4. **Publish to Community**
    - Share successful scenarios with other educators
    - Set difficulty levels, categories, and learning objectives
    - Receive community feedback and ratings
@@ -456,13 +487,14 @@ ai-agent-education-platform/
 │   │   ├── parse_pdf.py             # PDF processing endpoints
 │   │   ├── simulation.py            # Linear simulation endpoints
 │   │   ├── chat_orchestrator.py     # ChatOrchestrator logic
-│   │   └── publishing.py            # Marketplace publishing
+│   │   ├── publishing.py            # Marketplace publishing
+│   │   └── cohorts.py               # Cohort management endpoints
 │   ├── agents/                       # AI Agent implementations
 │   │   ├── persona_agent.py         # Persona-specific AI interactions
 │   │   ├── summarization_agent.py   # Content summarization agent
 │   │   └── grading_agent.py         # Assessment and grading agent
 │   ├── database/                     # Database layer
-│   │   ├── models.py                 # SQLAlchemy models (scenarios, personas, scenes)
+│   │   ├── models.py                 # SQLAlchemy models (scenarios, personas, scenes, cohorts)
 │   │   ├── schemas.py                # Pydantic schemas for API validation
 │   │   ├── connection.py             # Database connection setup
 │   │   └── migrations/               # Alembic migration files
@@ -470,7 +502,8 @@ ai-agent-education-platform/
 │   │   ├── simulation_engine.py     # Core simulation business logic
 │   │   ├── session_manager.py       # Session and memory management
 │   │   ├── vector_store.py          # Vector embeddings and search
-│   │   └── scene_memory.py          # Scene-specific memory handling
+│   │   ├── scene_memory.py          # Scene-specific memory handling
+│   │   └── soft_deletion.py         # Soft deletion and data archiving
 │   ├── utilities/                    # Helper utilities
 │   │   ├── auth.py                   # Authentication utilities
 │   │   └── image_storage.py          # Image handling utilities
@@ -485,6 +518,8 @@ ai-agent-education-platform/
 │   │   ├── chat-box/                # Interactive chat interface
 │   │   ├── simulation-builder/      # PDF upload and simulation creation
 │   │   ├── dashboard/               # User progress and analytics
+│   │   ├── cohorts/                 # Cohort management interface
+│   │   ├── cohorts/[id]/           # Individual cohort details
 │   │   ├── login/                   # Authentication pages
 │   │   ├── signup/                  # User registration
 │   │   ├── layout.tsx               # Root layout component
@@ -563,6 +598,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] **Vector Store Service** for semantic search and memory
 - [x] **Session Management** with persistent memory
 - [x] **Specialized AI Agents** (Persona, Summarization, Grading)
+- [x] **Cohort Management System** with student enrollment and tracking
+- [x] **Soft Deletion System** with data archiving and recovery
 
 ### Phase 2: Enhanced Learning (🚧 In Progress)
 - [ ] **Advanced Analytics Dashboard** for educators

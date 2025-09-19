@@ -534,6 +534,9 @@ Key models in `backend/database/models.py`:
 - **User** - User accounts and profiles
 - **Scenario** - Business scenarios and case studies
 - **ScenarioPersona** - AI personas for scenarios
+- **Cohort** - Educational group management
+- **CohortStudent** - Student enrollment in cohorts
+- **CohortSimulation** - Simulation assignments to cohorts
 - **ScenarioScene** - Individual scenes within scenarios
 - **UserProgress** - User simulation progress
 - **SessionMemory** - LangChain session memory
@@ -567,6 +570,114 @@ alembic history
 - Use descriptive migration messages
 - Never edit existing migration files
 - Create rollback scripts for complex changes
+
+### Cohort Management Implementation
+
+The cohort management system provides educational group management with student enrollment and simulation assignment capabilities.
+
+#### Key Components
+
+**Cohort Model (`backend/database/models.py`):**
+```python
+class Cohort(Base):
+    __tablename__ = "cohorts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    unique_id = Column(String, unique=True, nullable=False, index=True)
+    title = Column(String, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    course_code = Column(String, nullable=True, index=True)
+    semester = Column(String, nullable=True)
+    year = Column(Integer, nullable=True, index=True)
+    max_students = Column(Integer, nullable=True)
+    
+    # Settings
+    auto_approve = Column(Boolean, default=True)
+    allow_self_enrollment = Column(Boolean, default=False)
+    is_active = Column(Boolean, default=True, index=True)
+    
+    # Relationships
+    creator = relationship("User", back_populates="created_cohorts")
+    students = relationship("CohortStudent", back_populates="cohort", cascade="all, delete-orphan")
+    simulations = relationship("CohortSimulation", back_populates="cohort", cascade="all, delete-orphan")
+```
+
+**Cohort API Endpoints (`backend/api/cohorts.py`):**
+- `GET /cohorts/` - List cohorts with filtering
+- `POST /cohorts/` - Create new cohort
+- `GET /cohorts/{id}` - Get cohort details
+- `PUT /cohorts/{id}` - Update cohort
+- `DELETE /cohorts/{id}` - Delete cohort
+- `GET /cohorts/{id}/students` - Get cohort students
+- `POST /cohorts/{id}/students` - Add student to cohort
+- `GET /cohorts/{id}/simulations` - Get cohort simulations
+- `POST /cohorts/{id}/simulations` - Assign simulation to cohort
+
+#### Frontend Implementation
+
+**Cohort Management Interface (`frontend/app/cohorts/page.tsx`):**
+- Cohort listing with search and filtering
+- Cohort creation modal with form validation
+- Student enrollment management
+- Simulation assignment interface
+- Progress tracking and analytics
+
+### Soft Deletion System
+
+The platform implements a comprehensive soft deletion system for safe data management and compliance.
+
+#### Implementation Details
+
+**Soft Deletion Service (`backend/services/soft_deletion.py`):**
+```python
+class SoftDeletionService:
+    def soft_delete_scenario(self, scenario_id: int, deleted_by: int, reason: str = "User deletion") -> bool:
+        """Soft delete a scenario by marking it as deleted"""
+        # Archive user progress
+        self._archive_user_progress_for_scenario(scenario_id, reason)
+        
+        # Clean up archived data
+        self._immediate_cleanup_scenario_archives(scenario_id)
+        
+        # Hard delete the scenario
+        self._hard_delete_scenario(scenario_id)
+        
+        return True
+```
+
+**Database Schema Changes:**
+- Added `deleted_at`, `deleted_by`, `deletion_reason` to scenarios table
+- Added `archived_at`, `archived_reason` to user_progress table
+- Created `user_progress_archive` table for historical data storage
+- Added appropriate indexes for performance
+
+#### Key Features
+
+- **Safe Deletion**: Scenarios are marked as deleted instead of permanently removed
+- **Data Archiving**: User progress is archived before scenario deletion
+- **Recovery System**: Ability to restore soft-deleted scenarios
+- **Audit Trail**: Complete history of deletion and restoration actions
+- **Compliance Support**: Meet data retention and privacy requirements
+
+#### Usage Examples
+
+```python
+# Soft delete a scenario
+from services.soft_deletion import SoftDeletionService
+
+service = SoftDeletionService(db)
+success = service.soft_delete_scenario(
+    scenario_id=1,
+    deleted_by=current_user.id,
+    reason="User requested deletion"
+)
+
+# Restore a scenario
+success = service.restore_scenario(scenario_id=1, restored_by=current_user.id)
+
+# Get archive statistics
+stats = service.get_archive_stats()
+```
 
 ### Database Setup
 

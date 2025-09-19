@@ -509,7 +509,7 @@ async def link_google_account(
             "id": server_google_data["id"]
         }
         # Create separate account with Google OAuth
-        new_user = create_oauth_user(db, google_user_data)
+        new_user = create_oauth_user(db, google_user_data, force_create=True)
         oauth_state_store.delete_state(request.state)  # Clean up state
         return create_user_login_response(new_user)
     

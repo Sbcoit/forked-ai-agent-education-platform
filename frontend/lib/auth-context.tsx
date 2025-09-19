@@ -1,8 +1,8 @@
 "use client"
 
 import React, { createContext, useContext, ReactNode, useEffect } from 'react'
-import { apiClient, User, LoginCredentials, RegisterData } from './api'
-import { GoogleOAuth, AccountLinkingData } from './google-oauth'
+import { apiClient, User, LoginCredentials, RegisterData, setAuthToken } from './api'
+import { GoogleOAuth, AccountLinkingData, OAuthSuccessData, OAuthUserData, OAuthError } from './google-oauth'
 
 // Define proper types for Google OAuth responses
 export interface GoogleOAuthSuccessData {
@@ -16,7 +16,7 @@ export interface AuthError {
   message?: string
 }
 
-export type GoogleOAuthResult = AccountLinkingData | GoogleOAuthSuccessData
+export type GoogleOAuthResult = AccountLinkingData | GoogleOAuthSuccessData | OAuthError
 
 // Configuration constants
 export const INACTIVITY_THRESHOLD_MS = 10 * 60 * 1000 // 10 minutes in milliseconds
@@ -232,13 +232,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const googleOAuth = GoogleOAuth.getInstance()
       const result = await googleOAuth.openAuthWindow()
       
+      // Handle null result
+      if (!result) {
+        throw new Error('OAuth authentication failed - no result received')
+      }
+      
       if ('action' in result && result.action === 'link_required') {
         // Return the linking data instead of throwing an error
         return result as AccountLinkingData
       } else if ('user' in result) {
-        // Direct login success
-        const successResult = result as GoogleOAuthSuccessData
+        // Direct login success - convert OAuthSuccessData to GoogleOAuthSuccessData
+        const oauthResult = result as OAuthSuccessData
+        const successResult: GoogleOAuthSuccessData = {
+          user: {
+            id: oauthResult.user.id,
+            email: oauthResult.user.email,
+            full_name: oauthResult.user.full_name,
+            username: oauthResult.user.username,
+            bio: oauthResult.user.bio,
+            avatar_url: oauthResult.user.avatar_url,
+            role: oauthResult.user.role,
+            public_agents_count: 0, // Default values for missing properties
+            public_tools_count: 0,
+            total_downloads: 0,
+            reputation_score: oauthResult.user.reputation_score,
+            profile_public: oauthResult.user.profile_public,
+            allow_contact: oauthResult.user.allow_contact,
+            is_active: oauthResult.user.is_active,
+            is_verified: oauthResult.user.is_verified,
+            created_at: oauthResult.user.created_at,
+            updated_at: oauthResult.user.updated_at
+          },
+          access_token: oauthResult.access_token,
+          message: 'Login successful'
+        }
         setUser(successResult.user)
+        // Store the access token for API requests
+        if (successResult.access_token) {
+          setAuthToken(successResult.access_token)
+        }
         updateLastActivity() // Update activity on successful Google login
         return successResult
       } else {
@@ -257,8 +289,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true)
     try {
       const googleOAuth = GoogleOAuth.getInstance()
-      const result = await googleOAuth.linkAccount(action, existingUserId, googleData, state)
+      // Convert googleData to OAuthUserData format
+      const oauthUserData: OAuthUserData = {
+        google_id: '', // Will be set by backend
+        email: googleData.email,
+        full_name: googleData.name,
+        avatar_url: googleData.picture
+      }
+      const result = await googleOAuth.linkAccount(action, existingUserId, oauthUserData, state)
       setUser(result.user)
+      // Store the access token for API requests
+      if (result.access_token) {
+        setAuthToken(result.access_token)
+      }
       updateLastActivity() // Update activity on successful account linking
     } catch (error) {
       console.error('Account linking failed:', error)

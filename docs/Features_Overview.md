@@ -114,6 +114,32 @@ The AI Agent Education Platform transforms traditional business case studies int
 - **Learning History**: Awareness of student's learning journey and progress
 - **Adaptive Responses**: Tailored interactions based on individual learning patterns
 
+## 👥 Cohort Management System
+
+### Educational Group Management
+- **Cohort Creation**: Create and organize student groups with custom settings
+- **Student Enrollment**: Invite students and manage enrollment workflows
+- **Approval System**: Control student access with manual or automatic approval
+- **Cohort Analytics**: Track progress and performance across student groups
+
+### Student Management
+- **Enrollment Tracking**: Monitor student enrollment status and history
+- **Progress Monitoring**: Track individual student progress within cohorts
+- **Performance Analytics**: Comprehensive metrics on student engagement and completion
+- **Communication Tools**: Built-in messaging and notification systems
+
+### Simulation Assignment
+- **Cohort-Specific Assignments**: Assign simulations to entire cohorts or individual students
+- **Due Date Management**: Set and track assignment deadlines
+- **Progress Tracking**: Monitor completion rates and student performance
+- **Flexible Scheduling**: Support for different learning schedules and pacing
+
+### Administrative Features
+- **Bulk Operations**: Manage multiple students and assignments efficiently
+- **Reporting System**: Generate detailed reports on cohort performance
+- **Data Export**: Export cohort data for external analysis
+- **Integration Support**: Connect with existing educational management systems
+
 ## 🏪 Community Marketplace
 
 ### Scenario Sharing
@@ -165,6 +191,26 @@ The AI Agent Education Platform transforms traditional business case studies int
 - **Rich Media Support**: Images, formatting, and interactive elements
 - **Typing Indicators**: Real-time feedback on AI response generation
 - **Message History**: Persistent conversation history with search capabilities
+
+## 🗄️ Data Management & Soft Deletion
+
+### Safe Data Deletion
+- **Soft Deletion**: Scenarios and user progress are safely archived instead of permanently deleted
+- **Data Recovery**: Ability to restore accidentally deleted content
+- **Audit Trail**: Complete history of all deletion and restoration actions
+- **Compliance Support**: Meet data retention and privacy requirements
+
+### Data Archiving
+- **User Progress Archiving**: Student progress is preserved when scenarios are deleted
+- **Historical Analytics**: Access to historical data for long-term analysis
+- **Storage Optimization**: Efficient storage of archived data with compression
+- **Retention Policies**: Configurable data retention periods
+
+### Data Integrity
+- **Referential Integrity**: Maintains data relationships during deletion operations
+- **Cascade Protection**: Prevents accidental data loss through proper relationship management
+- **Backup Systems**: Automated backup of critical data before deletion
+- **Recovery Procedures**: Well-defined procedures for data recovery
 
 ## 🔧 Integration Capabilities
 

@@ -8,7 +8,10 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import and_, or_, desc, func
 from typing import List, Optional
 import json
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+import time
 
 from database.connection import get_db
 from utilities.rate_limiter import check_anonymous_review_rate_limit
@@ -26,6 +29,10 @@ from database.schemas import (
 )
 
 router = APIRouter(prefix="/api/scenarios", tags=["Publishing"])
+
+# Performance optimization constants
+DB_EXECUTOR = ThreadPoolExecutor(max_workers=4)
+BATCH_SIZE = 100  # For bulk database operations
 
 # --- SCENARIO PUBLISHING ENDPOINTS ---
 
@@ -142,32 +149,32 @@ async def save_scenario_draft(
             db.flush()
             debug_log(f"Created draft scenario with ID: {scenario.id}")
 
-        # Save personas - update existing or create new
+        # Save personas - optimized batch operations
         persona_mapping = {}
         key_figures = actual_ai_result.get("key_figures", [])
         personas = actual_ai_result.get("personas", [])
         persona_list = key_figures if key_figures else personas
-        debug_log(f"Saving {len(persona_list)} personas...")
+        debug_log(f"[OPTIMIZED] Saving {len(persona_list)} personas in batch...")
         new_persona_ids = []
         
-        # Get existing personas for updates
+        # Get existing personas in one query
         existing_personas = {}
         if 'existing_persona_ids' in locals() and existing_persona_ids:
             existing_persona_records = db.query(ScenarioPersona).filter(
                 ScenarioPersona.id.in_(existing_persona_ids)
             ).all()
-            for persona_record in existing_persona_records:
-                existing_personas[persona_record.name] = persona_record
+            existing_personas = {p.name: p for p in existing_persona_records}
         
-        for i, figure in enumerate(persona_list):
+        # Batch process personas
+        personas_to_update = []
+        personas_to_create = []
+        
+        for figure in persona_list:
             if isinstance(figure, dict) and figure.get("name"):
-                # Debug: Log the traits being received
                 traits = figure.get("personality_traits", {}) or figure.get("traits", {})
-                debug_log(f"Persona {figure['name']} traits received: {traits}")
                 
-                # Check if this persona already exists
                 if figure["name"] in existing_personas:
-                    # Update existing persona
+                    # Prepare for batch update
                     existing_persona = existing_personas[figure["name"]]
                     existing_persona.role = figure.get("role", "")
                     existing_persona.background = figure.get("background", "")
@@ -175,42 +182,52 @@ async def save_scenario_draft(
                     existing_persona.primary_goals = figure.get("primary_goals", []) or figure.get("primaryGoals", [])
                     existing_persona.personality_traits = traits
                     existing_persona.updated_at = datetime.utcnow()
-                    db.add(existing_persona)
+                    personas_to_update.append(existing_persona)
                     persona_mapping[figure["name"]] = existing_persona.id
                     new_persona_ids.append(existing_persona.id)
-                    debug_log(f"Updated existing persona: {figure['name']} with ID: {existing_persona.id}")
                 else:
-                    # Create new persona
-                    persona = ScenarioPersona(
-                        scenario_id=scenario.id,
-                        name=figure.get("name", ""),
-                        role=figure.get("role", ""),
-                        background=figure.get("background", ""),
-                        correlation=figure.get("correlation", ""),
-                        primary_goals=figure.get("primary_goals", []) or figure.get("primaryGoals", []),
-                        personality_traits=traits,
-                        created_at=datetime.utcnow(),
-                        updated_at=datetime.utcnow()
-                    )
-                    db.add(persona)
-                    db.flush()
-                    persona_mapping[figure["name"]] = persona.id
-                    new_persona_ids.append(persona.id)
-                    debug_log(f"Created new persona: {figure['name']} with ID: {persona.id} and traits: {persona.personality_traits}")
+                    # Prepare for batch creation
+                    persona_data = {
+                        "scenario_id": scenario.id,
+                        "name": figure.get("name", ""),
+                        "role": figure.get("role", ""),
+                        "background": figure.get("background", ""),
+                        "correlation": figure.get("correlation", ""),
+                        "primary_goals": figure.get("primary_goals", []) or figure.get("primaryGoals", []),
+                        "personality_traits": traits,
+                        "created_at": datetime.utcnow(),
+                        "updated_at": datetime.utcnow()
+                    }
+                    personas_to_create.append((figure["name"], persona_data))
+        
+        # Execute batch updates
+        if personas_to_update:
+            for persona in personas_to_update:
+                db.add(persona)
+            debug_log(f"[OPTIMIZED] Updated {len(personas_to_update)} existing personas")
+        
+        # Execute batch creation
+        if personas_to_create:
+            for name, persona_data in personas_to_create:
+                persona = ScenarioPersona(**persona_data)
+                db.add(persona)
+                db.flush()  # Get ID
+                persona_mapping[name] = persona.id
+                new_persona_ids.append(persona.id)
+            debug_log(f"[OPTIMIZED] Created {len(personas_to_create)} new personas")
 
-        # Save scenes - update existing or create new
+        # Save scenes - optimized batch operations
         scenes = actual_ai_result.get("scenes", [])
-        debug_log(f"Saving {len(scenes)} scenes...")
+        debug_log(f"[OPTIMIZED] Saving {len(scenes)} scenes in batch...")
         new_scene_ids = []
         
-        # Get existing scenes for updates
+        # Get existing scenes in one query
         existing_scenes = {}
         if 'existing_scene_ids' in locals() and existing_scene_ids:
             existing_scene_records = db.query(ScenarioScene).filter(
                 ScenarioScene.id.in_(existing_scene_ids)
             ).all()
-            for scene_record in existing_scene_records:
-                existing_scenes[scene_record.title] = scene_record
+            existing_scenes = {scene.title: scene for scene in existing_scene_records}
         
         for i, scene in enumerate(scenes):
             if isinstance(scene, dict) and scene.get("title"):

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Button } from "@/components/ui/button"
+import RoleChooser from "@/components/RoleChooser"
 
 export default function GoogleCallbackPage() {
   const [step, setStep] = useState<'callback' | 'role_selection' | 'complete'>('callback')
@@ -174,79 +175,14 @@ export default function GoogleCallbackPage() {
   // Role selection UI
   if (step === 'role_selection') {
     return (
-      <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-        <div className="w-full max-w-2xl">
-          {/* Logo */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 mb-6">
-              <img src="/n-aiblelogo.png" alt="Logo" className="w-24 h-12" />
-            </div>
-            <h1 className="text-2xl font-semibold text-white">Choose Your Role</h1>
-            <p className="text-gray-400">How will you be using the platform?</p>
-          </div>
-
-          {/* Role Selection Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            {/* Student Card */}
-            <div 
-              className={`cursor-pointer p-6 rounded-lg border-2 transition-all duration-200 ${
-                selectedRole === "student" 
-                  ? "border-blue-500 bg-blue-900/20" 
-                  : "border-gray-600 bg-gray-900/20 hover:border-gray-500"
-              }`}
-              onClick={() => setSelectedRole("student")}
-            >
-              <div className="text-center">
-                <div className="mx-auto mb-4 p-4 rounded-full bg-blue-600/20">
-                  <svg className="h-10 w-10 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l9-5-9-5-9 5 9 5z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-bold text-white mb-2">Student</h3>
-                <p className="text-gray-400 text-sm">Join cohorts and participate in simulations</p>
-              </div>
-            </div>
-
-            {/* Professor Card */}
-            <div 
-              className={`cursor-pointer p-6 rounded-lg border-2 transition-all duration-200 ${
-                selectedRole === "professor" 
-                  ? "border-purple-500 bg-purple-900/20" 
-                  : "border-gray-600 bg-gray-900/20 hover:border-gray-500"
-              }`}
-              onClick={() => setSelectedRole("professor")}
-            >
-              <div className="text-center">
-                <div className="mx-auto mb-4 p-4 rounded-full bg-purple-600/20">
-                  <svg className="h-10 w-10 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-bold text-white mb-2">Professor</h3>
-                <p className="text-gray-400 text-sm">Create cohorts and manage student learning</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Continue Button */}
-          <div className="text-center">
-            <Button
-              onClick={() => selectedRole && handleRoleSelect(selectedRole)}
-              disabled={!selectedRole || isLoading}
-              className={`px-8 py-3 text-lg font-medium transition-all duration-200 ${
-                selectedRole === "student"
-                  ? "bg-blue-600 hover:bg-blue-700 text-white"
-                  : selectedRole === "professor"
-                  ? "bg-purple-600 hover:bg-purple-700 text-white"
-                  : "bg-gray-600 text-gray-400 cursor-not-allowed"
-              }`}
-            >
-              {isLoading ? "Processing..." : `Continue as ${selectedRole === "student" ? "Student" : selectedRole === "professor" ? "Professor" : "..."}`}
-            </Button>
-          </div>
-        </div>
-      </div>
+      <RoleChooser
+        selectedRole={selectedRole}
+        onRoleSelect={setSelectedRole}
+        onContinue={() => selectedRole && handleRoleSelect(selectedRole)}
+        isLoading={isLoading}
+        showContinueButton={true}
+        variant="simple"
+      />
     )
   }
 

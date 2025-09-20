@@ -9,6 +9,8 @@ from sqlalchemy import and_, desc
 from typing import List, Optional, Dict, Any
 import json
 import time
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 import openai
 import os
@@ -32,6 +34,13 @@ from .chat_orchestrator import ChatOrchestrator, SimulationState
 
 router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 
+# Performance optimization constants
+SIMULATION_EXECUTOR = ThreadPoolExecutor(max_workers=6)
+MAX_CONCURRENT_AI_CALLS = 3
+
+# Global semaphore for AI calls
+_ai_semaphore = asyncio.Semaphore(MAX_CONCURRENT_AI_CALLS)
+
 # OpenAI configuration - defer validation to request time
 def _get_openai_client():
     """Get configured OpenAI client, raise error if not configured"""
@@ -42,6 +51,12 @@ def _get_openai_client():
             detail="OpenAI API key not configured. Please contact administrator."
         )
     return openai.OpenAI(api_key=api_key)
+
+async def _get_openai_client_async():
+    """Async wrapper for OpenAI client creation"""
+    return await asyncio.get_event_loop().run_in_executor(
+        SIMULATION_EXECUTOR, _get_openai_client
+    )
 
 def validate_goal_with_function_calling(
     conversation_history: str,

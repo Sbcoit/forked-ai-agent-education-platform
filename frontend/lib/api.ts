@@ -448,6 +448,60 @@ export const apiClient = {
     })
   },
 
+  // Student cohort methods
+  getStudentCohorts: async (): Promise<any> => {
+    const response = await apiRequest('/student/cohorts', { method: 'GET' })
+    if (!response.ok) throw new Error('Failed to get student cohorts')
+    return response.json()
+  },
+
+  // Student simulation instance methods
+  getStudentSimulationInstances: async (statusFilter?: string, cohortId?: number): Promise<any> => {
+    const params = new URLSearchParams()
+    if (statusFilter) params.append('status_filter', statusFilter)
+    if (cohortId) params.append('cohort_id', cohortId.toString())
+    
+    const response = await apiRequest(`/student-simulation-instances?${params.toString()}`, {
+      method: 'GET',
+    })
+    if (!response.ok) throw new Error('Failed to get student simulation instances')
+    return response.json()
+  },
+
+  createStudentSimulationInstance: async (cohortAssignmentId: number): Promise<any> => {
+    const response = await apiRequest('/student-simulation-instances', {
+      method: 'POST',
+      body: JSON.stringify({ cohort_assignment_id: cohortAssignmentId, student_id: 0 }), // student_id will be set by backend
+    })
+    if (!response.ok) throw new Error('Failed to create student simulation instance')
+    return response.json()
+  },
+
+  startSimulationInstance: async (instanceId: number): Promise<any> => {
+    const response = await apiRequest(`/student-simulation-instances/${instanceId}/start`, {
+      method: 'POST',
+    })
+    if (!response.ok) throw new Error('Failed to start simulation instance')
+    return response.json()
+  },
+
+  completeSimulationInstance: async (instanceId: number): Promise<any> => {
+    const response = await apiRequest(`/student-simulation-instances/${instanceId}/complete`, {
+      method: 'POST',
+    })
+    if (!response.ok) throw new Error('Failed to complete simulation instance')
+    return response.json()
+  },
+
+  updateSimulationInstance: async (instanceId: number, updateData: any): Promise<any> => {
+    const response = await apiRequest(`/student-simulation-instances/${instanceId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updateData),
+    })
+    if (!response.ok) throw new Error('Failed to update simulation instance')
+    return response.json()
+  },
+
   // Utility methods
   isAuthenticated: (): boolean => {
     // Authentication is now determined by server-side HttpOnly cookies

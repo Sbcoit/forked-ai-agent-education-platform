@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = project_root / ".env"  # Look for .env in project root
+        extra = "ignore"  # Ignore extra environment variables
 
 settings = Settings()
 

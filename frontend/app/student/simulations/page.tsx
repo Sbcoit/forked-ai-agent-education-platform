@@ -21,6 +21,7 @@ import {
 } from "lucide-react"
 import RoleBasedSidebar from "@/components/RoleBasedSidebar"
 import { useAuth } from "@/lib/auth-context"
+import { apiClient } from "@/lib/api"
 
 export default function StudentSimulations() {
   const router = useRouter()
@@ -30,9 +31,100 @@ export default function StudentSimulations() {
   const [searchTerm, setSearchTerm] = useState("")
   const [cohortFilter, setCohortFilter] = useState("All Cohorts")
   const [statusFilter, setStatusFilter] = useState("All Status")
+  const [simulations, setSimulations] = useState<any[]>([])
+  const [loadingSimulations, setLoadingSimulations] = useState(true)
   
-  // Mock data - in real app, this would come from API
-  const [simulations] = useState([
+  // Fetch student simulation instances from API
+  useEffect(() => {
+    const fetchSimulations = async () => {
+      if (!user) return
+      
+      try {
+        setLoadingSimulations(true)
+        // Get student simulation instances
+        const instancesResponse = await apiClient.getStudentSimulationInstances()
+        const instances = instancesResponse || []
+        
+        // Transform instances to match UI expectations
+        const transformedSimulations = instances.map(instance => {
+          const cohortAssignment = instance.cohort_assignment
+          const simulation = cohortAssignment?.simulation || {}
+          
+          return {
+            id: instance.id,
+            title: simulation.title || 'Unknown Simulation',
+            description: simulation.description || 'No description available',
+            status: instance.status,
+            cohort_title: cohortAssignment?.cohort?.title || 'Unknown Cohort',
+            cohort_id: cohortAssignment?.cohort_id,
+            instructor: cohortAssignment?.cohort?.professor?.name || 'Unknown',
+            course: cohortAssignment?.cohort?.title || 'Unknown Course',
+            duration: '30-60 min', // Default duration
+            tags: ['Assigned'],
+            actions: getActionsForStatus(instance.status),
+            // Instance-specific data
+            completion_percentage: instance.completion_percentage,
+            total_time_spent: instance.total_time_spent,
+            attempts_count: instance.attempts_count,
+            grade: instance.grade,
+            feedback: instance.feedback,
+            due_date: cohortAssignment?.due_date,
+            is_overdue: instance.is_overdue,
+            days_late: instance.days_late,
+            started_at: instance.started_at,
+            completed_at: instance.completed_at
+          }
+        })
+        
+        setSimulations(transformedSimulations)
+      } catch (error) {
+        console.error('Error fetching student simulation instances:', error)
+        setSimulations([])
+      } finally {
+        setLoadingSimulations(false)
+      }
+    }
+
+    fetchSimulations()
+  }, [user])
+  
+  // Helper function to get actions based on status
+  const getActionsForStatus = (status: string) => {
+    switch (status) {
+      case 'not_started':
+        return ['Start Simulation']
+      case 'in_progress':
+        return ['Continue Simulation']
+      case 'completed':
+        return ['View Results']
+      case 'submitted':
+        return ['View Grade']
+      case 'graded':
+        return ['View Grade', 'View Feedback']
+      default:
+        return ['View Details']
+    }
+  }
+
+  // Handle starting a simulation
+  const handleStartSimulation = async (simulation: any) => {
+    try {
+      console.log('Starting simulation instance:', simulation)
+      
+      // Start the simulation instance using the API
+      const response = await apiClient.startSimulationInstance(simulation.id)
+      console.log('Simulation instance started:', response)
+      
+      // Redirect to chat page with simulation context
+      router.push(`/student/chat?simulation=${simulation.id}&instance=${simulation.id}`)
+    } catch (error) {
+      console.error('Error starting simulation instance:', error)
+      alert('Failed to start simulation. Please try again.')
+    }
+  }
+  
+  // Mock data - fallback when no real data
+  const mockSimulations = [
     {
       id: 1,
       title: "Tesla Strategic Analysis",
@@ -93,7 +185,7 @@ export default function StudentSimulations() {
       lastAccessed: "Dec 11",
       actions: ["Continue", "View Details"]
     }
-  ])
+  ];
 
   // Handle redirect when user is not authenticated or not a student
   useEffect(() => {
@@ -307,8 +399,20 @@ export default function StudentSimulations() {
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-black mb-4">Simulations ({filteredSimulations.length})</h2>
             
-            <div className="space-y-4">
-              {filteredSimulations.map((simulation) => (
+            {loadingSimulations ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading simulations...</p>
+              </div>
+            ) : filteredSimulations.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Play className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p className="text-lg font-medium mb-2">No simulations found</p>
+                <p className="text-sm">You don't have any assigned simulations yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {filteredSimulations.map((simulation) => (
                 <Card key={simulation.id} className="bg-white border border-gray-200">
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between mb-4">
@@ -400,6 +504,20 @@ export default function StudentSimulations() {
                             size="sm"
                             variant={isPrimary ? "default" : "outline"}
                             className={isPrimary ? "bg-black text-white hover:bg-gray-800" : "border-gray-300 text-gray-700 hover:bg-gray-50"}
+                            onClick={() => {
+                              if (action === "Start Simulation" || action === "Continue Simulation") {
+                                handleStartSimulation(simulation)
+                              } else if (action === "View Details") {
+                                // Handle view details
+                                console.log("View details for simulation:", simulation.id)
+                              } else if (action === "View Results") {
+                                // Handle view results
+                                console.log("View results for simulation:", simulation.id)
+                              } else if (action === "View Grade") {
+                                // Handle view grade
+                                console.log("View grade for simulation:", simulation.id)
+                              }
+                            }}
                           >
                             {action === "Start Simulation" && <Play className="h-4 w-4 mr-2" />}
                             {action === "Continue" && <Play className="h-4 w-4 mr-2" />}
@@ -412,8 +530,9 @@ export default function StudentSimulations() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

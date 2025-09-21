@@ -49,6 +49,11 @@ class NotificationService:
                 'title_template': 'Cohort Updated',
                 'message_template': 'The cohort "{cohort_title}" has been updated',
                 'priority': 'low'
+            },
+            'simulation_assigned': {
+                'title_template': 'New Simulation Assigned',
+                'message_template': 'A new simulation "{simulation_title}" has been assigned to your cohort "{cohort_title}"',
+                'priority': 'high'
             }
         }
     
@@ -164,6 +169,32 @@ class NotificationService:
         
         return self.create_notification(
             db, student_id, 'grade_posted', variables, data
+        )
+    
+    def create_simulation_assignment_notification(
+        self, 
+        db: Session, 
+        student_id: int, 
+        cohort_simulation, 
+        scenario, 
+        cohort
+    ) -> Optional[Notification]:
+        """Create notification for simulation assignment"""
+        variables = {
+            'simulation_title': scenario.title,
+            'cohort_title': cohort.title
+        }
+        
+        data = {
+            'cohort_simulation_id': cohort_simulation.id,
+            'simulation_id': scenario.id,
+            'cohort_id': cohort.id,
+            'due_date': cohort_simulation.due_date.isoformat() if cohort_simulation.due_date else None,
+            'is_required': cohort_simulation.is_required
+        }
+        
+        return self.create_notification(
+            db, student_id, 'simulation_assigned', variables, data
         )
     
     def get_user_notifications(

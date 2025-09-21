@@ -17,15 +17,16 @@ export default function SignupPage() {
   const { user, register, loginWithGoogle, linkGoogleAccount } = useAuth()
   
   const [step, setStep] = useState(1)
+  const [loading, setLoading] = useState(false)
   
   // Debug logging
   console.log("🔍 Current step:", step)
   
-  // Handle redirect after successful registration
+  // Handle redirect after successful Google OAuth registration
   useEffect(() => {
     if (user && !loading) {
-      // User just registered, redirect based on role
-      console.log("🔄 User authenticated, redirecting based on role:", user.role)
+      // User just registered via Google OAuth, redirect based on role
+      console.log("🔄 User authenticated via Google OAuth, redirecting based on role:", user.role)
       if (user.role === 'professor' || user.role === 'admin') {
         router.push('/professor/dashboard')
       } else if (user.role === 'student') {
@@ -36,6 +37,7 @@ export default function SignupPage() {
       }
     }
   }, [user, loading, router])
+  
   const [selectedRole, setSelectedRole] = useState<"student" | "professor" | null>(null)
   const [formData, setFormData] = useState({
     email: "",
@@ -45,7 +47,6 @@ export default function SignupPage() {
     profile_public: true,
     allow_contact: true
   })
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [showLinkingDialog, setShowLinkingDialog] = useState(false)
   const [linkingData, setLinkingData] = useState<AccountLinkingData | null>(null)
@@ -90,8 +91,9 @@ export default function SignupPage() {
       }
       await register(registerData)
       
-      // Redirect is now handled by useEffect when user state changes
-      console.log("🎯 Registration successful, redirect will be handled by useEffect")
+      // Redirect to login page after successful registration
+      console.log("🎯 Registration successful, redirecting to login page")
+      router.push('/')
     } catch (error) {
       setError(error instanceof Error ? error.message : "Registration failed")
     } finally {

@@ -34,6 +34,8 @@ from utilities.rate_limiter import check_test_login_rate_limit
 # Import API routers
 from api.professor.invitations import router as professor_invitations_router
 from api.student.notifications import router as student_notifications_router
+from api.student.cohorts import router as student_cohorts_router
+from api.student.simulation_instances import router as student_simulation_instances_router
 from api.parse_pdf import router as pdf_router
 from api.simulation import router as simulation_router
 from api.publishing import router as publishing_router
@@ -134,6 +136,8 @@ app.include_router(oauth_router, tags=["OAuth"])
 app.include_router(cohorts_router, tags=["Cohorts"])
 app.include_router(professor_invitations_router, tags=["Professor Invitations"])
 app.include_router(student_notifications_router, tags=["Student Notifications"])
+app.include_router(student_cohorts_router, tags=["Student Cohorts"])
+app.include_router(student_simulation_instances_router, tags=["Student Simulation Instances"])
 
 # Create database tables (development only)
 if settings.environment != "production":

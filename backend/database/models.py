@@ -634,6 +634,7 @@ class CohortSimulation(Base):
     cohort = relationship("Cohort", back_populates="simulations")
     simulation = relationship("Scenario")
     assigner = relationship("User", foreign_keys=[assigned_by])
+    student_instances = relationship("StudentSimulationInstance", back_populates="cohort_assignment", cascade="all, delete-orphan")
     
     # Indexes for performance
     __table_args__ = (
@@ -641,6 +642,58 @@ class CohortSimulation(Base):
         Index('idx_cohort_simulations_simulation_id', 'simulation_id'),
         Index('idx_cohort_simulations_assigned_by', 'assigned_by'),
         Index('idx_cohort_simulations_due_date', 'due_date'),
+    )
+
+
+class StudentSimulationInstance(Base):
+    """Individual student simulation instances for cohort assignments"""
+    __tablename__ = "student_simulation_instances"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    cohort_assignment_id = Column(Integer, ForeignKey("cohort_simulations.id"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_progress_id = Column(Integer, ForeignKey("user_progress.id"), nullable=True, index=True)
+    
+    # Instance status
+    status = Column(String, default="not_started")  # not_started, in_progress, completed, submitted, graded
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Grading and feedback
+    grade = Column(Float, nullable=True)  # 0.0 to 100.0
+    feedback = Column(Text, nullable=True)
+    graded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    graded_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Performance metrics
+    completion_percentage = Column(Float, default=0.0)
+    total_time_spent = Column(Integer, default=0)  # seconds
+    attempts_count = Column(Integer, default=0)
+    hints_used = Column(Integer, default=0)
+    
+    # Due date tracking
+    is_overdue = Column(Boolean, default=False)
+    days_late = Column(Integer, default=0)
+    
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    cohort_assignment = relationship("CohortSimulation", back_populates="student_instances")
+    student = relationship("User", foreign_keys=[student_id])
+    user_progress = relationship("UserProgress")
+    grader = relationship("User", foreign_keys=[graded_by])
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_student_sim_instances_cohort_assignment', 'cohort_assignment_id'),
+        Index('idx_student_sim_instances_student_id', 'student_id'),
+        Index('idx_student_sim_instances_user_progress', 'user_progress_id'),
+        Index('idx_student_sim_instances_status', 'status'),
+        Index('idx_student_sim_instances_grade', 'grade'),
+        Index('idx_student_sim_instances_completed_at', 'completed_at'),
     )
 
 

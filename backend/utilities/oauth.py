@@ -348,7 +348,7 @@ def create_user_login_response(user: User) -> Dict[str, Any]:
             "is_active": user.is_active,
             "is_verified": user.is_verified,
             "provider": user.provider,
-            "created_at": user.created_at,
-            "updated_at": user.updated_at
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "updated_at": user.updated_at.isoformat() if user.updated_at else None
         }
     }

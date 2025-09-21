@@ -476,7 +476,7 @@ async def google_callback(
     # Check if user already exists with this Google ID
     existing_google_user = find_existing_user_by_google_id(db, google_id)
     if existing_google_user:
-        # User already linked, set HttpOnly cookie and return login response
+        # User already linked, set HttpOnly cookie and redirect to frontend
         access_token = create_access_token(data={"sub": str(existing_google_user.id)})
         response.set_cookie(
             key="access_token",
@@ -487,7 +487,15 @@ async def google_callback(
             max_age=30 * 60  # 30 minutes (same as token expiry)
         )
         oauth_state_store.delete_state(state)  # Clean up state
-        return create_user_login_response(existing_google_user)
+        
+        # Redirect to frontend callback page with success indicator
+        from fastapi.responses import RedirectResponse
+        user_login_response = create_user_login_response(existing_google_user)
+        # Encode the user data as URL parameters for the frontend to handle
+        import urllib.parse
+        user_data = urllib.parse.quote(json.dumps(user_login_response))
+        frontend_url = f"http://localhost:3000/auth/google/callback?code={code}&state={state}&success=true&user_data={user_data}"
+        return RedirectResponse(url=frontend_url)
     
     # Check if user exists with this email (including OAuth users with modified emails)
     existing_email_user = find_oauth_user_by_original_email(db, user_info.get("email", ""))
@@ -495,7 +503,7 @@ async def google_callback(
     if existing_email_user:
         # Check if the existing user is already an OAuth user
         if existing_email_user.provider == "google":
-            # User already has a Google account, set HttpOnly cookie and log them in
+            # User already has a Google account, set HttpOnly cookie and redirect to frontend
             access_token = create_access_token(data={"sub": str(existing_email_user.id)})
             response.set_cookie(
                 key="access_token",
@@ -506,7 +514,15 @@ async def google_callback(
                 max_age=30 * 60  # 30 minutes (same as token expiry)
             )
             oauth_state_store.delete_state(state)  # Clean up state
-            return create_user_login_response(existing_email_user)
+            
+            # Redirect to frontend callback page with success indicator
+            from fastapi.responses import RedirectResponse
+            user_login_response = create_user_login_response(existing_email_user)
+            # Encode the user data as URL parameters for the frontend to handle
+            import urllib.parse
+            user_data = urllib.parse.quote(json.dumps(user_login_response))
+            frontend_url = f"http://localhost:3000/auth/google/callback?code={code}&state={state}&success=true&user_data={user_data}"
+            return RedirectResponse(url=frontend_url)
         else:
             # Account linking scenario for non-OAuth users
             existing_state = oauth_state_store.get_state(state) or {}
@@ -524,7 +540,11 @@ async def google_callback(
                 }
             })
             
-            return {
+            # Redirect to frontend callback page with account linking required
+            from fastapi.responses import RedirectResponse
+            import urllib.parse
+            
+            account_linking_data = {
                 "action": "link_required",
                 "message": "An account with this email already exists. Would you like to link your Google account?",
                 "existing_user": {
@@ -541,6 +561,11 @@ async def google_callback(
                 },
                 "state": state
             }
+            
+            # Encode the account linking data as URL parameters
+            encoded_data = urllib.parse.quote(json.dumps(account_linking_data))
+            frontend_url = f"http://localhost:3000/auth/google/callback?code={code}&state={state}&link_required=true&link_data={encoded_data}"
+            return RedirectResponse(url=frontend_url)
     
     # Check if role is selected in state
     selected_role = state_data.get("role")
@@ -560,15 +585,10 @@ async def google_callback(
             }
         })
         
-        return {
-            "requires_role_selection": True,
-            "state": state,
-            "user_info": {
-                "email": user_info.get("email", ""),
-                "name": user_info.get("name", ""),
-                "picture": user_info.get("picture")
-            }
-        }
+        # Redirect to frontend callback page with role selection required
+        from fastapi.responses import RedirectResponse
+        frontend_url = f"http://localhost:3000/auth/google/callback?code={code}&state={state}&requires_role_selection=true"
+        return RedirectResponse(url=frontend_url)
     
     # Create new user with selected role
     new_user = create_oauth_user(db, {**user_info, "id": google_id}, role=selected_role)
@@ -585,7 +605,15 @@ async def google_callback(
     )
     
     oauth_state_store.delete_state(state)  # Clean up state
-    return create_user_login_response(new_user)
+    
+    # Redirect to frontend callback page with success indicator
+    from fastapi.responses import RedirectResponse
+    user_login_response = create_user_login_response(new_user)
+    # Encode the user data as URL parameters for the frontend to handle
+    import urllib.parse
+    user_data = urllib.parse.quote(json.dumps(user_login_response))
+    frontend_url = f"http://localhost:3000/auth/google/callback?code={code}&state={state}&success=true&user_data={user_data}"
+    return RedirectResponse(url=frontend_url)
 
 @router.post("/google/link")
 async def link_google_account(

@@ -156,6 +156,14 @@ export class GoogleOAuth {
               console.log('Window close blocked by COOP policy')
             }
             resolve(event.data.data)
+          } else if (event.data.type === 'GOOGLE_OAUTH_ROLE_SELECTION_REQUIRED') {
+            // Don't close the popup - let the user select a role
+            console.log('🎯 Role selection required, keeping popup open')
+            // Don't resolve or reject - keep waiting for role selection
+          } else if (event.data.type === 'GOOGLE_OAUTH_ACCOUNT_LINKING_REQUIRED') {
+            // Don't close the popup - let the user handle account linking
+            console.log('🎯 Account linking required, keeping popup open')
+            // Don't resolve or reject - keep waiting for account linking
           } else if (event.data.type === 'GOOGLE_OAUTH_ERROR') {
             clearTimeout(timeout)
             window.removeEventListener('message', messageHandler)

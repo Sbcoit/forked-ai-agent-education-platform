@@ -157,3 +157,21 @@ async def get_current_user_optional(
         return user
     except:
         return None 
+
+def require_student(current_user: User = Depends(get_current_user)) -> User:
+    """Require student role for access"""
+    if current_user.role not in ["student", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Student access required"
+        )
+    return current_user
+
+def require_professor(current_user: User = Depends(get_current_user)) -> User:
+    """Require professor role for access"""
+    if current_user.role not in ["professor", "teacher", "admin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Professor access required"
+        )
+    return current_user

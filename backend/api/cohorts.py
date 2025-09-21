@@ -514,6 +514,41 @@ async def assign_simulation_to_cohort(
     db.commit()
     db.refresh(cohort_simulation)
     
+    # Create student simulation instances and send notifications
+    try:
+        from services.notification_service import notification_service
+        from database.models import StudentSimulationInstance, CohortStudent
+        
+        # Get all students in the cohort
+        students = db.query(CohortStudent).filter(
+            CohortStudent.cohort_id == cohort_id,
+            CohortStudent.status == "approved"
+        ).all()
+        
+        # Create student simulation instances and notifications for each student
+        for student in students:
+            # Create student simulation instance
+            student_instance = StudentSimulationInstance(
+                cohort_assignment_id=cohort_simulation.id,
+                student_id=student.student_id
+            )
+            db.add(student_instance)
+            
+            # Create notification
+            notification_service.create_simulation_assignment_notification(
+                db, 
+                student.student_id, 
+                cohort_simulation,
+                scenario,
+                cohort
+            )
+        
+        db.commit()  # Commit the student instances
+        logger.info(f"Created simulation instances and notifications for {len(students)} students in cohort {cohort_id}")
+    except Exception as e:
+        logger.error(f"Failed to create simulation instances and notifications: {str(e)}")
+        db.rollback()
+    
     return CohortSimulationResponse(
         id=cohort_simulation.id,
         simulation_id=cohort_simulation.simulation_id,

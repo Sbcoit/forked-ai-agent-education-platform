@@ -27,6 +27,7 @@ import {
 } from "lucide-react"
 import RoleBasedSidebar from "@/components/RoleBasedSidebar"
 import { useAuth } from "@/lib/auth-context"
+import { apiClient } from "@/lib/api"
 
 export default function StudentMyCohorts() {
   const router = useRouter()
@@ -34,9 +35,50 @@ export default function StudentMyCohorts() {
   
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("All Status")
+  const [cohorts, setCohorts] = useState<any[]>([])
+  const [loadingCohorts, setLoadingCohorts] = useState(true)
   
-  // Mock data - in real app, this would come from API
-  const [cohorts] = useState([
+  // Fetch student cohorts from API
+  useEffect(() => {
+    const fetchCohorts = async () => {
+      if (!user) return
+      
+      try {
+        setLoadingCohorts(true)
+        const response = await apiClient.getStudentCohorts()
+        setCohorts(response || [])
+      } catch (error) {
+        console.error('Error fetching student cohorts:', error)
+        setCohorts([])
+      } finally {
+        setLoadingCohorts(false)
+      }
+    }
+
+    fetchCohorts()
+  }, [user])
+  
+  // Transform API data to match UI expectations
+  const transformedCohorts = cohorts.map(cohort => ({
+    id: cohort.id,
+    title: cohort.title,
+    instructor: cohort.professor?.name || 'Unknown',
+    description: cohort.description,
+    status: cohort.is_active ? 'active' : 'inactive',
+    progress: "0/0 completed", // Will be calculated from simulations
+    progressPercentage: 0,
+    currentRank: "#-",
+    bestRank: "#-",
+    avgScore: "0%",
+    xpEarned: "0",
+    joinedDate: new Date(cohort.enrollment_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    nextSimulation: "No simulations assigned",
+    totalStudents: cohort.student_count,
+    simulations: [] // Will be populated from cohort simulations
+  }))
+  
+  // Mock data - fallback when no real data
+  const mockCohorts = [
     {
       id: 1,
       title: "Financial Management 401",
@@ -124,8 +166,8 @@ export default function StudentMyCohorts() {
           xpReward: "+300 XP"
         }
       ]
-    }
-  ])
+    },
+  ]; // Added semicolon here
 
   // Handle redirect when user is not authenticated or not a student
   useEffect(() => {
@@ -166,7 +208,7 @@ export default function StudentMyCohorts() {
   }
 
   // Filter cohorts based on search and filters
-  const filteredCohorts = cohorts.filter(cohort => {
+  const filteredCohorts = transformedCohorts.filter(cohort => {
     const matchesSearch = cohort.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          cohort.instructor.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          cohort.description.toLowerCase().includes(searchTerm.toLowerCase())
@@ -255,7 +297,7 @@ export default function StudentMyCohorts() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-600 mb-1">Total Cohorts</p>
-                    <p className="text-2xl font-bold text-gray-900">{cohorts.length}</p>
+                    <p className="text-2xl font-bold text-gray-900">{transformedCohorts.length}</p>
                   </div>
                 </div>
               </CardContent>
@@ -269,7 +311,7 @@ export default function StudentMyCohorts() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-600 mb-1">Active Cohorts</p>
-                    <p className="text-2xl font-bold text-gray-900">{cohorts.filter(c => c.status === 'active').length}</p>
+                    <p className="text-2xl font-bold text-gray-900">{transformedCohorts.filter(c => c.status === 'active').length}</p>
                   </div>
                 </div>
               </CardContent>
@@ -308,8 +350,20 @@ export default function StudentMyCohorts() {
           <div className="mb-6">
             <h2 className="text-lg font-semibold text-black mb-4">Enrolled Cohorts ({filteredCohorts.length})</h2>
             
-            <div className="space-y-6">
-              {filteredCohorts.map((cohort) => (
+            {loadingCohorts ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-black mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading cohorts...</p>
+              </div>
+            ) : filteredCohorts.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <BookOpen className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p className="text-lg font-medium mb-2">No cohorts found</p>
+                <p className="text-sm">You haven't joined any cohorts yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {filteredCohorts.map((cohort) => (
                 <Card key={cohort.id} className="bg-white border border-gray-200">
                   <CardHeader className="pb-4">
                     <div className="flex items-start justify-between">
@@ -404,7 +458,8 @@ export default function StudentMyCohorts() {
                     <div className="mb-6">
                       <h3 className="text-lg font-semibold text-black mb-4">Simulations</h3>
                       <div className="space-y-3">
-                        {cohort.simulations.map((simulation) => (
+                        {cohort.simulations && cohort.simulations.length > 0 ? (
+                          cohort.simulations.map((simulation: any) => (
                           <div key={simulation.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
                             <div className="flex-1">
                               <div className="flex items-center space-x-3 mb-2">
@@ -452,7 +507,14 @@ export default function StudentMyCohorts() {
                               </Button>
                             </div>
                           </div>
-                        ))}
+                          ))
+                        ) : (
+                          <div className="text-center py-8 text-gray-500">
+                            <BookOpen className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                            <p className="text-lg font-medium mb-2">No simulations assigned yet</p>
+                            <p className="text-sm">Your instructor will assign simulations to this cohort soon.</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                     
@@ -477,8 +539,9 @@ export default function StudentMyCohorts() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

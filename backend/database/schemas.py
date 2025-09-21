@@ -677,6 +677,48 @@ class CohortSimulationUpdate(BaseModel):
     due_date: Optional[datetime] = None
     is_required: Optional[bool] = None
 
+# --- STUDENT SIMULATION INSTANCE SCHEMAS ---
+
+class StudentSimulationInstanceResponse(BaseModel):
+    id: int
+    cohort_assignment_id: int
+    student_id: int
+    user_progress_id: Optional[int]
+    status: str
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    submitted_at: Optional[datetime]
+    grade: Optional[float]
+    feedback: Optional[str]
+    graded_by: Optional[int]
+    graded_at: Optional[datetime]
+    completion_percentage: float
+    total_time_spent: int
+    attempts_count: int
+    hints_used: int
+    is_overdue: bool
+    days_late: int
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class StudentSimulationInstanceCreate(BaseModel):
+    cohort_assignment_id: int
+    student_id: int
+
+class StudentSimulationInstanceUpdate(BaseModel):
+    status: Optional[str] = None
+    grade: Optional[float] = None
+    feedback: Optional[str] = None
+    completion_percentage: Optional[float] = None
+    total_time_spent: Optional[int] = None
+    attempts_count: Optional[int] = None
+    hints_used: Optional[int] = None
+    is_overdue: Optional[bool] = None
+    days_late: Optional[int] = None
+
 
 # --- INVITATION SYSTEM SCHEMAS ---
 

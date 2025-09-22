@@ -10,6 +10,9 @@ from sqlalchemy.sql.functions import coalesce
 from typing import List, Optional
 from datetime import datetime
 import secrets
+import logging
+
+logger = logging.getLogger(__name__)
 
 from database.connection import get_db
 from utilities.auth import get_current_user, require_admin

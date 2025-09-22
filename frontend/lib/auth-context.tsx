@@ -162,6 +162,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Skip cache version check to avoid clearing auth token on page refresh
         // Cache will be managed by TTL and selective invalidation instead
         
+        // First check if we have user data in sessionStorage (from OAuth callback)
+        const storedUser = sessionStorage.getItem('user')
+        if (storedUser) {
+          console.log('Auth context: Found user in sessionStorage from OAuth callback')
+          const user = JSON.parse(storedUser)
+          console.log('Auth context: User role:', user.role)
+          setUser(user)
+          setIsLoading(false)
+          return
+        }
+
         // Check authentication by attempting to fetch current user
         // This relies on HttpOnly cookies for authentication
         if (process.env.NODE_ENV === 'development') {
@@ -221,20 +232,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const loginWithGoogle = async (): Promise<GoogleOAuthResult> => {
+    console.log('Auth Context: Starting Google OAuth flow')
     setIsLoading(true)
     try {
       const googleOAuth = GoogleOAuth.getInstance()
+      console.log('Auth Context: Opening auth window')
       const result = await googleOAuth.openAuthWindow()
+      console.log('Auth Context: Received result from OAuth:', result)
       
       // Handle null result
       if (!result) {
+        console.log('Auth Context: No result received from OAuth')
         throw new Error('OAuth authentication failed - no result received')
       }
       
       if ('action' in result && result.action === 'link_required') {
+        console.log('Auth Context: Account linking required')
         // Return the linking data instead of throwing an error
         return result as AccountLinkingData
       } else if ('user' in result) {
+        console.log('Auth Context: Direct login success, processing user data')
         // Direct login success - convert OAuthSuccessData to GoogleOAuthSuccessData
         const oauthResult = result as OAuthSuccessData
         const successResult: GoogleOAuthSuccessData = {
@@ -260,18 +277,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           access_token: oauthResult.access_token,
           message: 'Login successful'
         }
+        console.log('Auth Context: Setting user state:', successResult.user)
         setUser(successResult.user)
         // Token is now handled server-side via HttpOnly cookies
         updateLastActivity() // Update activity on successful Google login
+        console.log('Auth Context: Google OAuth completed successfully')
         return successResult
       } else {
+        console.log('Auth Context: Unexpected result structure:', result)
         // Fallback for unexpected result structure
         throw new Error('Unexpected OAuth result structure')
       }
     } catch (error) {
-      console.error('Google login failed:', error)
+      console.error('Auth Context: Google login failed:', error)
       throw error
     } finally {
+      console.log('Auth Context: Setting loading to false')
       setIsLoading(false)
     }
   }

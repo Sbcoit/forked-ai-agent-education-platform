@@ -26,12 +26,16 @@ export default function LoginPage() {
   // Handle redirect after successful login
   useEffect(() => {
     if (user && !loading) {
+      console.log('Main page: User authenticated, redirecting based on role:', user.role)
       // User just logged in, redirect based on role
       if (user.role === 'professor' || user.role === 'admin') {
+        console.log('Main page: Redirecting to professor dashboard')
         router.push('/professor/dashboard')
       } else if (user.role === 'student') {
+        console.log('Main page: Redirecting to student dashboard')
         router.push('/student/dashboard')
       } else {
+        console.log('Main page: Redirecting to generic dashboard')
         // Fallback to generic dashboard
         router.push('/dashboard')
       }
@@ -65,23 +69,30 @@ export default function LoginPage() {
   }
 
   const handleGoogleLogin = async () => {
+    console.log('Login Page: Starting Google login')
     setLoading(true)
     setError("")
     
     try {
+      console.log('Login Page: Calling loginWithGoogle')
       const result = await loginWithGoogle()
+      console.log('Login Page: Received result from loginWithGoogle:', result)
       
       if (result && 'action' in result && result.action === 'link_required') {
+        console.log('Login Page: Account linking required, showing dialog')
         // Show account linking dialog
         setLinkingData(result as AccountLinkingData)
         setShowLinkingDialog(true)
       } else {
+        console.log('Login Page: Direct login success, redirecting to dashboard')
         // Direct login success
         router.push("/dashboard")
       }
     } catch (error) {
+      console.error('Login Page: Google login error:', error)
       setError(error instanceof Error ? error.message : "Google login failed. Please try again.")
     } finally {
+      console.log('Login Page: Setting loading to false')
       setLoading(false)
     }
   }

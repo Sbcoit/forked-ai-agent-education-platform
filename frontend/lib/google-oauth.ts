@@ -130,8 +130,31 @@ export class GoogleOAuth {
 
       // Wait for messages from the popup
       return new Promise((resolve, reject) => {
+        // Start checking authentication status immediately
+        console.log('Frontend: Starting immediate auth status checks')
+        const immediateCheck = setInterval(() => {
+          this.checkAuthStatusAfterPopup()
+            .then((authResult) => {
+              if (authResult) {
+                console.log('Frontend: User authenticated during OAuth flow')
+                clearInterval(immediateCheck)
+                try {
+                  this.authWindow?.close()
+                } catch (e) {
+                  console.log('Window close blocked by COOP policy')
+                }
+                resolve(authResult)
+              }
+            })
+            .catch((error) => {
+              // Ignore errors during immediate checks
+              console.log('Frontend: Immediate auth check failed (this is normal):', error)
+            })
+        }, 500) // Check every 500ms
         // Set a timeout to prevent hanging
         const timeout = setTimeout(() => {
+          console.log('Frontend: OAuth timeout reached')
+          clearInterval(immediateCheck)
           window.removeEventListener('message', messageHandler)
           try {
             this.authWindow?.close()
@@ -142,19 +165,78 @@ export class GoogleOAuth {
           reject(new Error('OAuth timeout - please try again'))
         }, OAUTH_TIMEOUT_MS)
 
+        // Check if popup is closed and also periodically check auth status
+        const checkClosed = setInterval(() => {
+          if (this.authWindow?.closed) {
+            console.log('Frontend: Popup was closed, checking authentication status')
+            clearInterval(checkClosed)
+            clearTimeout(timeout)
+            window.removeEventListener('message', messageHandler)
+            
+            // Wait a moment for the backend to process the OAuth callback
+            setTimeout(() => {
+              this.checkAuthStatusAfterPopup()
+                .then((authResult) => {
+                  if (authResult) {
+                    console.log('Frontend: User is authenticated after popup close')
+                    resolve(authResult)
+                  } else {
+                    console.log('Frontend: User is not authenticated after popup close')
+                    reject(new Error('OAuth popup was closed without authentication'))
+                  }
+                })
+                .catch((error) => {
+                  console.log('Frontend: Error checking auth status:', error)
+                  reject(new Error('OAuth popup was closed without authentication'))
+                })
+            }, 1000) // Wait 1 second for backend processing
+          } else {
+            // Popup is still open, periodically check if user got authenticated
+            this.checkAuthStatusAfterPopup()
+              .then((authResult) => {
+                if (authResult) {
+                  console.log('Frontend: User authenticated while popup was open')
+                  clearInterval(checkClosed)
+                  clearTimeout(timeout)
+                  window.removeEventListener('message', messageHandler)
+                  try {
+                    this.authWindow?.close()
+                  } catch (e) {
+                    console.log('Window close blocked by COOP policy')
+                  }
+                  resolve(authResult)
+                }
+              })
+              .catch((error) => {
+                // Ignore errors during periodic checks
+                console.log('Frontend: Periodic auth check failed (this is normal):', error)
+              })
+          }
+        }, 1000) // Check every 1 second for faster response
+
         // Listen for messages from the popup
         const messageHandler = (event: MessageEvent) => {
-          if (event.origin !== window.location.origin) return
+          console.log('Frontend: Received message from popup:', event.data, 'Origin:', event.origin, 'Expected origin:', window.location.origin)
+          
+          if (event.origin !== window.location.origin) {
+            console.log('Frontend: Message origin mismatch, ignoring')
+            return
+          }
 
           if (event.data.type === 'GOOGLE_OAUTH_SUCCESS') {
+            console.log('Frontend: Received GOOGLE_OAUTH_SUCCESS, processing...')
             clearTimeout(timeout)
+            clearInterval(checkClosed)
+            clearInterval(immediateCheck)
             window.removeEventListener('message', messageHandler)
             try {
               this.authWindow?.close()
+              console.log('Frontend: Popup closed successfully')
             } catch (e) {
               // Ignore COOP errors when closing window
               console.log('Window close blocked by COOP policy')
             }
+            console.log('Frontend: Resolving with data:', event.data.data)
             resolve(event.data.data)
           } else if (event.data.type === 'GOOGLE_OAUTH_ROLE_SELECTION_REQUIRED') {
             // Don't close the popup - let the user select a role
@@ -165,7 +247,10 @@ export class GoogleOAuth {
             console.log('🎯 Account linking required, keeping popup open')
             // Don't resolve or reject - keep waiting for account linking
           } else if (event.data.type === 'GOOGLE_OAUTH_ERROR') {
+            console.log('Frontend: Received GOOGLE_OAUTH_ERROR')
             clearTimeout(timeout)
+            clearInterval(checkClosed)
+            clearInterval(immediateCheck)
             window.removeEventListener('message', messageHandler)
             try {
               this.authWindow?.close()
@@ -174,6 +259,8 @@ export class GoogleOAuth {
               console.log('Window close blocked by COOP policy')
             }
             reject(new Error(event.data.error))
+          } else {
+            console.log('Frontend: Unknown message type:', event.data.type)
           }
         }
 
@@ -230,6 +317,66 @@ export class GoogleOAuth {
     } catch (error) {
       console.error('Error linking account:', error)
       throw error
+    }
+  }
+
+  // Check authentication status after popup closes
+  private async checkAuthStatusAfterPopup(): Promise<OAuthSuccessData | null> {
+    try {
+      console.log('Frontend: Checking authentication status after popup close')
+      const apiUrl = `${getApiBaseUrlLazy()}/auth/auth/status`
+      console.log('Frontend: Calling API URL:', apiUrl)
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      })
+
+      console.log('Frontend: Auth status response:', response.status, response.statusText)
+      
+      if (response.ok) {
+        const data = await response.json()
+        console.log('Frontend: Auth status data:', data)
+        
+        if (data.authenticated && data.user) {
+          console.log('Frontend: User is authenticated:', data.user.email)
+          // Convert to OAuthSuccessData format
+          return {
+            user: {
+              id: data.user.id,
+              email: data.user.email,
+              full_name: data.user.full_name,
+              username: data.user.username || data.user.email.split('@')[0],
+              bio: data.user.bio,
+              avatar_url: data.user.avatar_url,
+              role: data.user.role,
+              published_scenarios: data.user.published_scenarios || 0,
+              total_simulations: data.user.total_simulations || 0,
+              reputation_score: data.user.reputation_score || 0,
+              profile_public: data.user.profile_public || false,
+              allow_contact: data.user.allow_contact || false,
+              is_active: data.user.is_active,
+              is_verified: data.user.is_verified,
+              provider: data.user.provider,
+              created_at: data.user.created_at,
+              updated_at: data.user.updated_at
+            },
+            access_token: '', // Token is handled via HttpOnly cookies
+            token_type: 'cookie'
+          }
+        } else {
+          console.log('Frontend: User is not authenticated:', data.error || 'No error message')
+        }
+      } else {
+        console.log('Frontend: Auth status request failed:', response.status, response.statusText)
+      }
+      return null
+    } catch (error) {
+      console.error('Frontend: Error checking auth status:', error)
+      return null
     }
   }
 

@@ -1352,7 +1352,7 @@ async def google_callback(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing authorization code or state"
-        )
+            )
     
     # Validate OAuth state
     state_data = validate_oauth_state(state)
@@ -1497,13 +1497,13 @@ async def google_callback(
                     },
                     "google_data": {
                         "email": user_info.get("email", ""),
-                        "full_name": user_info.get("name", ""),
-                        "avatar_url": user_info.get("picture"),
-                        "google_id": google_id
-                    },
-                    "state": state
-                }
-                
+                    "full_name": user_info.get("name", ""),
+                    "avatar_url": user_info.get("picture"),
+                    "google_id": google_id
+                },
+                "state": state
+            }
+            
                 return HTMLResponse(create_account_linking_html(account_linking_data))
         
         # Check if role is selected in state

@@ -138,24 +138,31 @@ export default function RoleSelectionPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Choose Your Role</h1>
-          <p className="text-gray-400">Welcome, {roleData?.user_info?.name || 'User'}! Please select your role to continue.</p>
-        </div>
+    <>
+      <RoleChooser
+        selectedRole={selectedRole}
+        onRoleSelect={setSelectedRole}
+        onContinue={() => selectedRole && handleRoleSelection(selectedRole)}
+        isLoading={loading}
+        showContinueButton={true}
+        variant="detailed"
+      />
+      
+      {/* Sign In Link */}
+      <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 text-center">
+        <span className="text-gray-400">Already have an account? </span>
+        <button 
+          onClick={() => router.push('/login')} 
+          className="text-white hover:underline"
+        >
+          Sign In
+        </button>
+      </div>
 
-        <RoleChooser
-          selectedRole={selectedRole}
-          onRoleSelect={setSelectedRole}
-          onContinue={() => selectedRole && handleRoleSelection(selectedRole)}
-          isLoading={loading}
-          showContinueButton={true}
-          variant="detailed"
-        />
-
-        {error && (
-          <div className="mt-6 bg-red-900/20 border border-red-500/50 rounded-md p-4">
+      {/* Error Display */}
+      {error && (
+        <div className="fixed top-8 left-1/2 transform -translate-x-1/2 z-50">
+          <div className="bg-red-900/20 border border-red-500/50 rounded-md p-4">
             <div className="flex items-center">
               <svg className="w-5 h-5 text-red-400 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
@@ -163,8 +170,8 @@ export default function RoleSelectionPage() {
               <p className="text-red-400 text-sm font-medium">{error}</p>
             </div>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </>
   )
 }

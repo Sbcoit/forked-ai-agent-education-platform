@@ -63,9 +63,15 @@ export default function SignupPage() {
     setSelectedRole(role)
     setFormData(prev => ({ ...prev, role }))
     setError("") // Clear any existing error
-    setStep(2)
+    // Don't automatically move to step 2 - let user confirm with Continue button
     console.log("📝 Form data after role selection:", { ...formData, role })
-    console.log("🔄 Step changed to:", 2)
+  }
+
+  const handleContinue = () => {
+    if (selectedRole) {
+      console.log("🔄 Moving to step 2 with role:", selectedRole)
+      setStep(2)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -268,6 +274,8 @@ export default function SignupPage() {
         <RoleChooser
           selectedRole={selectedRole}
           onRoleSelect={handleRoleSelect}
+          onContinue={handleContinue}
+          showContinueButton={true}
           variant="detailed"
         />
         

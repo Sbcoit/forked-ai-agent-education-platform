@@ -32,11 +32,11 @@ export default function RoleChooser({
       <div className={`w-full ${maxWidth}`}>
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 mb-6">
+          <div className="inline-flex items-center justify-center w-24 h-16 mb-6">
             <img 
               src="/n-aiblelogo.png" 
               alt="Logo" 
-              className={isDetailed ? "w-30 h-16" : "w-24 h-12"} 
+              className={isDetailed ? "w-40 h-20" : "w-32 h-16"} 
             />
           </div>
           <h1 className="text-2xl font-semibold text-white">Choose Your Role</h1>

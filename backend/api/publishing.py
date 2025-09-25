@@ -576,12 +576,7 @@ async def get_scenario_full(
     - Public scenarios can be accessed by anyone
     - Private scenarios can only be accessed by their creator
     """
-    scenario = db.query(Scenario).options(
-        selectinload(Scenario.personas),
-        selectinload(Scenario.scenes).selectinload(ScenarioScene.personas),
-        selectinload(Scenario.files),
-        selectinload(Scenario.creator)
-    ).filter(Scenario.id == scenario_id).first()
+    scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
     if not scenario:
         raise HTTPException(status_code=404, detail="Scenario not found")
     

@@ -881,106 +881,57 @@ async def get_scenario_details(scenario_id: int, db: Session = Depends(get_db)):
         "created_at": scenario.created_at
     }
 
-@app.get("/api/scenarios/{scenario_id}/full")
-async def get_scenario_full(scenario_id: int, db: Session = Depends(get_db)):
-    """Get full scenario with personas and scenes including scene-persona relationships"""
+@app.get("/api/test")
+async def test_endpoint():
+    """Test endpoint to verify server is working"""
+    return {"status": "ok", "message": "Server is working"}
+
+@app.get("/api/test-auth")
+async def test_auth_endpoint(current_user: User = Depends(get_current_user)):
+    """Test endpoint with authentication"""
+    return {"status": "ok", "user": current_user.email}
+
+@app.get("/api/test-db")
+async def test_db_endpoint(db: Session = Depends(get_db)):
+    """Test endpoint with database"""
+    try:
+        count = db.query(Scenario).count()
+        return {"status": "ok", "scenario_count": count}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/test-combined")
+async def test_combined_endpoint(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Test endpoint with both database and authentication"""
+    try:
+        count = db.query(Scenario).count()
+        return {"status": "ok", "scenario_count": count, "user": current_user.email}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/scenario-test/{scenario_id}")
+async def test_scenario_endpoint(scenario_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Test endpoint with scenario_id parameter"""
     try:
         scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
         if not scenario:
-            raise HTTPException(status_code=404, detail="Scenario not found")
-        
-        # Get personas for this scenario
-        personas = db.query(ScenarioPersona).filter(
-            ScenarioPersona.scenario_id == scenario_id
-        ).all()
-        
-        # Get scenes for this scenario
-        scenes = db.query(ScenarioScene).filter(
-            ScenarioScene.scenario_id == scenario_id
-        ).order_by(ScenarioScene.scene_order).all()
-        
-        # For each scene, get the involved personas
-        from database.models import scene_personas
-        scenes_with_personas = []
-        for scene in scenes:
-            # Get personas involved in this scene
-            involved_personas = db.query(ScenarioPersona).join(
-                scene_personas, ScenarioPersona.id == scene_personas.c.persona_id
-            ).filter(
-                scene_personas.c.scene_id == scene.id
-            ).all()
-            
-            scene_data = {
-                "id": scene.id,
-                "scenario_id": scene.scenario_id,
-                "title": scene.title,
-                "description": scene.description,
-                "user_goal": scene.user_goal,
-                "scene_order": scene.scene_order,
-                "estimated_duration": scene.estimated_duration,
-                "image_url": scene.image_url,
-                "image_prompt": scene.image_prompt,
-                "timeout_turns": scene.timeout_turns,
-                "success_metric": scene.success_metric,
-                "personas_involved": [p.name for p in involved_personas],
-                "created_at": scene.created_at,
-                "updated_at": scene.updated_at,
-                "personas": [
-                    {
-                        "id": persona.id,
-                        "name": persona.name,
-                        "role": persona.role,
-                        "background": persona.background,
-                        "correlation": persona.correlation,
-                        "primary_goals": persona.primary_goals or [],
-                        "personality_traits": persona.personality_traits or {}
-                    }
-                    for persona in involved_personas
-                ]
-            }
-            scenes_with_personas.append(scene_data)
-        
-        return {
-            "id": scenario.id,
-            "title": scenario.title,
-            "description": scenario.description,
-            "challenge": scenario.challenge,
-            "industry": scenario.industry,
-            "learning_objectives": scenario.learning_objectives or [],
-            "student_role": scenario.student_role,
-            "category": scenario.category,
-            "difficulty_level": scenario.difficulty_level,
-            "estimated_duration": scenario.estimated_duration,
-            "tags": scenario.tags,
-            "pdf_title": scenario.pdf_title,
-            "pdf_source": scenario.pdf_source,
-            "processing_version": scenario.processing_version,
-            "rating_avg": scenario.rating_avg,
-            "source_type": scenario.source_type,
-            "is_public": scenario.is_public,
-            "is_template": scenario.is_template,
-            "allow_remixes": scenario.allow_remixes,
-            "usage_count": scenario.usage_count,
-            "clone_count": scenario.clone_count,
-            "created_by": scenario.created_by,
-            "created_at": scenario.created_at,
-            "updated_at": scenario.updated_at,
-            "personas": [
-                {
-                    "id": persona.id,
-                    "name": persona.name,
-                    "role": persona.role,
-                    "background": persona.background,
-                    "correlation": persona.correlation,
-                    "primary_goals": persona.primary_goals or [],
-                    "personality_traits": persona.personality_traits or {}
-                }
-                for persona in personas
-            ],
-            "scenes": scenes_with_personas
-        }
+            return {"status": "error", "error": "Scenario not found"}
+        return {"status": "ok", "scenario_id": scenario_id, "title": scenario.title, "user": current_user.email}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/scenarios/{scenario_id}/full")
+async def get_scenario_full(scenario_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Get full scenario with personas and scenes including scene-persona relationships"""
+    try:
+        print(f"[DEBUG] Starting get_scenario_full for scenario_id: {scenario_id}")
+        print(f"[DEBUG] Database session: {db}")
+        print(f"[DEBUG] Current user: {current_user.email}")
+        return {"status": "ok", "scenario_id": scenario_id, "user": current_user.email}
     except Exception as e:
         print(f"[ERROR] get_scenario_full failed: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # --- REDIS CACHE MANAGEMENT ---

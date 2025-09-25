@@ -6,7 +6,6 @@ Reduces token usage by 70-80% through smart chunk retrieval
 import os
 import openai
 import asyncio
-import numpy as np
 from typing import List, Dict, Tuple
 from sklearn.metrics.pairwise import cosine_similarity
 import re

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import RoleChooser from "@/components/RoleChooser"
+import { useAuth } from "@/lib/auth-context"
 
 interface RoleSelectionData {
   requires_role_selection: boolean
@@ -17,10 +18,23 @@ interface RoleSelectionData {
 
 export default function RoleSelectionPage() {
   const router = useRouter()
+  const { user } = useAuth()
   const [roleData, setRoleData] = useState<RoleSelectionData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedRole, setSelectedRole] = useState<"student" | "professor" | null>(null)
+
+  // Prevent automatic redirection when in popup context
+  useEffect(() => {
+    // Check if we're in a popup window
+    const isPopup = window.opener !== null || window.parent !== window
+    
+    if (isPopup && user) {
+      console.log('Role selection page: In popup context, preventing automatic redirection')
+      // Don't redirect automatically when in popup - let the role selection complete
+      return
+    }
+  }, [user])
 
   useEffect(() => {
     const handleRoleSelection = () => {
@@ -147,17 +161,6 @@ export default function RoleSelectionPage() {
         showContinueButton={true}
         variant="detailed"
       />
-      
-      {/* Sign In Link */}
-      <div className="fixed bottom-8 left-1/2 transform -translate-x-1/2 text-center">
-        <span className="text-gray-400">Already have an account? </span>
-        <button 
-          onClick={() => router.push('/login')} 
-          className="text-white hover:underline"
-        >
-          Sign In
-        </button>
-      </div>
 
       {/* Error Display */}
       {error && (

@@ -1,7 +1,6 @@
 """
-OAuth utilities for Google authentication
+OAuth utilities for Google authentication using google-auth-oauthlib
 """
-import httpx
 import logging
 from typing import Optional, Dict, Any
 from database.connection import settings
@@ -9,11 +8,10 @@ from database.models import User
 from sqlalchemy.orm import Session
 from utilities.auth import create_access_token
 import secrets
-import hashlib
-import base64
 import hmac
 from google.auth.transport import requests
 from google.oauth2 import id_token
+from google_auth_oauthlib.flow import Flow
 from fastapi import HTTPException, status
 
 # Set up logger
@@ -24,11 +22,6 @@ GOOGLE_CLIENT_ID = settings.google_client_id
 GOOGLE_CLIENT_SECRET = settings.google_client_secret
 GOOGLE_REDIRECT_URI = settings.google_redirect_uri
 
-# Google OAuth endpoints
-GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
-GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GOOGLE_USER_INFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
-
 def generate_state() -> str:
     """Generate a random state parameter for OAuth security"""
     return secrets.token_urlsafe(32)
@@ -38,27 +31,36 @@ def verify_state(state: str, stored_state: str) -> bool:
     return hmac.compare_digest(state or "", stored_state or "")
 
 def get_google_auth_url(state: str) -> str:
-    """Generate Google OAuth authorization URL"""
+    """Generate Google OAuth authorization URL using google-auth-oauthlib"""
     # Validate required OAuth configuration
     if not GOOGLE_CLIENT_ID or not GOOGLE_REDIRECT_URI:
         raise ValueError("Google OAuth is not configured. Missing GOOGLE_CLIENT_ID or GOOGLE_REDIRECT_URI")
     
-    params = {
-        "client_id": GOOGLE_CLIENT_ID,
-        "redirect_uri": GOOGLE_REDIRECT_URI,
-        "scope": "openid email profile",
-        "response_type": "code",
-        "state": state,
-        "access_type": "offline",
-        "prompt": "select_account"
+    # Create OAuth flow using Google's library
+    client_config = {
+        "web": {
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [GOOGLE_REDIRECT_URI]
+        }
     }
     
-    from urllib.parse import urlencode
-    query_string = urlencode(params)
-    return f"{GOOGLE_AUTH_URL}?{query_string}"
+    flow = Flow.from_client_config(
+        client_config,
+        scopes=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
+        state=state
+    )
+    flow.redirect_uri = GOOGLE_REDIRECT_URI
+    
+    return flow.authorization_url(
+        access_type="offline",
+        prompt="select_account"
+    )[0]
 
-async def exchange_code_for_token(code: str) -> Optional[Dict[str, Any]]:
-    """Exchange authorization code for access token and id_token"""
+def exchange_code_for_token(code: str, state: str) -> Optional[Dict[str, Any]]:
+    """Exchange authorization code for access token and id_token using google-auth-oauthlib"""
     
     logger.info(f"🔄 Attempting to exchange authorization code: {code[:10]}..." if code else "No code provided")
     
@@ -70,29 +72,43 @@ async def exchange_code_for_token(code: str) -> Optional[Dict[str, Any]]:
         logger.error(f"REDIRECT_URI: {'SET' if GOOGLE_REDIRECT_URI else 'NOT SET'}")
         return None
     
-    data = {
-        "client_id": GOOGLE_CLIENT_ID,
-        "client_secret": GOOGLE_CLIENT_SECRET,
-        "code": code,
-        "grant_type": "authorization_code",
-        "redirect_uri": GOOGLE_REDIRECT_URI,
-    }
-    
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            response = await client.post(GOOGLE_TOKEN_URL, data=data, headers=headers)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPError as e:
-            logger.error(f"Error exchanging code for token: {e}")
-            if hasattr(e, 'response') and e.response is not None:
-                try:
-                    error_detail = e.response.json()
-                    logger.error(f"Google token exchange error details: {error_detail}")
-                except:
-                    logger.error(f"Google token exchange error response text: {e.response.text}")
-            return None
+    try:
+        # Create OAuth flow using Google's library
+        client_config = {
+            "web": {
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [GOOGLE_REDIRECT_URI]
+            }
+        }
+        
+        flow = Flow.from_client_config(
+            client_config,
+            scopes=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
+            state=state
+        )
+        flow.redirect_uri = GOOGLE_REDIRECT_URI
+        
+        # Exchange the authorization code for tokens
+        flow.fetch_token(code=code)
+        
+        # Get the credentials
+        credentials = flow.credentials
+        
+        # Return token information
+        return {
+            "access_token": credentials.token,
+            "id_token": credentials.id_token,
+            "refresh_token": credentials.refresh_token,
+            "token_type": "Bearer",
+            "expires_in": 3600  # Default expiration
+        }
+        
+    except Exception as e:
+        logger.error(f"Error exchanging code for token: {e}")
+        return None
 
 def verify_google_id_token(id_token_str: str) -> Dict[str, Any]:
     """
@@ -157,18 +173,15 @@ def verify_google_id_token(id_token_str: str) -> Dict[str, Any]:
             detail=f"Token verification failed: {str(e)}"
         )
 
-async def get_google_user_info(access_token: str) -> Optional[Dict[str, Any]]:
-    """Get user information from Google using access token (fallback method)"""
-    headers = {"Authorization": f"Bearer {access_token}"}
-    
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            response = await client.get(GOOGLE_USER_INFO_URL, headers=headers)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPError as e:
-            logger.error(f"Error getting user info: {e}")
-            return None
+def get_google_user_info_from_id_token(id_token_str: str) -> Optional[Dict[str, Any]]:
+    """Get user information from Google ID token (preferred method)"""
+    try:
+        # Verify and decode the ID token
+        claims = verify_google_id_token(id_token_str)
+        return claims
+    except Exception as e:
+        logger.error(f"Error getting user info from ID token: {e}")
+        return None
 
 def find_existing_user_by_email(db: Session, email: str) -> Optional[User]:
     """Find existing user by email"""
@@ -327,28 +340,35 @@ def link_google_to_existing_user(db: Session, user: User, google_data: Dict[str,
     db.refresh(user)
     return user
 
-def create_user_login_response(user: User) -> Dict[str, Any]:
+def create_oauth_access_token(user: User) -> str:
+    """Create access token for OAuth user"""
+    return create_access_token(data={"sub": str(user.id)})
+
+def create_user_login_response(user: User):
     """Create login response for OAuth user (HttpOnly cookie only)"""
-    return {
-        "access_token": "",  # Empty token - authentication via HttpOnly cookie only
-        "token_type": "cookie",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "full_name": user.full_name,
-            "username": user.username,
-            "bio": user.bio,
-            "avatar_url": user.avatar_url,
-            "role": user.role,
-            "published_scenarios": user.published_scenarios,
-            "total_simulations": user.total_simulations,
-            "reputation_score": user.reputation_score,
-            "profile_public": user.profile_public,
-            "allow_contact": user.allow_contact,
-            "is_active": user.is_active,
-            "is_verified": user.is_verified,
-            "provider": user.provider,
-            "created_at": user.created_at.isoformat() if user.created_at else None,
-            "updated_at": user.updated_at.isoformat() if user.updated_at else None
-        }
-    }
+    from database.schemas import UserLoginResponse, UserResponse
+    
+    return UserLoginResponse(
+        access_token="",  # Empty token - authentication via HttpOnly cookie only
+        token_type="cookie",
+        user=UserResponse(
+            id=user.id,
+            user_id=user.user_id,
+            email=user.email,
+            full_name=user.full_name,
+            username=user.username,
+            bio=user.bio,
+            avatar_url=user.avatar_url,
+            role=user.role,
+            published_scenarios=user.published_scenarios,
+            total_simulations=user.total_simulations,
+            reputation_score=user.reputation_score,
+            profile_public=user.profile_public,
+            allow_contact=user.allow_contact,
+            is_active=user.is_active,
+            is_verified=user.is_verified,
+            provider=user.provider,
+            created_at=user.created_at,
+            updated_at=user.updated_at
+        )
+    )

@@ -12,7 +12,7 @@ interface AccountLinkingDialogProps {
   isOpen: boolean
   onClose: () => void
   linkingData: AccountLinkingData
-  onLinkAccount: (action: 'link' | 'create_separate') => Promise<void>
+  onLinkAccount: (action: 'link' | 'create_separate', role?: 'student' | 'professor') => Promise<void>
   isLoading?: boolean
 }
 
@@ -24,10 +24,14 @@ export function AccountLinkingDialog({
   isLoading = false
 }: AccountLinkingDialogProps) {
   const [selectedAction, setSelectedAction] = useState<'link' | 'create_separate' | null>(null)
+  const [selectedRole, setSelectedRole] = useState<'student' | 'professor' | null>(null)
 
   const handleLink = async () => {
     if (selectedAction) {
-      await onLinkAccount(selectedAction)
+      if (selectedAction === 'create_separate' && !selectedRole) {
+        return // Don't proceed without role selection
+      }
+      await onLinkAccount(selectedAction, selectedRole || undefined)
     }
   }
 
@@ -160,6 +164,72 @@ export function AccountLinkingDialog({
             </div>
           </div>
 
+          {/* Role Selection for Separate Account */}
+          {selectedAction === 'create_separate' && (
+            <div className="space-y-4">
+              <h3 className="font-medium">Choose your role for the new account:</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Student Role */}
+                <Card 
+                  className={`cursor-pointer transition-colors ${
+                    selectedRole === 'student' 
+                      ? 'ring-2 ring-blue-500 bg-blue-50' 
+                      : 'hover:bg-gray-50'
+                  }`}
+                  onClick={() => setSelectedRole('student')}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="role"
+                        value="student"
+                        checked={selectedRole === 'student'}
+                        onChange={() => setSelectedRole('student')}
+                        className="h-4 w-4"
+                      />
+                      <div className="flex-1">
+                        <h4 className="font-medium">Student</h4>
+                        <p className="text-sm text-gray-600">
+                          Join cohorts and participate in simulations
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Professor Role */}
+                <Card 
+                  className={`cursor-pointer transition-colors ${
+                    selectedRole === 'professor' 
+                      ? 'ring-2 ring-purple-500 bg-purple-50' 
+                      : 'hover:bg-gray-50'
+                  }`}
+                  onClick={() => setSelectedRole('professor')}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="role"
+                        value="professor"
+                        checked={selectedRole === 'professor'}
+                        onChange={() => setSelectedRole('professor')}
+                        className="h-4 w-4"
+                      />
+                      <div className="flex-1">
+                        <h4 className="font-medium">Professor</h4>
+                        <p className="text-sm text-gray-600">
+                          Create cohorts and design simulations
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+
           {/* Action Buttons */}
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={onClose} disabled={isLoading}>
@@ -167,7 +237,7 @@ export function AccountLinkingDialog({
             </Button>
             <Button 
               onClick={handleLink} 
-              disabled={!selectedAction || isLoading}
+              disabled={!selectedAction || isLoading || (selectedAction === 'create_separate' && !selectedRole)}
               className="min-w-[120px]"
             >
               {isLoading ? 'Processing...' : 'Continue'}

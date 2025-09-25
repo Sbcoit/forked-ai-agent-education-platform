@@ -29,7 +29,7 @@ interface AuthContextType {
   logout: () => Promise<void>
   register: (data: RegisterData) => Promise<void>
   loginWithGoogle: () => Promise<GoogleOAuthResult>
-  linkGoogleAccount: (action: 'link' | 'create_separate', existingUserId: number, googleData: AccountLinkingData['google_data'], state: string) => Promise<void>
+  linkGoogleAccount: (action: 'link' | 'create_separate', existingUserId: number, googleData: AccountLinkingData['google_data'], state: string, role?: 'student' | 'professor') => Promise<void>
   clearCache: () => void
 }
 
@@ -297,7 +297,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const linkGoogleAccount = async (action: 'link' | 'create_separate', existingUserId: number, googleData: AccountLinkingData['google_data'], state: string) => {
+  const linkGoogleAccount = async (action: 'link' | 'create_separate', existingUserId: number, googleData: AccountLinkingData['google_data'], state: string, role?: 'student' | 'professor') => {
     setIsLoading(true)
     try {
       const googleOAuth = GoogleOAuth.getInstance()
@@ -308,7 +308,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         full_name: googleData.name,
         avatar_url: googleData.picture
       }
-      const result = await googleOAuth.linkAccount(action, existingUserId, oauthUserData, state)
+      const result = await googleOAuth.linkAccount(action, existingUserId, oauthUserData, state, role)
       setUser(result.user)
       // Token is now handled server-side via HttpOnly cookies
       updateLastActivity() // Update activity on successful account linking

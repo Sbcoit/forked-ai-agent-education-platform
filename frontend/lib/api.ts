@@ -127,8 +127,13 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAut
 
     return response
   } catch (error) {
+    console.error('❌ API request failed:', error)
+    console.error('❌ Error type:', typeof error)
+    console.error('❌ Error message:', error instanceof Error ? error.message : String(error))
+    
     // Handle network errors (server not running, CORS, etc.)
     if (error instanceof TypeError && error.message === 'Failed to fetch') {
+      console.error('❌ Failed to fetch error detected - this usually means network/CORS issue')
       throw new Error("Unable to connect to the server. Please check if the backend is running and try again.")
     }
     
@@ -155,14 +160,23 @@ export const apiClient = {
     // Log sanitized data (without password)
     const sanitizedData = { ...data, password: '[REDACTED]' }
     debugLog('API register called with data:', sanitizedData)
-    const response = await apiRequest('/users/register', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    })
     
-    const responseData = await response.json()
-    // Token is now handled server-side via HttpOnly cookies
-    return responseData
+    try {
+      console.log('🔍 About to make registration request to:', buildApiUrl('/users/register'))
+      const response = await apiRequest('/users/register', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      })
+      
+      console.log('✅ Registration response received:', response.status, response.statusText)
+      const responseData = await response.json()
+      console.log('✅ Registration data parsed successfully')
+      // Token is now handled server-side via HttpOnly cookies
+      return responseData
+    } catch (error) {
+      console.error('❌ Registration request failed:', error)
+      throw error
+    }
   },
 
   logout: async (): Promise<void> => {

@@ -25,6 +25,15 @@ export default function LoginPage() {
 
   // Handle redirect after successful login
   useEffect(() => {
+    // Check if we're in a popup window
+    const isPopup = window.opener !== null || window.parent !== window
+    
+    if (isPopup) {
+      console.log('Main page: In popup context, preventing automatic redirection')
+      // Don't redirect automatically when in popup - let the OAuth flow complete
+      return
+    }
+    
     if (user && !loading) {
       console.log('Main page: User authenticated, redirecting based on role:', user.role)
       // User just logged in, redirect based on role

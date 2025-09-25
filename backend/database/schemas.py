@@ -379,14 +379,18 @@ class AccountLinkingRequest(BaseModel):
     action: Literal["link", "create_separate"]
     existing_user_id: Optional[int] = None  # Required when action == "link"
     state: str  # OAuth state for verification - server will fetch google_data from this
+    role: Optional[Literal["student", "professor"]] = None  # Required when action == "create_separate"
     
     @model_validator(mode='after')
-    def validate_existing_user_id_required(self):
+    def validate_required_fields(self):
         if self.action == "link" and self.existing_user_id is None:
             raise ValueError("existing_user_id is required when action == 'link'")
         
         if self.action == "link" and self.existing_user_id is not None and self.existing_user_id <= 0:
             raise ValueError("existing_user_id must be a positive integer")
+        
+        if self.action == "create_separate" and self.role is None:
+            raise ValueError("role is required when action == 'create_separate'")
         
         return self
 

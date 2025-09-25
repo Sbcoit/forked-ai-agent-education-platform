@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 from dotenv import load_dotenv
+import os
 
 # Load environment variables from .env file
 load_dotenv()
@@ -648,7 +649,7 @@ async def register_user(user: UserRegister, response: Response, db: Session = De
         key="access_token",
         value=access_token,
         httponly=True,  # HttpOnly cookie - not accessible via JavaScript
-        secure=True,    # Only send over HTTPS in production
+        secure=os.getenv("COOKIE_SECURE", "true").lower() == "true",  # Use environment variable
         samesite="lax", # CSRF protection
         max_age=30 * 60  # 30 minutes (same as token expiry)
     )

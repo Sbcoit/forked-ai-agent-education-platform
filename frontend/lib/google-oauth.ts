@@ -16,7 +16,7 @@ function getApiBaseUrl(): string {
 const getApiBaseUrlLazy = () => getApiBaseUrl()
 
 // Configuration constants
-const OAUTH_TIMEOUT_MS = 60000 // 1 minute timeout for better UX
+const OAUTH_TIMEOUT_MS = 3600000 // 1 hour timeout for better UX
 
 export interface GoogleOAuthResponse {
   auth_url: string
@@ -132,7 +132,24 @@ export class GoogleOAuth {
       return new Promise((resolve, reject) => {
         // Start checking authentication status immediately
         console.log('Frontend: Starting immediate auth status checks')
+        let pollAttempts = 0
+        const maxPollAttempts = 20 // Maximum 20 attempts (10 seconds)
+        
         const immediateCheck = setInterval(() => {
+          pollAttempts++
+          
+          // Only log every 5th attempt to reduce noise
+          if (pollAttempts % 5 === 0) {
+            console.log(`Frontend: Auth status check attempt ${pollAttempts}/${maxPollAttempts}`)
+          }
+          
+          // Stop polling after max attempts
+          if (pollAttempts >= maxPollAttempts) {
+            console.log('Frontend: Max polling attempts reached, stopping')
+            clearInterval(immediateCheck)
+            return
+          }
+          
           this.checkAuthStatusAfterPopup()
             .then((authResult) => {
               if (authResult) {
@@ -141,17 +158,25 @@ export class GoogleOAuth {
                 try {
                   this.authWindow?.close()
                 } catch (e) {
-                  console.log('Window close blocked by COOP policy')
+                  // Silent fail for window close
                 }
                 resolve(authResult)
               }
             })
             .catch((error) => {
-              // Ignore errors during immediate checks
-              console.log('Frontend: Immediate auth check failed (this is normal):', error)
+              // Stop polling on repeated errors
+              if (pollAttempts > 5) {
+                console.log('Frontend: Too many auth check failures, stopping polling')
+                clearInterval(immediateCheck)
+                return
+              }
+              // Only log errors occasionally to reduce noise
+              if (pollAttempts % 3 === 0) {
+                console.log('Frontend: Auth check in progress...')
+              }
             })
-        }, 500) // Check every 500ms
-        // Set a timeout to prevent hanging
+        }, 1000) // Check every 1 second (reduced frequency)
+        // Set a timeout to prevent hanging (1 hour timeout)
         const timeout = setTimeout(() => {
           console.log('Frontend: OAuth timeout reached')
           clearInterval(immediateCheck)
@@ -163,7 +188,7 @@ export class GoogleOAuth {
             console.log('Window close blocked by COOP policy')
           }
           reject(new Error('OAuth timeout - please try again'))
-        }, OAUTH_TIMEOUT_MS)
+        }, OAUTH_TIMEOUT_MS) // 1 hour timeout
 
         // Check if popup is closed and also periodically check auth status
         const checkClosed = setInterval(() => {
@@ -272,7 +297,7 @@ export class GoogleOAuth {
     }
   }
 
-  async linkAccount(action: 'link' | 'create_separate', existingUserId: number, googleData: OAuthUserData, state: string): Promise<any> {
+  async linkAccount(action: 'link' | 'create_separate', existingUserId: number, googleData: OAuthUserData, state: string, role?: 'student' | 'professor'): Promise<any> {
     try {
       const response = await fetch(`${getApiBaseUrlLazy()}/auth/google/link`, {
         method: 'POST',
@@ -285,6 +310,7 @@ export class GoogleOAuth {
           existing_user_id: existingUserId,
           google_data: googleData,
           state,
+          role,
         }),
       })
 
@@ -323,9 +349,7 @@ export class GoogleOAuth {
   // Check authentication status after popup closes
   private async checkAuthStatusAfterPopup(): Promise<OAuthSuccessData | null> {
     try {
-      console.log('Frontend: Checking authentication status after popup close')
       const apiUrl = `${getApiBaseUrlLazy()}/auth/auth/status`
-      console.log('Frontend: Calling API URL:', apiUrl)
       
       const response = await fetch(apiUrl, {
         method: 'GET',
@@ -335,11 +359,8 @@ export class GoogleOAuth {
         credentials: 'include',
       })
 
-      console.log('Frontend: Auth status response:', response.status, response.statusText)
-      
       if (response.ok) {
         const data = await response.json()
-        console.log('Frontend: Auth status data:', data)
         
         if (data.authenticated && data.user) {
           console.log('Frontend: User is authenticated:', data.user.email)
@@ -368,14 +389,14 @@ export class GoogleOAuth {
             token_type: 'cookie'
           }
         } else {
-          console.log('Frontend: User is not authenticated:', data.error || 'No error message')
+          // Silent - user not authenticated yet
         }
       } else {
-        console.log('Frontend: Auth status request failed:', response.status, response.statusText)
+        // Silent - auth status request failed
       }
       return null
     } catch (error) {
-      console.error('Frontend: Error checking auth status:', error)
+      // Silent error handling to reduce console noise
       return null
     }
   }

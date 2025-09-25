@@ -2,7 +2,7 @@
 Google OAuth API endpoints - Cleaned Version
 """
 from fastapi import APIRouter, HTTPException, Depends, status, Request, Response
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from typing import Dict, Any, Optional
 import json
@@ -17,7 +17,6 @@ from cryptography.fernet import Fernet
 from database.connection import get_db
 from database.models import User
 from database.schemas import (
-    GoogleOAuthRequest, 
     AccountLinkingRequest, 
     OAuthUserData,
     UserLoginResponse,
@@ -29,7 +28,7 @@ from utilities.oauth import (
     get_google_auth_url,
     exchange_code_for_token,
     verify_google_id_token,
-    get_google_user_info,
+    get_google_user_info_from_id_token,
     find_existing_user_by_email,
     find_existing_user_by_google_id,
     find_oauth_user_by_original_email,
@@ -191,6 +190,15 @@ def validate_oauth_state(state: str) -> Dict[str, Any]:
             detail="Invalid or expired OAuth state"
         )
     
+    # SECURITY: Verify the state parameter using hmac comparison
+    stored_state = state_data.get("original_state")
+    if stored_state and not verify_state(state, stored_state):
+        logger.error(f"State mismatch: received={state}, stored={stored_state}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OAuth state - state parameter mismatch"
+        )
+    
     return state_data
 
 def add_cors_headers(response: Response):
@@ -198,101 +206,41 @@ def add_cors_headers(response: Response):
     response.headers["Access-Control-Allow-Credentials"] = "true"
     response.headers["Access-Control-Allow-Origin"] = FRONTEND_URL
 
-def create_oauth_success_html(user_login_response: dict, access_token: str) -> str:
-    """Create HTML response for successful OAuth"""
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head><title>Google OAuth Success</title></head>
-    <body>
-        <script>
-            console.log('OAuth popup: Sending success message to parent window');
-            console.log('OAuth popup: Data being sent:', {json.dumps(user_login_response)});
-            
-            // Always redirect to the callback page
-            const redirectUrl = `{FRONTEND_URL}/auth/google/callback?token=${{encodeURIComponent('{access_token}')}}&user=${{encodeURIComponent(JSON.stringify({json.dumps(user_login_response)}))}}`;
-            console.log('OAuth popup: Redirecting to:', redirectUrl);
-            
-            // Try to redirect the main window
-            try {{
-                window.opener.location.href = redirectUrl;
-            }} catch (e) {{
-                console.log('OAuth popup: Redirect failed, trying direct navigation');
-                // If redirect fails, navigate directly
-                window.location.href = redirectUrl;
-            }}
-            // Close the popup after a short delay
-            setTimeout(() => {{
-                window.close();
-            }}, 1000);
-        </script>
-        <p>Authentication successful! This window will close automatically.</p>
-    </body>
-    </html>
-    """
+def create_oauth_success_redirect(user_login_response, access_token: str) -> RedirectResponse:
+    """Create proper HTTP redirect for successful OAuth"""
+    # Encode the user data and token for the redirect URL
+    import urllib.parse
+    
+    # Use Pydantic's built-in JSON serialization to handle datetime objects
+    if hasattr(user_login_response, 'model_dump_json'):
+        # Pydantic v2 - use model_dump_json for proper datetime serialization
+        user_data_json = user_login_response.model_dump_json()
+    elif hasattr(user_login_response, 'json'):
+        # Pydantic v1 - use json() method for proper datetime serialization
+        user_data_json = user_login_response.json()
+    else:
+        # Fallback for regular dictionaries
+        user_data_json = json.dumps(user_login_response)
+    
+    user_data_encoded = urllib.parse.quote(user_data_json)
+    token_encoded = urllib.parse.quote(access_token)
+    
+    redirect_url = f"{FRONTEND_URL}/auth/google/callback?token={token_encoded}&user={user_data_encoded}"
+    return RedirectResponse(url=redirect_url, status_code=302)
 
-def create_account_linking_html(account_linking_data: dict) -> str:
-    """Create HTML response for account linking"""
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head><title>Account Linking Required</title></head>
-    <body>
-        <script>
-            // Always redirect to account linking page
-            const redirectUrl = `{FRONTEND_URL}/auth/google/account-linking?data=${{encodeURIComponent(JSON.stringify({json.dumps(account_linking_data)}))}}`;
-            console.log('OAuth popup: Redirecting to account linking:', redirectUrl);
-            
-            // Try to redirect the main window
-            try {{
-                window.opener.location.href = redirectUrl;
-            }} catch (e) {{
-                console.log('OAuth popup: Redirect failed, trying direct navigation');
-                // If redirect fails, navigate directly
-                window.location.href = redirectUrl;
-            }}
-            // Close the popup after a short delay
-            setTimeout(() => {{
-                window.close();
-            }}, 1000);
-        </script>
-        <p>Account linking required! This window will close automatically.</p>
-    </body>
-    </html>
-    """
+def create_account_linking_redirect(account_linking_data: dict) -> RedirectResponse:
+    """Create proper HTTP redirect for account linking"""
+    import urllib.parse
+    data_encoded = urllib.parse.quote(json.dumps(account_linking_data))
+    redirect_url = f"{FRONTEND_URL}/auth/google/account-linking?data={data_encoded}"
+    return RedirectResponse(url=redirect_url, status_code=302)
 
-def create_role_selection_html(role_selection_data: dict) -> str:
-    """Create HTML response for role selection"""
-    return f"""
-    <!DOCTYPE html>
-    <html>
-    <head><title>Role Selection Required</title></head>
-    <body>
-        <script>
-            console.log('OAuth popup: Role selection required');
-            console.log('OAuth popup: Role selection data:', {json.dumps(role_selection_data)});
-            
-            // Always redirect to role selection page
-            const redirectUrl = `{FRONTEND_URL}/auth/google/role-selection?data=${{encodeURIComponent(JSON.stringify({json.dumps(role_selection_data)}))}}`;
-            console.log('OAuth popup: Redirecting to role selection:', redirectUrl);
-            
-            // Try to redirect the main window
-            try {{
-                window.opener.location.href = redirectUrl;
-            }} catch (e) {{
-                console.log('OAuth popup: Redirect failed, trying direct navigation');
-                // If redirect fails, navigate directly
-                window.location.href = redirectUrl;
-            }}
-            // Close the popup after a short delay
-            setTimeout(() => {{
-                window.close();
-            }}, 1000);
-        </script>
-        <p>Role selection required! This window will close automatically.</p>
-    </body>
-    </html>
-    """
+def create_role_selection_redirect(role_selection_data: dict) -> RedirectResponse:
+    """Create proper HTTP redirect for role selection"""
+    import urllib.parse
+    data_encoded = urllib.parse.quote(json.dumps(role_selection_data))
+    redirect_url = f"{FRONTEND_URL}/auth/google/role-selection?data={data_encoded}"
+    return RedirectResponse(url=redirect_url, status_code=302)
 
 def set_auth_cookie(response: Response, access_token: str):
     """Set authentication cookie with proper security settings"""
@@ -358,8 +306,12 @@ async def google_login():
         state = generate_state()
         auth_url = get_google_auth_url(state)
         
-        # Store initial state
-        oauth_state_store.set_state(state, {"status": "pending", "created_at": time.time()})
+        # Store initial state with original state for verification
+        oauth_state_store.set_state(state, {
+            "status": "pending", 
+            "created_at": time.time(),
+            "original_state": state
+        })
         
         return {"auth_url": auth_url, "state": state}
     except Exception as e:
@@ -378,6 +330,8 @@ async def google_callback(
     db: Session = Depends(get_db)
 ):
     """Handle Google OAuth callback"""
+    logger.info(f"OAuth callback received: code={code[:10] if code else 'None'}..., state={state}, error={error}")
+    
     if error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -388,7 +342,7 @@ async def google_callback(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing authorization code or state"
-            )
+        )
     
     # Validate OAuth state
     state_data = validate_oauth_state(state)
@@ -425,7 +379,7 @@ async def google_callback(
     
     try:
         # Exchange code for token
-        token_data = await exchange_code_for_token(code)
+        token_data = exchange_code_for_token(code, state)
         if not token_data:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -449,7 +403,7 @@ async def google_callback(
             logger.error(f"ID token verification failed: {e}")
             # Fallback to userinfo endpoint if id_token verification fails
             logger.warning("Falling back to userinfo endpoint")
-            user_info = await get_google_user_info(token_data["access_token"])
+            user_info = get_google_user_info_from_id_token(token_data["id_token"])
             if not user_info:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -460,6 +414,20 @@ async def google_callback(
         google_id = user_info.get("sub") or user_info.get("id")
         if not google_id:
             raise HTTPException(status_code=400, detail="Invalid Google user info (missing subject)")
+        
+        # Validate OAuth user data using schema
+        try:
+            oauth_user_data = OAuthUserData(
+                google_id=google_id,
+                email=user_info.get("email", ""),
+                full_name=user_info.get("name", ""),
+                avatar_url=user_info.get("picture")
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid OAuth user data: {str(e)}"
+            )
         
         # Mark authorization code as used (only after successful token exchange)
         used_authorization_codes.add(code)
@@ -478,11 +446,16 @@ async def google_callback(
             oauth_state_store.delete_state(state)
             
             user_login_response = create_user_login_response(existing_google_user)
-            return HTMLResponse(create_oauth_success_html(user_login_response, access_token))
+            return create_oauth_success_redirect(user_login_response, access_token)
         
-        # Check if user exists with this email (including OAuth users with modified emails)
-        existing_email_user = find_oauth_user_by_original_email(db, user_info.get("email", ""))
-        logger.info(f"Email lookup for {user_info.get('email', '')} found: {existing_email_user.email if existing_email_user else 'None'}")
+        # Check if user exists with this email (simple lookup first)
+        existing_email_user = find_existing_user_by_email(db, oauth_user_data.email)
+        logger.info(f"Email lookup for {oauth_user_data.email} found: {existing_email_user.email if existing_email_user else 'None'}")
+        
+        # If not found with simple lookup, try complex OAuth email lookup
+        if not existing_email_user:
+            existing_email_user = find_oauth_user_by_original_email(db, oauth_user_data.email)
+            logger.info(f"OAuth email lookup for {oauth_user_data.email} found: {existing_email_user.email if existing_email_user else 'None'}")
         
         if existing_email_user:
             # Check if the existing user is already an OAuth user
@@ -505,7 +478,7 @@ async def google_callback(
                 oauth_state_store.delete_state(state)
                 
                 user_login_response = create_user_login_response(existing_email_user)
-                return HTMLResponse(create_oauth_success_html(user_login_response, access_token))
+                return create_oauth_success_redirect(user_login_response, access_token)
             else:
                 # Account linking scenario for non-OAuth users
                 oauth_state_store.set_state(state, {
@@ -513,10 +486,10 @@ async def google_callback(
                     "created_at": state_data.get("created_at"),
                     "payload": {
                         "google_data": {
-                            "id": google_id,
-                            "email": user_info.get("email", ""),
-                            "name": user_info.get("name", ""),
-                            "picture": user_info.get("picture")
+                            "id": oauth_user_data.google_id,
+                            "email": oauth_user_data.email,
+                            "name": oauth_user_data.full_name,
+                            "picture": oauth_user_data.avatar_url
                         },
                         "existing_user_id": existing_email_user.id
                     }
@@ -532,15 +505,15 @@ async def google_callback(
                         "provider": existing_email_user.provider
                     },
                     "google_data": {
-                        "email": user_info.get("email", ""),
-                    "full_name": user_info.get("name", ""),
-                    "avatar_url": user_info.get("picture"),
-                    "google_id": google_id
-                },
-                "state": state
-            }
+                        "email": oauth_user_data.email,
+                        "full_name": oauth_user_data.full_name,
+                        "avatar_url": oauth_user_data.avatar_url,
+                        "google_id": oauth_user_data.google_id
+                    },
+                    "state": state
+                }
             
-                return HTMLResponse(create_account_linking_html(account_linking_data))
+                return create_account_linking_redirect(account_linking_data)
         
         # Check if role is selected in state
         selected_role = state_data.get("role")
@@ -552,10 +525,10 @@ async def google_callback(
                 "status": "role_selection_required",
                 "created_at": state_data.get("created_at"),
                 "user_info": {
-                    "google_id": google_id,
-                    "email": user_info.get("email", ""),
-                    "name": user_info.get("name", ""),
-                    "picture": user_info.get("picture")
+                    "google_id": oauth_user_data.google_id,
+                    "email": oauth_user_data.email,
+                    "name": oauth_user_data.full_name,
+                    "picture": oauth_user_data.avatar_url
                 }
             })
             
@@ -563,17 +536,23 @@ async def google_callback(
                 "requires_role_selection": True,
                 "state": state,
                 "user_info": {
-                    "google_id": google_id,
-                    "email": user_info.get("email", ""),
-                    "name": user_info.get("name", ""),
-                    "picture": user_info.get("picture")
+                    "google_id": oauth_user_data.google_id,
+                    "email": oauth_user_data.email,
+                    "name": oauth_user_data.full_name,
+                    "picture": oauth_user_data.avatar_url
                 }
             }
             
-            return HTMLResponse(create_role_selection_html(role_selection_data))
+            return create_role_selection_redirect(role_selection_data)
         
         # Create new user with selected role
-        new_user = create_oauth_user(db, {**user_info, "id": google_id}, role=selected_role)
+        new_user = create_oauth_user(db, {
+            "sub": oauth_user_data.google_id,
+            "id": oauth_user_data.google_id,
+            "email": oauth_user_data.email,
+            "name": oauth_user_data.full_name,
+            "picture": oauth_user_data.avatar_url
+        }, role=selected_role)
         
         # Create access token and set cookie
         access_token = create_access_token(data={"sub": str(new_user.id)})
@@ -584,21 +563,24 @@ async def google_callback(
         oauth_state_store.delete_state(state)
         
         user_login_response = create_user_login_response(new_user)
-        return HTMLResponse(create_oauth_success_html(user_login_response, access_token))
+        return create_oauth_success_redirect(user_login_response, access_token)
     
     except HTTPException:
         # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error(f"OAuth callback processing failed: {e}")
+        logger.error(f"OAuth callback error details: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"OAuth callback traceback: {traceback.format_exc()}")
         # Clean up state on failure
         oauth_state_store.delete_state(state)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process OAuth callback"
+            detail=f"Failed to process OAuth callback: {str(e)}"
         )
 
-@router.post("/google/select-role")
+@router.post("/google/select-role", response_model=UserLoginResponse)
 async def select_role_for_oauth(
     role_data: RoleSelectionRequest,
     response: Response,
@@ -637,7 +619,7 @@ async def select_role_for_oauth(
     
     return create_user_login_response(new_user)
 
-@router.post("/google/link")
+@router.post("/google/link", response_model=UserLoginResponse)
 async def link_google_account(
     request: AccountLinkingRequest,
     response: Response,
@@ -694,8 +676,8 @@ async def link_google_account(
         return create_user_login_response(linked_user)
     
     elif request.action == "create_separate":
-        # Create separate account with Google OAuth (default to student role for separate accounts)
-        new_user = create_oauth_user(db, google_user_data, force_create=True, role="student")
+        # Create separate account with Google OAuth using selected role
+        new_user = create_oauth_user(db, google_user_data, force_create=True, role=request.role)
         
         # Create access token and set cookie
         access_token = create_access_token(data={"sub": str(new_user.id)})

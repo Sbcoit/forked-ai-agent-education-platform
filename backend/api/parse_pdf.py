@@ -8,9 +8,8 @@ from sqlalchemy.orm import Session
 import httpx
 import openai
 from typing import List, Optional
-from PyPDF2 import PdfReader
+# PyPDF2 removed - using LlamaParse for all PDF parsing
 from datetime import datetime
-import string
 import unicodedata
 from functools import wraps
 import time
@@ -74,21 +73,20 @@ def async_retry(retries: int = 3, delay: float = 1.0):
     return decorator
 
 async def extract_text_from_context_files(context_files: List[UploadFile]) -> str:
-    """Extract text from context files (PDFs and TXT files)"""
+    """Extract text from context files using LlamaParse for PDFs and direct extraction for text files"""
     context_texts = []
     for file in context_files:
         filename = file.filename.lower()
-        contents = await file.read()
         if filename.endswith('.pdf'):
             try:
-                import io
-                reader = PdfReader(io.BytesIO(contents))
-                text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                # Use LlamaParse for PDF files
+                text = await parse_with_llamaparse(file)
                 context_texts.append(f"[Context File: {file.filename}]\n{text.strip()}\n")
             except Exception as e:
                 context_texts.append(f"[Context File: {file.filename}]\n[Could not extract PDF text: {e}]\n")
         elif filename.endswith('.txt'):
             try:
+                contents = await file.read()
                 text = contents.decode('utf-8', errors='ignore')
                 context_texts.append(f"[Context File: {file.filename}]\n{text.strip()}\n")
             except Exception as e:
@@ -2276,28 +2274,27 @@ def _create_fallback_scenes() -> list:
     ]
 
 async def _parse_uploaded_files_optimized(main_file: UploadFile, context_files: List[UploadFile]) -> tuple:
-    """Parse uploaded files - optimized version"""
-    import io
+    """Parse uploaded files using LlamaParse for PDFs and direct extraction for text files"""
     main_content = ""
     context_content = ""
     
     try:
         if main_file.filename.endswith('.pdf'):
-            pdf_bytes = await main_file.read()
-            reader = PdfReader(io.BytesIO(pdf_bytes))
-            for page in reader.pages:
-                main_content += page.extract_text() + "\n"
+            # Use LlamaParse for PDF files
+            main_content = await parse_with_llamaparse(main_file)
         else:
+            # Direct text extraction for non-PDF files
             main_content = (await main_file.read()).decode('utf-8')
         
         for ctx_file in context_files:
             if ctx_file.filename.endswith('.pdf'):
-                ctx_bytes = await ctx_file.read()
-                ctx_reader = PdfReader(io.BytesIO(ctx_bytes))
-                for page in ctx_reader.pages:
-                    context_content += page.extract_text() + "\n"
+                # Use LlamaParse for PDF context files
+                ctx_text = await parse_with_llamaparse(ctx_file)
+                context_content += ctx_text + "\n"
             else:
-                context_content += (await ctx_file.read()).decode('utf-8') + "\n"
+                # Direct text extraction for non-PDF context files
+                ctx_text = (await ctx_file.read()).decode('utf-8')
+                context_content += ctx_text + "\n"
                 
     except Exception as e:
         debug_log(f"[FILE_PARSE_ERROR] {str(e)}")

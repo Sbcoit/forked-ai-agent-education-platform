@@ -11,7 +11,6 @@ except ImportError:
     from pydantic import BaseSettings
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import PGVector
-from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.memory import ConversationBufferWindowMemory, ConversationSummaryBufferMemory
 from langchain.schema import BaseMessage
 from langchain.cache import RedisCache, InMemoryCache
@@ -35,8 +34,7 @@ class LangChainSettings(BaseSettings):
     redis_enabled: bool = True
     
     # Embedding Configuration
-    embedding_model: str = "openai"  # "openai" or "huggingface"
-    huggingface_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model: str = "openai"
     
     # Memory Configuration
     conversation_window_size: int = 10
@@ -93,23 +91,13 @@ class LangChainManager:
     
     @property
     def embeddings(self):
-        """Get or create embeddings instance"""
+        """Get or create OpenAI embeddings instance"""
         if self._embeddings is None:
-            # support explicit provider setting, and fall back to legacy uses where embedding_model held the provider
-            provider = getattr(settings, "embedding_provider", None)
-            if provider is None and getattr(settings, "embedding_model", None) == "openai":
-                provider = "openai"
-
-            if provider == "openai":
-                model_name = getattr(settings, "openai_embedding_model", getattr(settings, "embedding_model", None))
-                self._embeddings = OpenAIEmbeddings(
-                    model=model_name,
-                    api_key=getattr(settings, "openai_api_key", None)
-                )
-            else:
-                self._embeddings = HuggingFaceEmbeddings(
-                    model_name=settings.huggingface_model
-                )
+            model_name = getattr(settings, "openai_embedding_model", "text-embedding-3-small")
+            self._embeddings = OpenAIEmbeddings(
+                model=model_name,
+                api_key=getattr(settings, "openai_api_key", None)
+            )
         return self._embeddings
     
     @property

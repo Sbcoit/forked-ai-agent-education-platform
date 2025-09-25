@@ -99,7 +99,20 @@ export default function RoleSelectionPage() {
       // Store user data in sessionStorage for immediate access
       if (result.user) {
         sessionStorage.setItem('user', JSON.stringify(result.user))
-        console.log('Role selection: Stored user in sessionStorage')
+        console.log('Role selection: Stored user in sessionStorage with role:', result.user.role)
+      }
+
+      // Notify the main window about successful authentication
+      if (window.opener) {
+        console.log('Role selection: Notifying main window of successful authentication')
+        window.opener.postMessage({
+          type: 'GOOGLE_OAUTH_SUCCESS',
+          data: {
+            user: result.user,
+            access_token: result.access_token,
+            token_type: 'cookie'
+          }
+        }, window.location.origin)
       }
 
       // Redirect to dashboard

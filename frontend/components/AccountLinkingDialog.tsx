@@ -31,6 +31,11 @@ export function AccountLinkingDialog({
       if (selectedAction === 'create_separate' && !selectedRole) {
         return // Don't proceed without role selection
       }
+      console.log('AccountLinkingDialog: Calling onLinkAccount with:', {
+        action: selectedAction,
+        role: selectedRole,
+        existingUserId: linkingData.existing_user.id
+      })
       await onLinkAccount(selectedAction, selectedRole || undefined)
     }
   }

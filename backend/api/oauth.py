@@ -433,6 +433,7 @@ async def google_callback(
         used_authorization_codes.add(code)
         
         # Check if user already exists with this Google ID
+        logger.info(f"Looking for existing user with Google ID: {google_id}")
         existing_google_user = find_existing_user_by_google_id(db, google_id)
         if existing_google_user:
             logger.info(f"Found existing user by Google ID: {existing_google_user.email} (ID: {existing_google_user.id})")
@@ -447,6 +448,32 @@ async def google_callback(
             
             user_login_response = create_user_login_response(existing_google_user)
             return create_oauth_success_redirect(user_login_response, access_token)
+        else:
+            logger.info(f"No existing user found with Google ID: {google_id}")
+            # Create new user and redirect to role selection
+            oauth_state_store.set_state(state, {
+                "status": "role_selection_required",
+                "created_at": state_data.get("created_at"),
+                "user_info": {
+                    "google_id": google_id,
+                    "email": oauth_user_data.email,
+                    "name": oauth_user_data.full_name,
+                    "picture": oauth_user_data.avatar_url
+                }
+            })
+            
+            role_selection_data = {
+                "requires_role_selection": True,
+                "state": state,
+                "user_info": {
+                    "google_id": google_id,
+                    "email": oauth_user_data.email,
+                    "name": oauth_user_data.full_name,
+                    "picture": oauth_user_data.avatar_url
+                }
+            }
+            
+            return create_role_selection_redirect(role_selection_data)
         
         # Check if user exists with this email (simple lookup first)
         existing_email_user = find_existing_user_by_email(db, oauth_user_data.email)
@@ -607,7 +634,20 @@ async def select_role_for_oauth(
         )
     
     # Create new user with selected role
-    new_user = create_oauth_user(db, user_info, role=role_data.role)
+    logger.info(f"Creating new user with role: {role_data.role}")
+    logger.info(f"User info: {user_info}")
+    
+    # Format user_info for create_oauth_user
+    google_data = {
+        "sub": user_info.get("google_id"),
+        "id": user_info.get("google_id"),
+        "email": user_info.get("email"),
+        "name": user_info.get("name"),
+        "picture": user_info.get("picture")
+    }
+    
+    new_user = create_oauth_user(db, google_data, role=role_data.role)
+    logger.info(f"Created user: {new_user.email} with role: {new_user.role} (ID: {new_user.id})")
     
     # Create access token and set cookie
     access_token = create_access_token(data={"sub": str(new_user.id)})

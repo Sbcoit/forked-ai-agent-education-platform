@@ -262,6 +262,7 @@ export class GoogleOAuth {
               console.log('Window close blocked by COOP policy')
             }
             console.log('Frontend: Resolving with data:', event.data.data)
+            console.log('Frontend: User role from popup:', event.data.data?.user?.role)
             resolve(event.data.data)
           } else if (event.data.type === 'GOOGLE_OAUTH_ROLE_SELECTION_REQUIRED') {
             // Don't close the popup - let the user select a role
@@ -298,20 +299,29 @@ export class GoogleOAuth {
   }
 
   async linkAccount(action: 'link' | 'create_separate', existingUserId: number, googleData: OAuthUserData, state: string, role?: 'student' | 'professor'): Promise<any> {
+    console.log('GoogleOAuth: linkAccount called with:', {
+      action,
+      existingUserId,
+      role,
+      googleDataEmail: googleData.email
+    })
     try {
+      const requestBody = {
+        action,
+        existing_user_id: existingUserId,
+        google_data: googleData,
+        state,
+        role,
+      }
+      console.log('GoogleOAuth: Sending request body:', requestBody)
+      
       const response = await fetch(`${getApiBaseUrlLazy()}/auth/google/link`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({
-          action,
-          existing_user_id: existingUserId,
-          google_data: googleData,
-          state,
-          role,
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!response.ok) {

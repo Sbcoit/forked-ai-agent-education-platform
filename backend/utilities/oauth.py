@@ -272,11 +272,12 @@ def create_oauth_user(db: Session, google_data: Dict[str, Any], force_create: bo
     google_id_value = google_data.get("sub") or google_data.get("id")
     existing_user = db.query(User).filter(User.google_id == google_id_value).first()
     if existing_user:
-        # User already exists, update their information
+        # User already exists, update their information and role
         existing_user.full_name = google_data.get("name", existing_user.full_name)
         existing_user.avatar_url = google_data.get("picture", existing_user.avatar_url)
         existing_user.provider = "google"
         existing_user.is_verified = True
+        existing_user.role = role  # Update the role with the selected role
         db.commit()
         db.refresh(existing_user)
         return existing_user
@@ -322,9 +323,11 @@ def create_oauth_user(db: Session, google_data: Dict[str, Any], force_create: bo
         is_verified=True,  # Google accounts are considered verified
     )
     
+    print(f"DEBUG: Creating user with email: {user_email}, role: {role}, google_id: {user.google_id}")
     db.add(user)
     db.commit()
     db.refresh(user)
+    print(f"DEBUG: User created successfully with ID: {user.id}")
     return user
 
 def link_google_to_existing_user(db: Session, user: User, google_data: Dict[str, Any]) -> User:

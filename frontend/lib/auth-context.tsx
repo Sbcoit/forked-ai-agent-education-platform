@@ -278,6 +278,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           message: 'Login successful'
         }
         console.log('Auth Context: Setting user state:', successResult.user)
+        console.log('Auth Context: User role from OAuth result:', successResult.user.role)
         setUser(successResult.user)
         // Token is now handled server-side via HttpOnly cookies
         updateLastActivity() // Update activity on successful Google login
@@ -298,6 +299,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const linkGoogleAccount = async (action: 'link' | 'create_separate', existingUserId: number, googleData: AccountLinkingData['google_data'], state: string, role?: 'student' | 'professor') => {
+    console.log('Auth Context: linkGoogleAccount called with role:', role)
     setIsLoading(true)
     try {
       const googleOAuth = GoogleOAuth.getInstance()
@@ -309,6 +311,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         avatar_url: googleData.picture
       }
       const result = await googleOAuth.linkAccount(action, existingUserId, oauthUserData, state, role)
+      console.log('Auth Context: linkAccount result user role:', result.user.role)
       setUser(result.user)
       // Token is now handled server-side via HttpOnly cookies
       updateLastActivity() // Update activity on successful account linking

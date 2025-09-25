@@ -1793,6 +1793,8 @@ return (
                            return (
                              <div key={uniqueKey} className="relative w-full">
                                <div onClick={() => setEditingSceneIdx(originalIdx)} style={{ cursor: 'pointer' }}>
+                                 {console.log("DEBUG: autofillResult:", autofillResult)}
+                                 {console.log("DEBUG: student_role:", autofillResult?.student_role)}
                                  <SceneCard
                                    scene={scene}
                                    onSave={updatedScene => handleSaveScene(originalIdx, updatedScene)}
@@ -1835,6 +1837,8 @@ return (
      {/* Modal for editing scene */}
      {editingSceneIdx !== null && (
        <SceneModal isOpen={true} onClose={() => setEditingSceneIdx(null)}>
+         {console.log("DEBUG EDIT MODE: autofillResult:", autofillResult)}
+         {console.log("DEBUG EDIT MODE: student_role:", autofillResult?.student_role)}
          <SceneCard
            scene={scenes[editingSceneIdx]}
            onSave={updatedScene => handleSaveScene(editingSceneIdx, updatedScene)}

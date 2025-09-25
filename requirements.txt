@@ -65,6 +65,7 @@ schedule==1.2.2
 
 # Scientific Computing
 numpy>=1.26.0,<2.0.0  # Used in vector_store.py for array operations, compatible with LangChain
+scikit-learn>=1.7.0,<2.0.0  # Used in embedding_service.py for cosine similarity calculations
 
 # Note: The following are built-in Python modules and don't need to be installed:
 # hashlib, base64, pickle, asyncio, json, datetime, time, os, sys, 

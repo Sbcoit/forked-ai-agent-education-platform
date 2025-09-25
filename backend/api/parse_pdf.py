@@ -1476,6 +1476,16 @@ CASE STUDY CONTENT (context files first, then main PDF):
                 student_role = final_result.get("student_role", "").lower()
                 key_figures = final_result.get("key_figures", [])
 
+                # Capture main character name before removing from key_figures
+                main_character_name = None
+                print(f"[DEBUG] Checking {len(key_figures)} key_figures for main character...")
+                for i, fig in enumerate(key_figures):
+                    print(f"[DEBUG] Persona {i}: {fig.get('name', '')} - is_main_character: {fig.get('is_main_character', False)}")
+                    if fig.get("is_main_character", False):
+                        main_character_name = fig.get("name", "")
+                        debug_log(f"Main character identified: {main_character_name}")
+                        break
+
                 # After parsing key_figures, filter out any with is_main_character true
                 filtered_key_figures = []
                 for fig in key_figures:
@@ -1495,24 +1505,23 @@ CASE STUDY CONTENT (context files first, then main PDF):
                         if (not scene.get("personas_involved") or len(scene.get("personas_involved", [])) == 0) and i < len(scene_cards):
                             pi = scene_cards[i].get("personas_involved", [])
                             if pi:
+                                # Note: Main character filtering will be handled later in the pipeline
                                 scene["personas_involved"] = pi
                         # --- ENFORCE: At least one non-student persona in personas_involved ---
                         personas = scene.get("personas_involved", [])
-                        # Remove main character if present
-                        personas = [p for p in personas if p.strip().lower() != student_role]
+                        # Note: Main character removal is handled later in the processing pipeline
                         # Parse description for persona names
                         desc = scene.get("description", "")
-                        mentioned = [name for name in key_figure_names if name in desc and name.strip().lower() != student_role]
+                        mentioned = [name for name in key_figure_names if name in desc]
                         for name in mentioned:
                             if name not in personas:
                                 personas.append(name)
-                        # If still empty, add the first non-student persona
+                        # If still empty, add the first available persona
                         if not personas and key_figure_names:
-                            first_non_student = next((n for n in key_figure_names if n.strip().lower() != student_role), None)
-                            if first_non_student:
-                                personas.append(first_non_student)
-                                # Optionally, append a sentence to the description
-                                scene["description"] = desc + f"\n\n{first_non_student} is present in this scene."
+                            first_persona = key_figure_names[0]
+                            personas.append(first_persona)
+                            # Optionally, append a sentence to the description
+                            scene["description"] = desc + f"\n\n{first_persona} is present in this scene."
                         scene["personas_involved"] = personas
                         # Fallback for successMetric
                         if not scene.get("successMetric") and i < len(scene_cards):
@@ -1521,78 +1530,25 @@ CASE STUDY CONTENT (context files first, then main PDF):
                                 scene["successMetric"] = metric
                 print("[DEBUG] Final processed scenes:", final_result.get("scenes", []))
                 
-                # Robust main character detection
-                main_character_name = None
-                main_character_index = None
-                student_role = final_result.get("student_role", "")
-                student_role_norm = normalize_name(student_role)
-                key_figures = final_result.get("key_figures", [])
-                scenes = final_result.get("scenes", [])
+                # Main character name was already captured above before filtering
 
-                # Helper: count appearances in scenes
-                def persona_scene_count(name):
-                    n = normalize_name(name)
-                    count = 0
-                    for scene in scenes:
-                        for p in scene.get("personas_involved", []):
-                            if normalize_name(p) == n:
-                                count += 1
-                    return count
-
-                # 1. Try to match student_role to persona name (direct or substring)
-                name_matches = []
-                for idx, fig in enumerate(key_figures):
-                    fig_name = fig.get("name", "")
-                    fig_name_norm = normalize_name(fig_name)
-                    if student_role_norm == fig_name_norm or student_role_norm in fig_name_norm or fig_name_norm in student_role_norm:
-                        name_matches.append((idx, fig_name))
-                if name_matches:
-                    # Prefer the one who appears in the most scenes
-                    best = max(name_matches, key=lambda x: persona_scene_count(x[1]))
-                    main_character_index, main_character_name = best
-                else:
-                    # 2. Try to match student_role to persona role (substring/fuzzy)
-                    role_matches = []
-                    for idx, fig in enumerate(key_figures):
-                        fig_role = fig.get("role", "")
-                        fig_role_norm = normalize_name(fig_role)
-                        if student_role_norm == fig_role_norm or student_role_norm in fig_role_norm or fig_role_norm in student_role_norm:
-                            role_matches.append((idx, fig.get("name", "")))
-                    if role_matches:
-                        best = max(role_matches, key=lambda x: persona_scene_count(x[1]))
-                        main_character_index, main_character_name = best
-                    else:
-                        # 3. If still not found, pick the persona who appears in the most scenes
-                        if key_figures and scenes:
-                            persona_counts = {fig.get("name", ""): persona_scene_count(fig.get("name", "")) for fig in key_figures}
-                            # Only pick if someone appears in > half the scenes (likely main)
-                            if persona_counts:
-                                most_common = max(persona_counts.items(), key=lambda x: x[1])
-                                if most_common[1] > len(scenes) // 2:
-                                    main_character_name = most_common[0]
-                                    for idx, fig in enumerate(key_figures):
-                                        if fig.get("name", "") == main_character_name:
-                                            main_character_index = idx
-                                            break
-
-                # 4. Mark only that persona as is_main_character and filter from all personas_involved
-                for idx, fig in enumerate(key_figures):
-                    fig["is_main_character"] = (idx == main_character_index)
-
+                # Final cleanup: Remove main character from all scenes
                 if main_character_name:
-                    print(f"[DEBUG] Main character detected: {main_character_name} (normalized: {student_role_norm}) at index {main_character_index}")
+                    print(f"[DEBUG] Starting final cleanup to remove main character: {main_character_name}")
+                    main_character_name_norm = normalize_name(main_character_name)
+                    print(f"[DEBUG] Normalized main character name: '{main_character_name_norm}'")
+                    for scene in final_result.get("scenes", []):
+                        before = list(scene.get("personas_involved", []))
+                        filtered = []
+                        for p in scene.get("personas_involved", []):
+                            p_norm = normalize_name(p)
+                            print(f"[DEBUG] Comparing '{p}' (normalized: '{p_norm}') with '{main_character_name_norm}'")
+                            if p_norm != main_character_name_norm:
+                                filtered.append(p)
+                        print(f"[DEBUG] Filtering personas_involved: {before} | main_character: {main_character_name} | after: {filtered}")
+                        scene["personas_involved"] = filtered
                 else:
-                    print(f"[DEBUG] No main character found matching student_role '{student_role}' (normalized: {student_role_norm})")
-
-                main_character_name_norm = normalize_name(main_character_name) if main_character_name else None
-                for scene in final_result.get("scenes", []):
-                    before = list(scene.get("personas_involved", []))
-                    filtered = [
-                        p for p in scene.get("personas_involved", [])
-                        if normalize_name(p) != main_character_name_norm
-                    ]
-                    print(f"[DEBUG] Filtering personas_involved: {before} | main_character_name_norm: {main_character_name_norm} | after: {filtered}")
-                    scene["personas_involved"] = filtered
+                    print(f"[DEBUG] No main character to remove from scenes")
                 
                 return final_result
             except json.JSONDecodeError as e:

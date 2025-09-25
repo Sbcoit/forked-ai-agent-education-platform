@@ -133,26 +133,48 @@ export default function SceneCard({
   const normStudentRole = normalizeName(studentRole || "");
 
   // Filter out main character from personas_involved for display and edit
-  const filteredPersonasInvolved = (editFields.personas_involved || []).filter(
+  // Method 1: Filter by studentRole if available
+  let filteredPersonasInvolved = (editFields.personas_involved || []).filter(
     name => normalizeName(name) !== normStudentRole
   );
+  
+  // Method 2: If studentRole is empty, filter out personas that are NOT in allPersonas
+  // (This catches the main character who appears in scenes but not in the personas list)
+  if (!normStudentRole && allPersonas.length > 0) {
+    const validPersonaNames = new Set(allPersonas.map(p => p.name));
+    filteredPersonasInvolved = (editFields.personas_involved || []).filter(
+      name => validPersonaNames.has(name)
+    );
+  }
 
   // For chips: show all personas_involved except the main character
   const chipsPersonasInvolved = filteredPersonasInvolved;
 
   // Debugging logs
+  console.log("=== SCENE CARD DEBUG ===");
+  console.log("Scene title:", scene.title);
   console.log("editFields.personas_involved:", editFields.personas_involved);
+  console.log("studentRole:", studentRole);
+  console.log("normStudentRole:", normStudentRole);
   console.log("allPersonas:", allPersonas.map(p => p.name));
   console.log("Normalized editFields.personas_involved:", editFields.personas_involved.map(normalizeName));
   console.log("Normalized allPersonas:", allPersonas.map(p => normalizeName(p.name)));
+  console.log("filteredPersonasInvolved:", filteredPersonasInvolved);
 
   // Display mode (TimelineCard style)
   if (!editMode) {
     const validPersonaNames = new Set(allPersonas.map(p => p.name));
-    // Also filter out main character in display mode
-    const filteredPersonasInvolvedDisplay = (scene.personas_involved || []).filter(
+    // Filter out main character in display mode
+    let filteredPersonasInvolvedDisplay = (scene.personas_involved || []).filter(
       name => validPersonaNames.has(name) && normalizeName(name) !== normStudentRole
     );
+    
+    // If studentRole is empty, just filter by valid personas
+    if (!normStudentRole) {
+      filteredPersonasInvolvedDisplay = (scene.personas_involved || []).filter(
+        name => validPersonaNames.has(name)
+      );
+    }
     return (
       <Card
         className={`flex flex-row items-stretch w-full max-w-4xl min-h-[140px] p-3 mb-3 border border-gray-200 shadow-md cursor-pointer transition-all duration-200`}
@@ -208,10 +230,15 @@ export default function SceneCard({
   // const chipsPersonasInvolved = filteredPersonasInvolved; // This line is removed
 
   // Debugging logs
+  console.log("=== SCENE CARD EDIT MODE DEBUG ===");
+  console.log("Scene title:", scene.title);
   console.log("editFields.personas_involved:", editFields.personas_involved);
+  console.log("studentRole:", studentRole);
+  console.log("normStudentRole:", normStudentRole);
   console.log("allPersonas:", allPersonas.map(p => p.name));
   console.log("Normalized editFields.personas_involved:", editFields.personas_involved.map(normalizeName));
   console.log("Normalized allPersonas:", allPersonas.map(p => normalizeName(p.name)));
+  console.log("filteredPersonasInvolved:", filteredPersonasInvolved);
 
   // Edit mode (TimelineCard style)
   return (

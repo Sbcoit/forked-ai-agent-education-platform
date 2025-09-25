@@ -13,6 +13,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import os
 from database.connection import settings
+from services.few_shot_examples import few_shot_examples_service
 
 # LangChain imports (optional)
 try:
@@ -279,12 +280,17 @@ Respond with only a number between 0.0 and 1.0:"""
         scene_data: Dict[str, Any],
         attempt_number: int
     ) -> str:
-        """Build comprehensive persona context for AI"""
+        """Build comprehensive persona context for AI with few-shot examples"""
         
         personality_traits = persona_data.get('personality_traits', {})
         traits_text = ", ".join([f"{trait}: {score}/10" for trait, score in personality_traits.items()])
         
+        # Get role-specific examples
+        examples = few_shot_examples_service.get_adaptive_examples(persona_data, attempt_number)
+        
         context = f"""You are {persona_data['name']}, a {persona_data['role']} in this business simulation.
+
+{examples}
 
 PERSONA BACKGROUND:
 {persona_data.get('background', 'No background provided')}
@@ -311,6 +317,7 @@ SIMULATION INSTRUCTIONS:
 - Keep responses concise and professional (2-4 sentences typically)
 - If the user seems stuck, provide subtle hints through natural conversation
 - Adapt your communication style to your personality traits
+- Follow the examples above to maintain consistent character behavior
 - Remember this is attempt #{attempt_number} - adjust your helpfulness accordingly"""
         
         # Add attempt-specific guidance

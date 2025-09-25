@@ -31,6 +31,7 @@ from database.schemas import (
     ScenarioResponse, ScenarioSceneResponse, ScenarioPersonaResponse
 )
 from .chat_orchestrator import ChatOrchestrator, SimulationState
+from services.few_shot_examples import few_shot_examples_service
 
 router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 
@@ -563,8 +564,21 @@ async def chat_with_persona(
         "content": request.message
     })
     
+    # Create persona data for few-shot examples
+    persona_data = {
+        'name': target_persona.name,
+        'role': target_persona.role,
+        'personality_traits': target_persona.personality_traits or {},
+        'primary_goals': target_persona.primary_goals or []
+    }
+    
+    # Get role-specific examples
+    examples = few_shot_examples_service.get_adaptive_examples(persona_data, current_attempt)
+    
     # Create AI prompt with persona and scene context
     system_prompt = f"""You are {target_persona.name}, a {target_persona.role} in this business simulation.
+
+{examples}
 
 PERSONA BACKGROUND:
 {target_persona.background}
@@ -573,6 +587,8 @@ PERSONA CORRELATION TO CASE:
 {target_persona.correlation}
 
 PERSONALITY TRAITS: {json.dumps(target_persona.personality_traits)}
+
+PRIMARY GOALS: {', '.join(target_persona.primary_goals or [])}
 
 SCENE CONTEXT:
 Title: {scene.title}
@@ -584,8 +600,9 @@ SIMULATION INSTRUCTIONS:
 - Respond naturally based on your role and personality
 - Help guide the user toward the scene goal through realistic business interaction
 - Don't directly give away answers, but provide realistic business insights
-- Keep responses concise and professional
+- Keep responses concise and professional (2-4 sentences typically)
 - If the user seems stuck, provide subtle hints through natural conversation
+- Follow the examples above to maintain consistent character behavior
 - Keep your response concise. Use paragraph breaks for readability.
 """
     
@@ -1469,8 +1486,21 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                             break
                 
                 if target_persona:
+                    # Create persona data for few-shot examples
+                    persona_data = {
+                        'name': target_persona['identity']['name'],
+                        'role': target_persona['identity']['role'],
+                        'personality_traits': target_persona.get('personality', {}),
+                        'primary_goals': target_persona.get('personality', {}).get('goals', [])
+                    }
+                    
+                    # Get role-specific examples
+                    examples = few_shot_examples_service.get_adaptive_examples(persona_data, orchestrator.state.turn_count)
+                    
                     # Create a more focused system prompt for persona interaction
                     system_prompt = f"""You are {target_persona['identity']['name']}, a {target_persona['identity']['role']} in this business simulation.
+
+{examples}
 
 PERSONA BACKGROUND: {target_persona['identity']['bio']}
 

@@ -16,7 +16,8 @@ from datetime import datetime
 
 from langchain_config import langchain_manager, settings
 from database.models import ScenarioPersona, ConversationLog
-from database.connection import SessionLocal
+from database.connection import get_db, SessionLocal
+from services.few_shot_examples import few_shot_examples_service
 
 class PersonaCallbackHandler(BaseCallbackHandler):
     """Callback handler for persona interactions"""
@@ -148,12 +149,34 @@ class PersonaAgent:
             MessagesPlaceholder(variable_name="agent_scratchpad")
         ])
     
-    def _get_system_prompt(self) -> str:
-        """Generate system prompt for the persona"""
+    def _create_persona_prompt_with_attempt(self, attempt_number: int) -> ChatPromptTemplate:
+        """Create persona-specific prompt template with attempt-specific examples"""
+        return ChatPromptTemplate.from_messages([
+            ("system", self._get_system_prompt(attempt_number)),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{input}"),
+            MessagesPlaceholder(variable_name="agent_scratchpad")
+        ])
+    
+    def _get_system_prompt(self, attempt_number: int = 1) -> str:
+        """Generate system prompt for the persona with few-shot examples"""
         personality_traits = self.persona.personality_traits or {}
         primary_goals = self.persona.primary_goals or []
         
+        # Create persona data for few-shot examples
+        persona_data = {
+            'name': self.persona.name,
+            'role': self.persona.role,
+            'personality_traits': personality_traits,
+            'primary_goals': primary_goals
+        }
+        
+        # Get role-specific examples
+        examples = few_shot_examples_service.get_adaptive_examples(persona_data, attempt_number)
+        
         return f"""You are {self.persona.name}, a {self.persona.role} in this business simulation.
+
+{examples}
 
 PERSONA BACKGROUND:
 {self.persona.background}
@@ -172,9 +195,10 @@ INSTRUCTIONS:
 - Respond based on your role, background, and personality traits
 - Help guide the user toward scene objectives through realistic business interaction
 - Don't directly give away answers, but provide realistic business insights
-- Keep responses concise and professional
+- Keep responses concise and professional (2-4 sentences typically)
 - Use your tools to access relevant context and knowledge
 - If the user seems stuck, provide subtle hints through natural conversation
+- Follow the examples above to maintain consistent character behavior
 
 Remember: You are {self.persona.name}, not an AI assistant. Respond as this character would in a real business situation."""
     
@@ -182,7 +206,8 @@ Remember: You are {self.persona.name}, not an AI assistant. Respond as this char
                    message: str, 
                    scene_context: Dict[str, Any],
                    user_progress_id: int,
-                   scene_id: int) -> str:
+                   scene_id: int,
+                   attempt_number: int = 1) -> str:
         """Process a chat message with the persona"""
         
         # Create callback handler for logging
@@ -191,6 +216,9 @@ Remember: You are {self.persona.name}, not an AI assistant. Respond as this char
             user_progress_id=user_progress_id,
             scene_id=scene_id
         )
+        
+        # Update the prompt with attempt-specific examples
+        self.prompt = self._create_persona_prompt_with_attempt(attempt_number)
         
         # Prepare input with scene context
         input_data = {

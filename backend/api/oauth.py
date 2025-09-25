@@ -448,33 +448,6 @@ async def google_callback(
             
             user_login_response = create_user_login_response(existing_google_user)
             return create_oauth_success_redirect(user_login_response, access_token)
-        else:
-            logger.info(f"No existing user found with Google ID: {google_id}")
-            # Create new user and redirect to role selection
-            oauth_state_store.set_state(state, {
-                "status": "role_selection_required",
-                "created_at": state_data.get("created_at"),
-                "user_info": {
-                    "google_id": google_id,
-                    "email": oauth_user_data.email,
-                    "name": oauth_user_data.full_name,
-                    "picture": oauth_user_data.avatar_url
-                }
-            })
-            
-            role_selection_data = {
-                "requires_role_selection": True,
-                "state": state,
-                "user_info": {
-                    "google_id": google_id,
-                    "email": oauth_user_data.email,
-                    "name": oauth_user_data.full_name,
-                    "picture": oauth_user_data.avatar_url
-                }
-            }
-            
-            return create_role_selection_redirect(role_selection_data)
-        
         # Check if user exists with this email (simple lookup first)
         existing_email_user = find_existing_user_by_email(db, oauth_user_data.email)
         logger.info(f"Email lookup for {oauth_user_data.email} found: {existing_email_user.email if existing_email_user else 'None'}")
@@ -542,55 +515,32 @@ async def google_callback(
             
                 return create_account_linking_redirect(account_linking_data)
         
-        # Check if role is selected in state
-        selected_role = state_data.get("role")
-        
-        # If no role is selected, require role selection
-        if not selected_role:
-            # Store OAuth data in state for role selection
-            oauth_state_store.set_state(state, {
-                "status": "role_selection_required",
-                "created_at": state_data.get("created_at"),
-                "user_info": {
-                    "google_id": oauth_user_data.google_id,
-                    "email": oauth_user_data.email,
-                    "name": oauth_user_data.full_name,
-                    "picture": oauth_user_data.avatar_url
-                }
-            })
-            
-            role_selection_data = {
-                "requires_role_selection": True,
-                "state": state,
-                "user_info": {
-                    "google_id": oauth_user_data.google_id,
-                    "email": oauth_user_data.email,
-                    "name": oauth_user_data.full_name,
-                    "picture": oauth_user_data.avatar_url
-                }
+        # No existing user found by email - this is a completely new user
+        logger.info(f"No existing user found with email: {oauth_user_data.email}")
+        # Create new user and redirect to role selection
+        oauth_state_store.set_state(state, {
+            "status": "role_selection_required",
+            "created_at": state_data.get("created_at"),
+            "user_info": {
+                "google_id": google_id,
+                "email": oauth_user_data.email,
+                "name": oauth_user_data.full_name,
+                "picture": oauth_user_data.avatar_url
             }
-            
-            return create_role_selection_redirect(role_selection_data)
+        })
         
-        # Create new user with selected role
-        new_user = create_oauth_user(db, {
-            "sub": oauth_user_data.google_id,
-            "id": oauth_user_data.google_id,
-            "email": oauth_user_data.email,
-            "name": oauth_user_data.full_name,
-            "picture": oauth_user_data.avatar_url
-        }, role=selected_role)
+        role_selection_data = {
+            "requires_role_selection": True,
+            "state": state,
+            "user_info": {
+                "google_id": google_id,
+                "email": oauth_user_data.email,
+                "name": oauth_user_data.full_name,
+                "picture": oauth_user_data.avatar_url
+            }
+        }
         
-        # Create access token and set cookie
-        access_token = create_access_token(data={"sub": str(new_user.id)})
-        set_auth_cookie(response, access_token)
-        add_cors_headers(response)
-        
-        # Clean up state
-        oauth_state_store.delete_state(state)
-        
-        user_login_response = create_user_login_response(new_user)
-        return create_oauth_success_redirect(user_login_response, access_token)
+        return create_role_selection_redirect(role_selection_data)
     
     except HTTPException:
         # Re-raise HTTP exceptions

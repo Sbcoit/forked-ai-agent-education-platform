@@ -701,6 +701,16 @@ async def login_user(user: UserLogin, response: Response, db: Session = Depends(
         )
     )
 
+@app.post("/users/check-email")
+async def check_email_exists(request: dict, db: Session = Depends(get_db)):
+    """Check if an email already exists in the database"""
+    email = request.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    
+    existing_user = db.query(User).filter(User.email == email).first()
+    return {"exists": existing_user is not None}
+
 @app.post("/users/logout")
 async def logout_user(response: Response):
     """Logout user by clearing HttpOnly cookie"""

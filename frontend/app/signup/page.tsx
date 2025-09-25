@@ -47,7 +47,8 @@ export default function SignupPage() {
       return
     }
     
-    if (user && !loading) {
+    // Only redirect if user is authenticated AND we're not in the middle of a registration attempt
+    if (user && !loading && step === 1) {
       // User just registered via Google OAuth, redirect based on role
       console.log("🔄 User authenticated via Google OAuth, redirecting based on role:", user.role)
       if (user.role === 'professor' || user.role === 'admin') {
@@ -59,7 +60,7 @@ export default function SignupPage() {
         router.push('/dashboard')
       }
     }
-  }, [user, loading, router])
+  }, [user, loading, router, step])
   
   const [selectedRole, setSelectedRole] = useState<"student" | "professor" | null>(null)
   const [formData, setFormData] = useState({
@@ -112,6 +113,25 @@ export default function SignupPage() {
     }
 
     try {
+      // First, check if email already exists
+      console.log("🔍 Checking if email already exists:", formData.email)
+      const checkResponse = await fetch('http://localhost:8000/users/check-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: formData.email })
+      })
+      
+      if (checkResponse.ok) {
+        const checkData = await checkResponse.json()
+        if (checkData.exists) {
+          setError("Existing User Already Registered.")
+          setLoading(false)
+          return
+        }
+      }
+      
       // Generate username from email if not provided
       const username = formData.email.split('@')[0]
       const registerData = {
@@ -285,6 +305,7 @@ export default function SignupPage() {
               </div>
             </div>
           )}
+          
 
           <Button type="submit" className="w-full bg-white text-black hover:bg-gray-100" disabled={loading}>
             {loading ? "Creating account..." : "Sign Up"}

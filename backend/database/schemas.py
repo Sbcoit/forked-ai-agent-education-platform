@@ -751,6 +751,8 @@ class CohortInvitationResponse(BaseModel):
     message: Optional[str] = None
     expires_at: datetime
     created_at: datetime
+    cohort: Optional[Dict[str, Any]] = None
+    invited_by: Optional[Dict[str, Any]] = None
     
     class Config:
         from_attributes = True

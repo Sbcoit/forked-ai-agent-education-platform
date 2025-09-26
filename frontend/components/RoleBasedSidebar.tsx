@@ -30,6 +30,7 @@ export default function RoleBasedSidebar({ currentPath = "/dashboard" }: RoleBas
     { href: "/professor/cohorts", icon: Users, label: "Cohorts" },
     { href: "/professor/simulation-builder", icon: FileText, label: "Simulation Builder" },
     { href: "/professor/test-simulations", icon: MessageSquare, label: "Test Simulations" },
+    { href: "/professor/notifications", icon: Bell, label: "Notifications" },
   ]
   
   // Student navigation items

@@ -44,19 +44,48 @@ async def get_pending_invitations(
     all_invitations = email_invitations + user_invitations
     unique_invitations = list({inv.id: inv for inv in all_invitations}.values())
     
+    # Build response with cohort and professor data
+    invitations_with_details = []
+    for inv in unique_invitations:
+        # Create the base invitation data without the problematic fields
+        invitation_data = {
+            "id": inv.id,
+            "cohort_id": inv.cohort_id,
+            "professor_id": inv.professor_id,
+            "student_email": inv.student_email,
+            "student_id": inv.student_id,
+            "status": inv.status,
+            "message": inv.message,
+            "expires_at": inv.expires_at,
+            "created_at": inv.created_at,
+            "cohort": {
+                "id": inv.cohort.id,
+                "title": inv.cohort.title,
+                "description": inv.cohort.description,
+                "course_code": inv.cohort.course_code
+            } if inv.cohort else None,
+            "invited_by": {
+                "id": inv.professor.id,
+                "full_name": inv.professor.full_name,
+                "email": inv.professor.email
+            } if inv.professor else None
+        }
+        invitations_with_details.append(invitation_data)
+    
     return {
-        "invitations": [CohortInvitationResponse.from_orm(inv) for inv in unique_invitations]
+        "invitations": invitations_with_details
     }
 
 @router.post("/invitations/{invitation_id}/respond")
 async def respond_to_invitation(
     invitation_id: int,
     response: InvitationResponse,
-    request,
     current_user: User = Depends(require_student),
     db: Session = Depends(get_db)
 ):
     """Respond to a cohort invitation (accept or decline)"""
+    logger.info(f"Responding to invitation {invitation_id} with action: {response.action}")
+    logger.info(f"Current user: {current_user.email} (ID: {current_user.id})")
     
     # Find the invitation
     invitation = db.query(CohortInvitation).filter(
@@ -65,22 +94,29 @@ async def respond_to_invitation(
     ).first()
     
     if not invitation:
+        logger.error(f"Invitation {invitation_id} not found or not pending")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Invitation not found or already responded to"
         )
     
+    logger.info(f"Found invitation: {invitation.id}, student_email: {invitation.student_email}, student_id: {invitation.student_id}")
+    
     # Verify the invitation is for this student
-    if (invitation.student_email != current_user.email and 
-        invitation.student_id != current_user.id):
+    # Check by email (primary) or by student_id if it exists
+    email_match = invitation.student_email == current_user.email
+    id_match = invitation.student_id is not None and invitation.student_id == current_user.id
+    
+    if not (email_match or id_match):
+        logger.error(f"Invitation mismatch: invitation email={invitation.student_email}, user email={current_user.email}, invitation student_id={invitation.student_id}, user id={current_user.id}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This invitation is not for you"
         )
     
     # Check if invitation is expired
-    from datetime import datetime
-    if invitation.expires_at < datetime.utcnow():
+    from datetime import datetime, timezone
+    if invitation.expires_at < datetime.now(timezone.utc):
         invitation.status = 'expired'
         db.commit()
         raise HTTPException(
@@ -100,7 +136,7 @@ async def respond_to_invitation(
             cohort_id=invitation.cohort_id,
             student_id=current_user.id,
             status='approved',
-            enrollment_date=datetime.utcnow()
+            enrollment_date=datetime.now(timezone.utc)
         )
         db.add(enrollment)
         db.commit()
@@ -109,7 +145,8 @@ async def respond_to_invitation(
     
     # Send notification to professor
     try:
-        base_url = str(request.base_url).rstrip('/')
+        # Use a default base URL since we don't have request object
+        base_url = "http://localhost:3000"
         await email_service.send_invitation_response(db, invitation, response.action, base_url)
         notification_service.create_invitation_response_notification(db, invitation, response.action)
         logger.info(f"Sent {response.action} notification for invitation {invitation_id}")
@@ -206,8 +243,8 @@ async def get_invitation_by_token(
         )
     
     # Check if invitation is expired
-    from datetime import datetime
-    if invitation.expires_at < datetime.utcnow():
+    from datetime import datetime, timezone
+    if invitation.expires_at < datetime.now(timezone.utc):
         invitation.status = 'expired'
         db.commit()
         raise HTTPException(
@@ -254,8 +291,8 @@ async def respond_to_invitation_by_token(
         )
     
     # Check if invitation is expired
-    from datetime import datetime
-    if invitation.expires_at < datetime.utcnow():
+    from datetime import datetime, timezone
+    if invitation.expires_at < datetime.now(timezone.utc):
         invitation.status = 'expired'
         db.commit()
         raise HTTPException(
@@ -282,7 +319,7 @@ async def respond_to_invitation_by_token(
                 cohort_id=invitation.cohort_id,
                 student_id=student.id,
                 status='approved',
-                enrollment_date=datetime.utcnow()
+                enrollment_date=datetime.now(timezone.utc)
             )
             db.add(enrollment)
             invitation.student_id = student.id

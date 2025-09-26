@@ -28,6 +28,7 @@ import {
 import RoleBasedSidebar from "@/components/RoleBasedSidebar"
 import { useAuth } from "@/lib/auth-context"
 import { apiClient } from "@/lib/api"
+import InviteStudentsModal from "@/components/InviteStudentsModal"
 
 export default function Cohorts() {
   const router = useRouter()
@@ -55,6 +56,7 @@ export default function Cohorts() {
     maxStudents: "",
     autoApprove: true,
     allowSelfEnrollment: false,
+    isActive: true, // Add status field
     tags: [] as string[] // Array for tags
   })
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -79,6 +81,9 @@ export default function Cohorts() {
   const [isRequired, setIsRequired] = useState(true)
   const [assigning, setAssigning] = useState(false)
   const [deletingSimulation, setDeletingSimulation] = useState<number | null>(null)
+  
+  // Invite students modal state
+  const [showInviteModal, setShowInviteModal] = useState(false)
   
   // Fetch available scenarios for assignment
   const fetchAvailableScenarios = async () => {
@@ -144,6 +149,34 @@ export default function Cohorts() {
       alert('Failed to delete simulation. Please try again.')
     } finally {
       setDeletingSimulation(null)
+    }
+  }
+
+  // Fetch cohort details when a cohort is selected
+  const fetchCohortDetails = async (cohortId: number | string) => {
+    try {
+      setLoadingDetails(true)
+      // Find the cohort in the list to get its unique_id
+      const cohort = cohorts.find(c => c.id === cohortId || c.unique_id === cohortId)
+      if (!cohort) {
+        throw new Error('Cohort not found')
+      }
+      
+      const details = await apiClient.getCohort(cohort.unique_id)
+      setCohortDetails(details)
+      
+      // Fetch students and simulations
+      const [students, simulations] = await Promise.all([
+        apiClient.getCohortStudents(cohort.unique_id).catch(() => []),
+        apiClient.getCohortSimulations(cohort.unique_id).catch(() => [])
+      ])
+      
+      setCohortStudents(students)
+      setCohortSimulations(simulations)
+    } catch (error) {
+      console.error('Failed to fetch cohort details:', error)
+    } finally {
+      setLoadingDetails(false)
     }
   }
 
@@ -340,7 +373,8 @@ export default function Cohorts() {
         year: formData.year ? parseInt(formData.year) : null,
         max_students: formData.maxStudents ? parseInt(formData.maxStudents) : null,
         auto_approve: formData.autoApprove,
-        allow_self_enrollment: formData.allowSelfEnrollment
+        allow_self_enrollment: formData.allowSelfEnrollment,
+        is_active: formData.isActive
       }
       
       const newCohort = await apiClient.createCohort(cohortData)
@@ -364,6 +398,7 @@ export default function Cohorts() {
         maxStudents: "",
         autoApprove: true,
         allowSelfEnrollment: false,
+        isActive: true,
         tags: []
       })
       setShowCreateModal(false)
@@ -391,6 +426,7 @@ export default function Cohorts() {
       maxStudents: "",
       autoApprove: true,
       allowSelfEnrollment: false,
+      isActive: true,
       tags: []
     })
   }
@@ -642,6 +678,7 @@ export default function Cohorts() {
                     <Button 
                       size="sm"
                       className="bg-black text-white hover:bg-gray-800"
+                      onClick={() => setShowInviteModal(true)}
                     >
                       <Users className="h-4 w-4 mr-2" />
                       Invite Students
@@ -962,8 +999,8 @@ export default function Cohorts() {
                         )
                       })
                     )}
+                    </div>
                   </div>
-                </div>
               )}
 
               {activeTab === 'analytics' && (
@@ -979,55 +1016,15 @@ export default function Cohorts() {
                   <p className="text-gray-500">Settings tab content coming soon.</p>
                 </div>
               )}
-
-              {/* Loading State */}
-              {loadingDetails && (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 mx-auto"></div>
-                  <p className="text-gray-600 mt-2">Loading cohort details...</p>
-                </div>
-              )}
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center p-8">
-              <div className="text-center max-w-xl">
-              <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Users className="h-10 w-10 text-gray-400" />
+            <div className="h-full flex items-center justify-center">
+              <div className="text-center">
+                <Users className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No cohort selected</h3>
+                <p className="text-gray-500">Select a cohort from the list to view details</p>
               </div>
-              <h2 className="text-xl font-semibold text-gray-900 mb-3">Select a Cohort</h2>
-              <p className="text-gray-600 mb-6">
-                Choose a cohort from the sidebar to view its details, manage students, and assign simulations.
-              </p>
-              
-              <div className="space-y-3 text-left mb-6">
-                <div className="flex items-center text-sm text-gray-600">
-                  <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-                    <Users className="h-4 w-4 text-blue-600" />
-                  </div>
-                  Manage student enrollment and invitations
-                </div>
-                <div className="flex items-center text-sm text-gray-600">
-                  <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
-                    <BookOpen className="h-4 w-4 text-purple-600" />
-                  </div>
-                  Assign and track simulation progress
-                </div>
-                <div className="flex items-center text-sm text-gray-600">
-                  <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center mr-3">
-                    <Calendar className="h-4 w-4 text-green-600" />
-                  </div>
-                  Monitor cohort analytics and performance
-                </div>
-              </div>
-              
-              <Button 
-                onClick={() => setShowCreateModal(true)}
-                className="w-full bg-black text-white hover:bg-gray-800"
-              >
-                Create Your First Cohort
-              </Button>
             </div>
-          </div>
           )}
         </div>
       </div>
@@ -1035,471 +1032,312 @@ export default function Cohorts() {
       {/* Create Cohort Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Create New Cohort</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCloseModal}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6 space-y-6">
-              {/* Basic Information */}
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Basic Information</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Cohort Name *
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.cohortName}
-                      onChange={(e) => handleInputChange("cohortName", e.target.value)}
-                      placeholder="e.g., Business Strategy Fall 2024"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Description
-                    </label>
-                    <textarea
-                      value={formData.description}
-                      onChange={(e) => handleInputChange("description", e.target.value)}
-                      placeholder="Brief description of the cohort and its objectives..."
-                      rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
-                    />
-                  </div>
-                </div>
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4">
+            <div className="flex items-center justify-between p-6 border-b">
+              <h2 className="text-lg font-semibold text-gray-900">Create New Cohort</h2>
+                <button
+                  onClick={() => setShowCreateModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
 
-              {/* Course Details */}
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Course Details</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cohort Name
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.cohortName}
+                    onChange={(e) => setFormData({...formData, cohortName: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="e.g., Business Strategy Fall 2024"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Description
+                  </label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    rows={3}
+                    placeholder="Brief description of the cohort..."
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
                       Course Code
                     </label>
                     <input
                       type="text"
                       value={formData.courseCode}
-                      onChange={(e) => handleInputChange("courseCode", e.target.value)}
-                      placeholder="e.g., BUS-401"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
+                      onChange={(e) => setFormData({...formData, courseCode: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="e.g., BUS 101"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Semester
-                    </label>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setShowSemesterDropdown(!showSemesterDropdown)}
-                        className="w-full px-3 py-2 pr-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent bg-white cursor-pointer hover:border-gray-400 transition-colors text-left flex items-center justify-between"
-                      >
-                        <span className={formData.semester ? "text-gray-900" : "text-gray-500"}>
-                          {formData.semester || "Select semester"}
-                        </span>
-                        <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${showSemesterDropdown ? 'rotate-180' : ''}`} />
-                      </button>
-                      
-                      {showSemesterDropdown && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleInputChange("semester", "")
-                              setShowSemesterDropdown(false)
-                            }}
-                            className="w-full px-3 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none text-sm text-gray-500"
-                          >
-                            Not selected
-                          </button>
-                          {["Fall", "Spring", "Summer", "Winter"].map((semester) => (
-                            <button
-                              key={semester}
-                              type="button"
-                              onClick={() => {
-                                handleInputChange("semester", semester)
-                                setShowSemesterDropdown(false)
-                              }}
-                              className="w-full px-3 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none text-sm"
-                            >
-                              {semester}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Year
-                    </label>
-                    <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setShowYearDropdown(!showYearDropdown)}
-                        className="w-full px-3 py-2 pr-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent bg-white cursor-pointer hover:border-gray-400 transition-colors text-left flex items-center justify-between"
-                      >
-                        <span className={formData.year ? "text-gray-900" : "text-gray-500"}>
-                          {formData.year || "Select year"}
-                        </span>
-                        <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${showYearDropdown ? 'rotate-180' : ''}`} />
-                      </button>
-                      
-                      {showYearDropdown && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 hover:scrollbar-thumb-gray-400">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              handleInputChange("year", "")
-                              setShowYearDropdown(false)
-                            }}
-                            className="w-full px-3 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none text-sm text-gray-500"
-                          >
-                            Not selected
-                          </button>
-                          {(() => {
-                            const currentYear = new Date().getFullYear()
-                            const years = []
-                            for (let i = 0; i <= 5; i++) {
-                              years.push((currentYear + i).toString())
-                            }
-                            return years
-                          })().map((year) => (
-                            <button
-                              key={year}
-                              type="button"
-                              onClick={() => {
-                                handleInputChange("year", year)
-                                setShowYearDropdown(false)
-                              }}
-                              className="w-full px-3 py-2 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none text-sm"
-                            >
-                              {year}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Advanced Settings */}
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Advanced Settings</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Maximum Students
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Max Students
                     </label>
                     <input
                       type="number"
-                      min="1"
-                      max="1000"
-                      step="1"
-                      maxLength={4}
                       value={formData.maxStudents}
-                      onChange={(e) => {
-                        const value = e.target.value.trim()
-                        
-                        // Allow empty string
-                        if (value === '') {
-                          handleInputChange("maxStudents", value)
-                          return
-                        }
-                        
-                        // Parse and validate the number
-                        const numValue = parseInt(value, 10)
-                        
-                        // Check for valid number, no leading zeros (unless exactly "0"), and within range
-                        if (!isNaN(numValue) && 
-                            (value === "0" || !value.startsWith("0")) && 
-                            numValue >= 1 && 
-                            numValue <= 1000) {
-                          handleInputChange("maxStudents", value)
-                        }
-                      }}
-                      placeholder="Enter maximum number of students (1-1000)"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
+                      onChange={(e) => setFormData({...formData, maxStudents: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="30"
                     />
                   </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">Auto-approve student requests</p>
-                      <p className="text-xs text-gray-500">Students can join immediately without approval</p>
-                    </div>
-                    <button
-                      onClick={() => handleInputChange("autoApprove", !formData.autoApprove)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        formData.autoApprove ? 'bg-gray-800' : 'bg-gray-200'
-                      }`}
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Semester
+                    </label>
+                    <select
+                      value={formData.semester}
+                      onChange={(e) => setFormData({...formData, semester: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          formData.autoApprove ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
+                      <option value="">Select Semester</option>
+                      <option value="Fall">Fall</option>
+                      <option value="Spring">Spring</option>
+                      <option value="Summer">Summer</option>
+                      <option value="Winter">Winter</option>
+                    </select>
                   </div>
-
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">Allow self-enrollment</p>
-                      <p className="text-xs text-gray-500">Students can find and join this cohort</p>
-                    </div>
-                    <button
-                      onClick={() => handleInputChange("allowSelfEnrollment", !formData.allowSelfEnrollment)}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                        formData.allowSelfEnrollment ? 'bg-gray-800' : 'bg-gray-200'
-                      }`}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Year
+                    </label>
+                    <select
+                      value={formData.year}
+                      onChange={(e) => setFormData({...formData, year: e.target.value})}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >
-                      <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                          formData.allowSelfEnrollment ? 'translate-x-6' : 'translate-x-1'
-                        }`}
-                      />
-                    </button>
+                      <option value="">Select Year</option>
+                      {Array.from({ length: 10 }, (_, i) => {
+                        const year = new Date().getFullYear() + i;
+                        return (
+                          <option key={year} value={year.toString()}>
+                            {year}
+                          </option>
+                        );
+                      })}
+                    </select>
                   </div>
                 </div>
-              </div>
 
-              {/* Tags */}
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Status</h3>
-                <div className="flex gap-3 mb-3">
-                      {["Active", "Draft"].map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                      onClick={() => handleSelectTag(tag)}
-                      className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 border-2 ${
-                        formData.tags.includes(tag)
-                          ? tag === "Active"
-                            ? "bg-green-100 text-green-800 border-green-300 shadow-sm"
-                            : "bg-yellow-100 text-yellow-800 border-yellow-300 shadow-sm"
-                          : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 hover:border-gray-300"
-                          }`}
-                        >
-                          {tag}
-                        </button>
-                      ))}
-                </div>
-                {formData.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {formData.tags.map((tag, index) => (
-                      <Badge
-                        key={index}
-                        variant="secondary"
-                        className={`px-3 py-1 ${
-                          tag === "Active" 
-                            ? "bg-green-100 text-green-800" 
-                            : tag === "Draft" 
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-gray-100 text-gray-700"
-                        }`}
-                      >
-                        {tag}
-                        <button
-                          onClick={() => handleRemoveTag(tag)}
-                          className="ml-2 text-gray-500 hover:text-gray-700"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </Badge>
-                    ))}
+                <div className="space-y-3">
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="autoApprove"
+                      checked={formData.autoApprove}
+                      onChange={(e) => setFormData({...formData, autoApprove: e.target.checked})}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor="autoApprove" className="ml-2 text-sm text-gray-700">
+                      Auto-approve student enrollments
+                    </label>
                   </div>
-                )}
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
-              <Button
-                variant="outline"
-                onClick={handleCloseModal}
-                className="px-6"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleCreateCohort}
-                className="bg-gray-800 text-white hover:bg-gray-700 px-6"
-              >
-                Create Cohort
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">Delete Cohort</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setShowDeleteModal(false)
-                  setCohortToDelete(null)
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-5 w-5" />
-              </Button>
-            </div>
-
-            {/* Modal Content */}
-            <div className="p-6">
-              <div className="flex items-center mb-4">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mr-4">
-                  <Trash2 className="h-6 w-6 text-red-600" />
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="allowSelfEnrollment"
+                      checked={formData.allowSelfEnrollment}
+                      onChange={(e) => setFormData({...formData, allowSelfEnrollment: e.target.checked})}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor="allowSelfEnrollment" className="ml-2 text-sm text-gray-700">
+                      Allow self-enrollment
+                    </label>
+                  </div>
                 </div>
+
+                {/* Status Pills */}
                 <div>
-                  <h3 className="text-lg font-medium text-gray-900">Are you sure?</h3>
-                  <p className="text-sm text-gray-600">This action cannot be undone.</p>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Status
+                  </label>
+                  <div className="flex space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({...formData, isActive: true})}
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                        formData.isActive
+                          ? 'bg-green-100 text-green-800 border-2 border-green-300'
+                          : 'bg-gray-100 text-gray-600 border-2 border-gray-200 hover:bg-gray-200'
+                      }`}
+                    >
+                      Active
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({...formData, isActive: false})}
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                        !formData.isActive
+                          ? 'bg-yellow-100 text-yellow-800 border-2 border-yellow-300'
+                          : 'bg-gray-100 text-gray-600 border-2 border-gray-200 hover:bg-gray-200'
+                      }`}
+                    >
+                      Draft
+                    </button>
+                  </div>
                 </div>
               </div>
-              
-              <p className="text-gray-700 mb-4">
-                You are about to delete the cohort <strong>"{cohortToDelete?.title}"</strong>. 
-                This will permanently remove the cohort and all associated data.
-              </p>
-              
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-                <p className="text-sm text-yellow-800">
-                  <strong>Warning:</strong> This will also remove all student enrollments and simulation assignments for this cohort.
-                </p>
-              </div>
-            </div>
 
-            {/* Modal Footer */}
-            <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowDeleteModal(false)
-                  setCohortToDelete(null)
-                }}
-                className="px-6"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleDeleteCohort}
-                className="bg-red-600 text-white hover:bg-red-700 px-6"
-              >
-                Delete Cohort
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Assign Simulation Modal */}
-      {showAssignModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Assign Simulation</h3>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowAssignModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="space-y-4">
-              {/* Scenario Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Simulation
-                </label>
-                <select
-                  value={selectedScenario?.id || ""}
-                  onChange={(e) => {
-                    const scenario = availableScenarios.find(s => s.id === parseInt(e.target.value))
-                    setSelectedScenario(scenario)
-                  }}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
+              <div className="flex justify-end space-x-3 p-6 border-t bg-gray-50">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowCreateModal(false)}
                 >
-                  <option value="">Choose a simulation...</option>
-                  {availableScenarios.map((scenario) => (
-                    <option key={scenario.id} value={scenario.id}>
-                      {scenario.title} {scenario.is_draft ? '(Draft)' : '(Active)'}
-                    </option>
-                  ))}
-                </select>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreateCohort}
+                  className="bg-black text-white hover:bg-gray-800"
+                >
+                  Create Cohort
+                </Button>
               </div>
-
-              {/* Due Date */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Due Date (Optional)
-                </label>
-                <input
-                  type="date"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
-                />
-              </div>
-
-              {/* Required Checkbox */}
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="isRequired"
-                  checked={isRequired}
-                  onChange={(e) => setIsRequired(e.target.checked)}
-                  className="h-4 w-4 text-black focus:ring-gray-200 border-gray-300 rounded"
-                />
-                <label htmlFor="isRequired" className="ml-2 text-sm text-gray-700">
-                  Required assignment
-                </label>
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-3 mt-6">
-              <Button
-                variant="outline"
-                onClick={() => setShowAssignModal(false)}
-                disabled={assigning}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleAssignSimulation}
-                disabled={!selectedScenario || assigning}
-                className="bg-black text-white hover:bg-gray-800"
-              >
-                {assigning ? "Assigning..." : "Assign Simulation"}
-              </Button>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+              <div className="p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Delete Cohort</h2>
+                <p className="text-gray-600 mb-6">
+                  Are you sure you want to delete "{cohortToDelete?.title}"? This action cannot be undone.
+                </p>
+                <div className="flex justify-end space-x-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowDeleteModal(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleDeleteCohort}
+                    className="bg-red-600 text-white hover:bg-red-700"
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Assign Simulation Modal */}
+        {showAssignModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
+              <div className="flex items-center justify-between p-6 border-b">
+                <h2 className="text-lg font-semibold text-gray-900">Assign Simulation</h2>
+                <button
+                  onClick={() => setShowAssignModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Select Simulation
+                  </label>
+                  <select
+                    value={selectedScenario?.id || ""}
+                    onChange={(e) => {
+                      const scenario = availableScenarios.find(s => s.id === e.target.value)
+                      setSelectedScenario(scenario)
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Choose a simulation...</option>
+                    {availableScenarios.map((scenario) => (
+                      <option key={scenario.id} value={scenario.id}>
+                        {scenario.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Due Date (Optional)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="isRequired"
+                    checked={isRequired}
+                    onChange={(e) => setIsRequired(e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="isRequired" className="ml-2 text-sm text-gray-700">
+                    Required assignment
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 p-6 border-t bg-gray-50">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAssignModal(false)}
+                  disabled={assigning}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleAssignSimulation}
+                  disabled={!selectedScenario || assigning}
+                  className="bg-black text-white hover:bg-gray-800"
+                >
+                  {assigning ? "Assigning..." : "Assign Simulation"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Invite Students Modal */}
+        {selectedCohort && (
+          <InviteStudentsModal
+            isOpen={showInviteModal}
+            onClose={() => setShowInviteModal(false)}
+            cohortId={selectedCohort.id}
+            cohortTitle={selectedCohort.title}
+            onSuccess={() => {
+              // Refresh cohort details to show updated student count
+              if (selectedCohort) {
+                fetchCohortDetails(selectedCohort.id)
+              }
+            }}
+          />
+        )}
+      </div>
   )
 }

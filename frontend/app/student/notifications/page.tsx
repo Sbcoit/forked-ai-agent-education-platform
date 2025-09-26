@@ -25,6 +25,7 @@ import {
 } from "lucide-react"
 import RoleBasedSidebar from "@/components/RoleBasedSidebar"
 import { useAuth } from "@/lib/auth-context"
+import { apiClient } from "@/lib/api"
 
 export default function StudentNotifications() {
   const router = useRouter()
@@ -33,89 +34,34 @@ export default function StudentNotifications() {
   const [searchTerm, setSearchTerm] = useState("")
   const [typeFilter, setTypeFilter] = useState("All Types")
   const [statusFilter, setStatusFilter] = useState("All Status")
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   
-  // Mock data - in real app, this would come from API
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      type: "invitation",
-      title: "Invitation to Business Strategy Fall 2024",
-      message: "Dr. Sarah Wilson has invited you to join their cohort. Experience Harvard Business School case simulations with AI-powered scenarios.",
-      time: "2 hours ago",
-      isRead: false,
-      isNew: true,
-      status: "pending",
-      cohortId: 1,
-      cohortTitle: "Business Strategy Fall 2024",
-      instructorName: "Dr. Sarah Wilson",
-      instructorEmail: "sarah.wilson@university.edu",
-      expiresAt: "Dec 20, 2024",
-      actions: ["Accept", "Decline"]
-    },
-    {
-      id: 2,
-      type: "assignment",
-      title: "New Simulation Available",
-      message: "Investment Portfolio Challenge is now available in Financial Management 401. Complete it by Dec 15 to earn 400 XP.",
-      time: "1 day ago",
-      isRead: true,
-      isNew: false,
-      status: "active",
-      cohortId: 2,
-      cohortTitle: "Financial Management 401",
-      simulationTitle: "Investment Portfolio Challenge",
-      dueDate: "Dec 15, 2024",
-      xpReward: "400 XP",
-      actions: ["Start Simulation", "View Details"]
-    },
-    {
-      id: 3,
-      type: "grade",
-      title: "Grade Available: Tesla Strategic Analysis",
-      message: "Your grade for Tesla Strategic Analysis has been published. You scored 95% and ranked #1 out of 24 students!",
-      time: "3 days ago",
-      isRead: true,
-      isNew: false,
-      status: "completed",
-      cohortId: 1,
-      cohortTitle: "Business Strategy Fall 2024",
-      simulationTitle: "Tesla Strategic Analysis",
-      score: "95%",
-      rank: "#1/24",
-      grade: "A",
-      xpEarned: "350 XP",
-      actions: ["View Results", "View Feedback"]
-    },
-    {
-      id: 4,
-      type: "reminder",
-      title: "Simulation Due Soon",
-      message: "Risk Assessment Simulation in Financial Management 401 is due in 2 days. Don't forget to complete it!",
-      time: "5 days ago",
-      isRead: true,
-      isNew: false,
-      status: "active",
-      cohortId: 2,
-      cohortTitle: "Financial Management 401",
-      simulationTitle: "Risk Assessment Simulation",
-      dueDate: "Dec 18, 2024",
-      actions: ["Continue", "View Details"]
-    },
-    {
-      id: 5,
-      type: "achievement",
-      title: "Achievement Unlocked: Strategic Thinker",
-      message: "Congratulations! You've earned the Strategic Thinker badge for scoring 90+ on 3 strategy simulations.",
-      time: "1 week ago",
-      isRead: true,
-      isNew: false,
-      status: "completed",
-      achievementTitle: "Strategic Thinker",
-      achievementDescription: "Scored 90+ on 3 strategy simulations",
-      xpEarned: "100 XP",
-      actions: ["View Achievement", "Share"]
+  // Real data from API
+  const [notifications, setNotifications] = useState<any[]>([])
+  const [pendingInvitations, setPendingInvitations] = useState<any[]>([])
+
+  // Fetch notifications and invitations
+  const fetchNotifications = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      // Fetch regular notifications
+      const notificationsData = await apiClient.getNotifications(100, 0, false)
+      setNotifications(notificationsData.notifications || [])
+      
+      // Fetch pending invitations
+      const invitationsData = await apiClient.getPendingInvitations()
+      setPendingInvitations(invitationsData.invitations || [])
+      
+    } catch (error) {
+      console.error('Error fetching notifications:', error)
+      setError('Failed to load notifications')
+    } finally {
+      setLoading(false)
     }
-  ])
+  }
 
   // Handle redirect when user is not authenticated or not a student
   useEffect(() => {
@@ -124,6 +70,9 @@ export default function StudentNotifications() {
     } else if (!authLoading && user && user.role !== 'student' && user.role !== 'admin') {
       // Redirect professors to their dashboard
       router.push("/professor/dashboard")
+    } else if (!authLoading && user && user.role === 'student') {
+      // Fetch notifications when user is authenticated as student
+      fetchNotifications()
     }
   }, [user, authLoading, router])
 
@@ -155,34 +104,70 @@ export default function StudentNotifications() {
     router.push("/")
   }
 
-  const handleAcceptInvitation = (notificationId: number) => {
-    setNotifications(prev => prev.map(notif => 
-      notif.id === notificationId 
-        ? { ...notif, status: "accepted", isRead: true, isNew: false }
-        : notif
-    ))
-    console.log("Accepting invitation...")
+  const handleAcceptInvitation = async (invitationId: number) => {
+    try {
+      await apiClient.respondToInvitation(invitationId, 'accept')
+      // Refresh notifications after accepting
+      fetchNotifications()
+    } catch (error) {
+      console.error('Error accepting invitation:', error)
+      setError('Failed to accept invitation')
+    }
   }
 
-  const handleDeclineInvitation = (notificationId: number) => {
-    setNotifications(prev => prev.map(notif => 
-      notif.id === notificationId 
-        ? { ...notif, status: "declined", isRead: true, isNew: false }
-        : notif
-    ))
-    console.log("Declining invitation...")
+  const handleDeclineInvitation = async (invitationId: number) => {
+    try {
+      await apiClient.respondToInvitation(invitationId, 'decline')
+      // Refresh notifications after declining
+      fetchNotifications()
+    } catch (error) {
+      console.error('Error declining invitation:', error)
+      setError('Failed to decline invitation')
+    }
   }
 
-  const handleMarkAsRead = (notificationId: number) => {
-    setNotifications(prev => prev.map(notif => 
-      notif.id === notificationId 
-        ? { ...notif, isRead: true, isNew: false }
-        : notif
-    ))
+  const handleMarkAsRead = async (notificationId: number) => {
+    try {
+      await apiClient.markNotificationRead(notificationId)
+      // Update local state
+      setNotifications(prev => prev.map(notif => 
+        notif.id === notificationId 
+          ? { ...notif, is_read: true, isRead: true }
+          : notif
+      ))
+    } catch (error) {
+      console.error('Error marking notification as read:', error)
+    }
   }
+
+  // Combine notifications and invitations for display
+  const allNotifications = [
+    ...notifications.map(notification => ({
+      ...notification,
+      isRead: notification.is_read, // Map is_read to isRead for consistency
+      actions: notification.actions || [] // Ensure actions array exists
+    })),
+    ...pendingInvitations.map(invitation => ({
+      id: `invitation-${invitation.id}`,
+      type: "invitation",
+      title: `Invitation to ${invitation.cohort?.title || 'Cohort'}`,
+      message: `${invitation.invited_by?.full_name || 'Professor'} has invited you to join their cohort.`,
+      time: new Date(invitation.created_at).toLocaleDateString(),
+      isRead: false,
+      isNew: true,
+      status: "pending",
+      cohortId: invitation.cohort_id,
+      cohortTitle: invitation.cohort?.title,
+      instructorName: invitation.invited_by?.full_name,
+      instructorEmail: invitation.invited_by?.email,
+      expiresAt: invitation.expires_at ? new Date(invitation.expires_at).toLocaleDateString() : 'No expiry',
+      actions: ["Accept", "Decline"],
+      invitationId: invitation.id
+    }))
+  ]
 
   // Filter notifications based on search and filters
-  const filteredNotifications = notifications.filter(notification => {
+  const filteredNotifications = allNotifications.filter(notification => {
     const matchesSearch = notification.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          notification.message.toLowerCase().includes(searchTerm.toLowerCase())
     
@@ -248,8 +233,8 @@ export default function StudentNotifications() {
     }
   }
 
-  const unreadCount = notifications.filter(n => !n.isRead).length
-  const newCount = notifications.filter(n => n.isNew).length
+  const unreadCount = allNotifications.filter(n => !n.isRead).length
+  const newCount = allNotifications.filter(n => n.isNew).length
 
   return (
     <div className="min-h-screen bg-white">
@@ -336,7 +321,7 @@ export default function StudentNotifications() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-600 mb-1">Total</p>
-                    <p className="text-2xl font-bold text-gray-900">{notifications.length}</p>
+                    <p className="text-2xl font-bold text-gray-900">{allNotifications.length}</p>
                   </div>
                 </div>
               </CardContent>
@@ -364,7 +349,7 @@ export default function StudentNotifications() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-600 mb-1">Invitations</p>
-                    <p className="text-2xl font-bold text-gray-900">{notifications.filter(n => n.type === 'invitation').length}</p>
+                    <p className="text-2xl font-bold text-gray-900">{allNotifications.filter(n => n.type === 'invitation').length}</p>
                   </div>
                 </div>
               </CardContent>
@@ -378,18 +363,48 @@ export default function StudentNotifications() {
                   </div>
                   <div>
                     <p className="text-sm text-gray-600 mb-1">Achievements</p>
-                    <p className="text-2xl font-bold text-gray-900">{notifications.filter(n => n.type === 'achievement').length}</p>
+                    <p className="text-2xl font-bold text-gray-900">{allNotifications.filter(n => n.type === 'achievement').length}</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
           </div>
 
+          {/* Error Message */}
+          {error && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-800">{error}</p>
+              <Button 
+                onClick={fetchNotifications}
+                className="mt-2 bg-red-600 hover:bg-red-700 text-white"
+                size="sm"
+              >
+                Retry
+              </Button>
+            </div>
+          )}
+
+          {/* Loading State */}
+          {loading && (
+            <div className="mb-6 p-8 text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading notifications...</p>
+            </div>
+          )}
+
           {/* Notifications List */}
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-black mb-4">Notifications ({filteredNotifications.length})</h2>
-            
-            <div className="space-y-4">
+          {!loading && (
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold text-black mb-4">Notifications ({filteredNotifications.length})</h2>
+              
+              {filteredNotifications.length === 0 ? (
+                <div className="text-center py-12">
+                  <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">No notifications</h3>
+                  <p className="text-gray-600">You don't have any notifications yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
               {filteredNotifications.map((notification) => (
                 <Card 
                   key={notification.id} 
@@ -485,7 +500,7 @@ export default function StudentNotifications() {
                         
                         {/* Action Buttons */}
                         <div className="flex items-center space-x-3">
-                          {notification.actions.map((action, index) => {
+                          {(notification.actions || []).map((action: string, index: number) => {
                             const isPrimary = action === "Accept" || action === "Start Simulation" || action === "Continue"
                             return (
                               <Button
@@ -499,9 +514,9 @@ export default function StudentNotifications() {
                                 }
                                 onClick={() => {
                                   if (action === "Accept") {
-                                    handleAcceptInvitation(notification.id)
+                                    handleAcceptInvitation(notification.invitationId || notification.id)
                                   } else if (action === "Decline") {
-                                    handleDeclineInvitation(notification.id)
+                                    handleDeclineInvitation(notification.invitationId || notification.id)
                                   } else {
                                     handleMarkAsRead(notification.id)
                                   }
@@ -528,8 +543,10 @@ export default function StudentNotifications() {
                   </CardContent>
                 </Card>
               ))}
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

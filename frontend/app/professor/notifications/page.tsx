@@ -22,549 +22,386 @@ import {
   Clock,
   UserPlus,
   MessageCircle,
-  UserCheck,
-  UserX
+  CheckCheck
 } from "lucide-react"
 import RoleBasedSidebar from "@/components/RoleBasedSidebar"
 import { useAuth } from "@/lib/auth-context"
 import { apiClient } from "@/lib/api"
 
+interface Notification {
+  id: number
+  type: string
+  title: string
+  message: string
+  data?: any
+  is_read: boolean
+  created_at: string
+}
+
 export default function ProfessorNotifications() {
   const router = useRouter()
   const { user, logout, isLoading: authLoading } = useAuth()
   
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [typeFilter, setTypeFilter] = useState("All Types")
   const [statusFilter, setStatusFilter] = useState("All Status")
-  
-  // Real data from API
-  const [realNotifications, setRealNotifications] = useState<any[]>([])
-  const [loadingNotifications, setLoadingNotifications] = useState(true)
+  const [markingRead, setMarkingRead] = useState<number | null>(null)
 
   // Fetch notifications
-  useEffect(() => {
-    const fetchNotifications = async () => {
-      if (!user) return
-      
-      try {
-        setLoadingNotifications(true)
-        
-        // Fetch professor notifications
-        const notificationsResponse = await apiClient.getProfessorNotifications().catch(() => ({ notifications: [] }))
-        
-        setRealNotifications(notificationsResponse.notifications || [])
-      } catch (error) {
-        console.error('Error fetching notifications:', error)
-      } finally {
-        setLoadingNotifications(false)
-      }
-    }
-
-    fetchNotifications()
-  }, [user])
-
-  // Handle redirect when user is not authenticated or not a professor
-  useEffect(() => {
-    if (!authLoading && !user) {
-      router.push("/")
-    } else if (!authLoading && user && user.role !== 'professor' && user.role !== 'admin') {
-      // Redirect students to their dashboard
-      router.push("/student/dashboard")
-    }
-  }, [user, authLoading, router])
-
-  // Show loading while auth is being checked
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
-          <p className="text-black">Loading...</p>
-        </div>
-      </div>
-    )
-  }
-
-  // If no user, show redirecting message
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-black">Redirecting...</p>
-        </div>
-      </div>
-    )
-  }
-
-  const handleLogout = () => {
-    logout()
-    router.push("/")
-  }
-
-  // Helper function to mark notification as read
-  const markNotificationAsRead = async (notificationId: number) => {
+  const fetchNotifications = async () => {
     try {
-      await apiClient.markProfessorNotificationRead(notificationId)
+      setLoading(true)
+      const response = await apiClient.getNotifications(100, 0, false)
+      setNotifications(response.notifications || [])
+    } catch (err) {
+      setError('Failed to load notifications')
+      console.error('Error fetching notifications:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Mark notification as read
+  const markAsRead = async (notificationId: number) => {
+    try {
+      setMarkingRead(notificationId)
+      await apiClient.markNotificationRead(notificationId)
+      
       // Update local state
-      setRealNotifications(prev => prev.map(notif => 
-        notif.id === notificationId ? { ...notif, is_read: true } : notif
-      ))
+      setNotifications(prev => 
+        prev.map(notif => 
+          notif.id === notificationId 
+            ? { ...notif, is_read: true }
+            : notif
+        )
+      )
     } catch (error) {
-      console.error('Error marking notification as read:', error)
+      console.error('Failed to mark notification as read:', error)
+    } finally {
+      setMarkingRead(null)
     }
   }
 
-  // Convert real notifications to display format
-  const formattedRealNotifications = realNotifications.map(notification => ({
-    id: `notif-${notification.id}`,
-    type: notification.type,
-    title: notification.title,
-    message: notification.message,
-    time: new Date(notification.created_at).toLocaleDateString(),
-    isRead: notification.is_read,
-    isNew: !notification.is_read,
-    status: notification.data?.status || "active",
-    notificationId: notification.id,
-    data: notification.data,
-    actions: getActionsForNotification(notification)
-  }))
+  // Mark all notifications as read
+  const markAllAsRead = async () => {
+    try {
+      await apiClient.markAllNotificationsRead()
+      setNotifications(prev => 
+        prev.map(notif => ({ ...notif, is_read: true }))
+      )
+    } catch (error) {
+      console.error('Failed to mark all notifications as read:', error)
+    }
+  }
 
-  // Helper function to get actions for different notification types
-  function getActionsForNotification(notification: any): string[] {
-    switch (notification.type) {
-      case 'invitation_accepted':
-        return ['View Cohort', 'Send Welcome Message']
-      case 'invitation_declined':
-        return ['View Cohort', 'Send Follow-up']
-      case 'assignment_submitted':
-        return ['Grade Assignment', 'View Submission']
-      case 'student_question':
-        return ['Reply', 'View Question']
+  // Get notification icon based on type
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'invitation_response':
+        return <UserPlus className="h-5 w-5 text-blue-600" />
+      case 'assignment_completion':
+        return <BookOpen className="h-5 w-5 text-purple-600" />
+      case 'grade_submission':
+        return <Trophy className="h-5 w-5 text-green-600" />
+      case 'cohort_update':
+        return <Users className="h-5 w-5 text-orange-600" />
       default:
-        return ['View Details']
+        return <Bell className="h-5 w-5 text-gray-600" />
     }
   }
 
-  // Mock notification data for demo
-  const mockNotifications = [
-    {
-      id: 1,
-      type: "invitation_accepted",
-      title: "Student Joined Cohort",
-      message: "John Smith has accepted your invitation to join Business Strategy Fall 2024.",
-      time: "2 hours ago",
-      isRead: false,
-      isNew: true,
-      status: "accepted",
-      cohortId: 1,
-      cohortTitle: "Business Strategy Fall 2024",
-      studentName: "John Smith",
-      studentEmail: "john.smith@university.edu",
-      actions: ["View Cohort", "Send Welcome Message"]
-    },
-    {
-      id: 2,
-      type: "invitation_declined",
-      title: "Invitation Declined",
-      message: "Sarah Johnson has declined your invitation to join Financial Management 401.",
-      time: "1 day ago",
-      isRead: true,
-      isNew: false,
-      status: "declined",
-      cohortId: 2,
-      cohortTitle: "Financial Management 401",
-      studentName: "Sarah Johnson",
-      studentEmail: "sarah.johnson@university.edu",
-      actions: ["View Cohort", "Send Follow-up"]
-    },
-    {
-      id: 3,
-      type: "assignment_submitted",
-      title: "Assignment Submitted",
-      message: "Michael Brown has submitted Tesla Strategic Analysis in Business Strategy Fall 2024.",
-      time: "3 days ago",
-      isRead: true,
-      isNew: false,
-      status: "submitted",
-      cohortId: 1,
-      cohortTitle: "Business Strategy Fall 2024",
-      studentName: "Michael Brown",
-      assignmentTitle: "Tesla Strategic Analysis",
-      submittedAt: "Dec 12, 2024 at 11:30 PM",
-      actions: ["Grade Assignment", "View Submission"]
-    }
-  ]
-
-  // Combine real notifications with mock notifications for demo
-  const allNotifications = [...formattedRealNotifications, ...mockNotifications]
-
-  // Handle action clicks
-  const handleActionClick = async (action: string, notification: any) => {
-    // Mark notification as read if it's a real notification
-    if (typeof notification.notificationId === 'number' && !notification.isRead) {
-      await markNotificationAsRead(notification.notificationId)
-    }
-
-    switch (action) {
-      case 'View Cohort':
-        if (notification.cohortId || notification.data?.cohort_id) {
-          const cohortId = notification.cohortId || notification.data.cohort_id
-          router.push(`/professor/cohorts/${cohortId}`)
-        }
-        break
-      case 'Send Welcome Message':
-        console.log('Sending welcome message to:', notification.studentName || notification.data?.student_name)
-        break
-      case 'Send Follow-up':
-        console.log('Sending follow-up to:', notification.studentName || notification.data?.student_name)
-        break
-      case 'Grade Assignment':
-        console.log('Grading assignment:', notification.assignmentTitle)
-        break
-      case 'View Submission':
-        console.log('Viewing submission for:', notification.assignmentTitle)
-        break
+  // Get notification color based on type
+  const getNotificationColor = (type: string) => {
+    switch (type) {
+      case 'invitation_response':
+        return 'bg-blue-50 border-blue-200'
+      case 'assignment_completion':
+        return 'bg-purple-50 border-purple-200'
+      case 'grade_submission':
+        return 'bg-green-50 border-green-200'
+      case 'cohort_update':
+        return 'bg-orange-50 border-orange-200'
       default:
-        console.log('Action:', action, 'for notification:', notification.id)
+        return 'bg-gray-50 border-gray-200'
     }
   }
 
-  const handleMarkAsRead = async (notificationId: number | string) => {
-    if (typeof notificationId === 'string' && notificationId.startsWith('notif-')) {
-      const realId = parseInt(notificationId.replace('notif-', ''))
-      await markNotificationAsRead(realId)
-    } else {
-      console.log('Marking mock notification as read:', notificationId)
-    }
+  // Format time ago
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+    
+    if (diffInSeconds < 60) return 'Just now'
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`
+    if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)}d ago`
+    
+    return date.toLocaleDateString()
   }
 
-  // Filter notifications based on search and filters
-  const filteredNotifications = allNotifications.filter(notification => {
+  // Filter notifications
+  const filteredNotifications = notifications.filter(notification => {
     const matchesSearch = notification.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          notification.message.toLowerCase().includes(searchTerm.toLowerCase())
     
-    const matchesType = typeFilter === "All Types" || 
-                       notification.type === typeFilter.toLowerCase() ||
-                       (typeFilter === "invitation_accepted" && notification.type === "invitation_accepted") ||
-                       (typeFilter === "invitation_declined" && notification.type === "invitation_declined") ||
-                       (typeFilter === "assignment_submitted" && notification.type === "assignment_submitted")
-    
+    const matchesType = typeFilter === "All Types" || notification.type === typeFilter
     const matchesStatus = statusFilter === "All Status" || 
-                         notification.status === statusFilter.toLowerCase() ||
-                         (statusFilter === "Unread" && !notification.isRead) ||
-                         (statusFilter === "Read" && notification.isRead)
+                         (statusFilter === "Unread" && !notification.is_read) ||
+                         (statusFilter === "Read" && notification.is_read)
     
     return matchesSearch && matchesType && matchesStatus
   })
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case "invitation_accepted":
-        return <UserCheck className="h-6 w-6 text-green-600" />
-      case "invitation_declined":
-        return <UserX className="h-6 w-6 text-red-600" />
-      case "assignment_submitted":
-        return <BookOpen className="h-6 w-6 text-blue-600" />
-      case "student_question":
-        return <MessageCircle className="h-6 w-6 text-orange-600" />
-      default:
-        return <Bell className="h-6 w-6 text-gray-600" />
+  // Get unique notification types
+  const notificationTypes = ["All Types", ...Array.from(new Set(notifications.map(n => n.type)))]
+
+  // Load notifications on component mount
+  useEffect(() => {
+    if (user && !authLoading) {
+      fetchNotifications()
     }
+  }, [user, authLoading])
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    )
   }
 
-  const getTypeBadge = (type: string) => {
-    switch (type) {
-      case "invitation_accepted":
-        return <Badge className="bg-green-100 text-green-800 text-xs">Invitation</Badge>
-      case "invitation_declined":
-        return <Badge className="bg-red-100 text-red-800 text-xs">Invitation</Badge>
-      case "assignment_submitted":
-        return <Badge className="bg-blue-100 text-blue-800 text-xs">Assignment</Badge>
-      case "student_question":
-        return <Badge className="bg-orange-100 text-orange-800 text-xs">Question</Badge>
-      default:
-        return <Badge className="bg-gray-100 text-gray-800 text-xs">General</Badge>
-    }
+  if (!user) {
+    router.push('/login')
+    return null
   }
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "accepted":
-        return <Badge className="bg-green-100 text-green-800 text-xs">Accepted</Badge>
-      case "declined":
-        return <Badge className="bg-red-100 text-red-800 text-xs">Declined</Badge>
-      case "submitted":
-        return <Badge className="bg-blue-100 text-blue-800 text-xs">Submitted</Badge>
-      default:
-        return <Badge className="bg-gray-100 text-gray-800 text-xs">{status}</Badge>
-    }
-  }
+  const unreadCount = notifications.filter(n => !n.is_read).length
 
   return (
-    <div className="min-h-screen bg-white flex">
-      <RoleBasedSidebar user={user} />
+    <div className="min-h-screen bg-gray-50">
+      <RoleBasedSidebar />
       
-      <div className="flex-1 ml-64">
-        <div className="p-8">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8">
-            <div>
-              <h1 className="text-3xl font-bold text-black mb-2">Notifications</h1>
-              <p className="text-gray-600">
-                Stay updated on student responses and cohort activities
-              </p>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              <Button 
-                variant="outline"
-                onClick={() => router.push('/professor/dashboard')}
-                className="border-gray-300 text-gray-700 hover:bg-gray-50"
-              >
-                <ArrowRight className="h-4 w-4 mr-2" />
-                Back to Dashboard
-              </Button>
-              <Button 
-                onClick={handleLogout}
-                variant="outline"
-                className="border-gray-300 text-gray-700 hover:bg-gray-50"
-              >
-                Logout
-              </Button>
-            </div>
+      <div className="ml-64 p-6">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
+            <p className="text-gray-600">Stay updated with student activities and cohort updates</p>
           </div>
-
-          {/* Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div className="bg-white border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4">
-                  <Bell className="h-6 w-6 text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">Total Notifications</p>
-                  <p className="text-2xl font-bold text-gray-900">{allNotifications.length}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4">
-                  <UserCheck className="h-6 w-6 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">Invitations Accepted</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {allNotifications.filter(n => n.type === 'invitation_accepted').length}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mr-4">
-                  <UserX className="h-6 w-6 text-red-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">Invitations Declined</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {allNotifications.filter(n => n.type === 'invitation_declined').length}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white border border-gray-200 rounded-lg p-6">
-              <div className="flex items-center">
-                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center mr-4">
-                  <MessageCircle className="h-6 w-6 text-orange-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600 mb-1">Unread</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {allNotifications.filter(n => !n.isRead).length}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Filters */}
-          <div className="flex items-center space-x-4 mb-6">
-            {/* Search */}
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search notifications..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
-              />
-            </div>
-
-            {/* Type Filter */}
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
+          {unreadCount > 0 && (
+            <Button
+              onClick={markAllAsRead}
+              variant="outline"
+              className="flex items-center space-x-2"
             >
-              <option value="All Types">All Types</option>
-              <option value="invitation_accepted">Invitations Accepted</option>
-              <option value="invitation_declined">Invitations Declined</option>
-              <option value="assignment_submitted">Assignments</option>
-              <option value="student_question">Questions</option>
-            </select>
+              <CheckCheck className="h-4 w-4" />
+              <span>Mark all as read</span>
+            </Button>
+          )}
+        </div>
 
-            {/* Status Filter */}
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
-            >
-              <option value="All Status">All Status</option>
-              <option value="Unread">Unread</option>
-              <option value="Read">Read</option>
-            </select>
-          </div>
-
-          {/* Notifications List */}
-          <Card className="bg-white border border-gray-200">
-            <CardHeader>
-              <CardTitle className="text-xl text-gray-900">Recent Activity</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {loadingNotifications ? (
-                <div className="text-center py-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400 mx-auto mb-4"></div>
-                  <p className="text-gray-500">Loading notifications...</p>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Bell className="h-5 w-5 text-blue-600" />
                 </div>
-              ) : filteredNotifications.length === 0 ? (
-                <div className="text-center py-8">
-                  <Bell className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                  <p className="text-gray-500">No notifications found</p>
+                <div>
+                  <p className="text-sm text-gray-600">Total</p>
+                  <p className="text-2xl font-bold text-gray-900">{notifications.length}</p>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {filteredNotifications.map((notification) => (
-                    <Card 
-                      key={notification.id} 
-                      className={`border ${
-                        notification.isNew 
-                          ? "border-blue-300 bg-blue-50" 
-                          : notification.isRead 
-                          ? "border-gray-200 bg-white" 
-                          : "border-gray-300 bg-gray-50"
-                      }`}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-start space-x-4">
-                          <div className="flex-shrink-0">
-                            {getTypeIcon(notification.type)}
-                          </div>
-                          
-                          <div className="flex-1">
-                            <div className="flex items-start justify-between mb-2">
-                              <div className="flex items-center space-x-3">
-                                <h3 className="font-semibold text-gray-900">{notification.title}</h3>
-                                {getTypeBadge(notification.type)}
-                                {getStatusBadge(notification.status)}
-                                {notification.isNew && (
-                                  <Badge className="bg-blue-100 text-blue-800 text-xs">New</Badge>
-                                )}
-                                {!notification.isRead && (
-                                  <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
-                                )}
-                              </div>
-                              <p className="text-xs text-gray-500">{notification.time}</p>
-                            </div>
-                            
-                            <p className="text-gray-600 mb-3">{notification.message}</p>
-                            
-                            {/* Notification-specific details */}
-                            {(notification.type === "invitation_accepted" || notification.type === "invitation_declined") && (
-                              <div className={`border rounded-lg p-3 mb-3 ${
-                                notification.type === "invitation_accepted" 
-                                  ? "bg-green-50 border-green-200" 
-                                  : "bg-red-50 border-red-200"
-                              }`}>
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <p className={`text-sm font-medium ${
-                                      notification.type === "invitation_accepted" 
-                                        ? "text-green-900" 
-                                        : "text-red-900"
-                                    }`}>
-                                      {notification.cohortTitle || notification.data?.cohort_title}
-                                    </p>
-                                    <p className={`text-xs ${
-                                      notification.type === "invitation_accepted" 
-                                        ? "text-green-700" 
-                                        : "text-red-700"
-                                    }`}>
-                                      Student: {notification.studentName || notification.data?.student_name}
-                                    </p>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                            
-                            {notification.type === "assignment_submitted" && (
-                              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
-                                <div className="flex items-center justify-between">
-                                  <div>
-                                    <p className="text-sm font-medium text-blue-900">{notification.assignmentTitle}</p>
-                                    <p className="text-xs text-blue-700">Student: {notification.studentName}</p>
-                                    <p className="text-xs text-blue-700">Submitted: {notification.submittedAt}</p>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                            
-                            {/* Action Buttons */}
-                            <div className="flex items-center space-x-3">
-                              {notification.actions.map((action, index) => {
-                                const isPrimary = action === "View Cohort" || action === "Grade Assignment"
-                                return (
-                                  <Button
-                                    key={index}
-                                    size="sm"
-                                    variant={isPrimary ? "default" : "outline"}
-                                    className={
-                                      isPrimary 
-                                        ? "bg-black text-white hover:bg-gray-800" 
-                                        : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                                    }
-                                    onClick={() => handleActionClick(action, notification)}
-                                  >
-                                    {action}
-                                  </Button>
-                                )
-                              })}
-                              
-                              {!notification.isRead && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleMarkAsRead(notification.id)}
-                                  className="text-gray-500 hover:text-gray-700"
-                                >
-                                  Mark as Read
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-red-100 rounded-lg">
+                  <Bell className="h-5 w-5 text-red-600" />
                 </div>
-              )}
+                <div>
+                  <p className="text-sm text-gray-600">Unread</p>
+                  <p className="text-2xl font-bold text-gray-900">{unreadCount}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <UserPlus className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Invitations</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {notifications.filter(n => n.type === 'invitation_response').length}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <BookOpen className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Assignments</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {notifications.filter(n => n.type === 'assignment_completion').length}
+                  </p>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>
+
+        {/* Search and Filter Bar */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center space-x-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <input
+                  type="text"
+                  placeholder="Search notifications..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              
+              <select
+                value={typeFilter}
+                onChange={(e) => setTypeFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                {notificationTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+              
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="All Status">All Status</option>
+                <option value="Unread">Unread</option>
+                <option value="Read">Read</option>
+              </select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Notifications List */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          </div>
+        ) : error ? (
+          <div className="text-center py-12">
+            <p className="text-red-600">{error}</p>
+          </div>
+        ) : filteredNotifications.length === 0 ? (
+          <Card>
+            <CardContent className="p-12 text-center">
+              <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No notifications found</h3>
+              <p className="text-gray-600">
+                {notifications.length === 0 
+                  ? "You'll receive notifications when students respond to invitations or complete assignments."
+                  : "No notifications match your current filters."
+                }
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {filteredNotifications.map((notification) => (
+              <Card 
+                key={notification.id} 
+                className={`transition-all duration-200 hover:shadow-md ${
+                  !notification.is_read 
+                    ? `${getNotificationColor(notification.type)} border-l-4` 
+                    : 'bg-white'
+                }`}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-start space-x-4">
+                    <div className="flex-shrink-0 mt-1">
+                      {getNotificationIcon(notification.type)}
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <h3 className={`text-lg font-medium ${
+                              notification.is_read ? 'text-gray-700' : 'text-gray-900'
+                            }`}>
+                              {notification.title}
+                            </h3>
+                            {!notification.is_read && (
+                              <Badge variant="destructive" className="text-xs">
+                                New
+                              </Badge>
+                            )}
+                          </div>
+                          
+                          <p className={`text-sm mb-3 ${
+                            notification.is_read ? 'text-gray-500' : 'text-gray-600'
+                          }`}>
+                            {notification.message}
+                          </p>
+                          
+                          <div className="flex items-center space-x-4 text-xs text-gray-500">
+                            <span className="flex items-center">
+                              <Clock className="h-3 w-3 mr-1" />
+                              {formatTimeAgo(notification.created_at)}
+                            </span>
+                            <Badge variant="outline" className="text-xs">
+                              {notification.type.replace('_', ' ')}
+                            </Badge>
+                          </div>
+                        </div>
+                        
+                        {!notification.is_read && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => markAsRead(notification.id)}
+                            disabled={markingRead === notification.id}
+                            className="ml-4 flex-shrink-0"
+                          >
+                            {markingRead === notification.id ? (
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                            ) : (
+                              <CheckCircle className="h-4 w-4" />
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

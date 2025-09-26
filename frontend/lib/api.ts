@@ -122,7 +122,9 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAut
       }
       
       // Handle other HTTP errors
-      throw new Error(errorData.detail || `HTTP error! status: ${response.status}`)
+      const errorMessage = errorData.detail || errorData.message || `HTTP error! status: ${response.status}`
+      console.error('API Error Details:', errorData)
+      throw new Error(errorMessage)
     }
 
     return response
@@ -460,6 +462,100 @@ export const apiClient = {
     await apiRequest(`/cohorts/${cohortId}`, {
       method: 'DELETE',
     })
+  },
+
+  // Invitation methods
+  inviteStudentsToCohort: async (cohortId: number, invitations: { email: string; message?: string }[]): Promise<any> => {
+    const response = await apiRequest(`/professor/cohorts/${cohortId}/invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(invitations)
+    })
+    if (!response.ok) {
+      throw new Error('Failed to send invitations')
+    }
+    return response.json()
+  },
+
+  getCohortInvitations: async (cohortId: number): Promise<any> => {
+    const response = await apiRequest(`/professor/cohorts/${cohortId}/invitations`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch cohort invitations')
+    }
+    return response.json()
+  },
+
+  // Notification methods
+  getNotifications: async (limit: number = 50, offset: number = 0, unreadOnly: boolean = false): Promise<any> => {
+    const user = await apiClient.getCurrentUser()
+    if (!user) {
+      throw new Error('User not authenticated')
+    }
+    const endpoint = user.role === 'professor' ? '/professor/notifications' : '/student/notifications'
+    const response = await apiRequest(`${endpoint}?limit=${limit}&offset=${offset}&unread_only=${unreadOnly}`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch notifications')
+    }
+    return response.json()
+  },
+
+  getUnreadNotificationCount: async (): Promise<number> => {
+    const user = await apiClient.getCurrentUser()
+    if (!user) {
+      throw new Error('User not authenticated')
+    }
+    const endpoint = user.role === 'professor' ? '/professor/notifications/unread-count' : '/student/notifications/unread-count'
+    const response = await apiRequest(endpoint)
+    if (!response.ok) {
+      throw new Error('Failed to fetch unread count')
+    }
+    const data = await response.json()
+    return data.unread_count
+  },
+
+  markNotificationRead: async (notificationId: number): Promise<void> => {
+    const user = await apiClient.getCurrentUser()
+    if (!user) {
+      throw new Error('User not authenticated')
+    }
+    const endpoint = user.role === 'professor' ? `/professor/notifications/${notificationId}/mark-read` : `/student/notifications/${notificationId}/read`
+    const response = await apiRequest(endpoint, { method: 'POST' })
+    if (!response.ok) {
+      throw new Error('Failed to mark notification as read')
+    }
+  },
+
+  markAllNotificationsRead: async (): Promise<void> => {
+    const user = await apiClient.getCurrentUser()
+    if (!user) {
+      throw new Error('User not authenticated')
+    }
+    const endpoint = user.role === 'professor' ? '/professor/notifications/mark-all-read' : '/student/notifications/mark-all-read'
+    const response = await apiRequest(endpoint, { method: 'POST' })
+    if (!response.ok) {
+      throw new Error('Failed to mark all notifications as read')
+    }
+  },
+
+  // Student invitation response methods
+  getPendingInvitations: async (): Promise<any> => {
+    const response = await apiRequest('/student/invitations')
+    if (!response.ok) {
+      throw new Error('Failed to fetch pending invitations')
+    }
+    return response.json()
+  },
+
+  respondToInvitation: async (invitationId: number, action: 'accept' | 'decline'): Promise<any> => {
+    const response = await apiRequest(`/student/invitations/${invitationId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
+    })
+    if (!response.ok) {
+      throw new Error('Failed to respond to invitation')
+    }
+    return response.json()
   },
 
   // Student cohort methods

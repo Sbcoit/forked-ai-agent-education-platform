@@ -11,7 +11,7 @@ from database.models import User, Cohort, CohortStudent, CohortSimulation, Scena
 from database.schemas import CohortResponse
 from utilities.auth import require_student
 
-router = APIRouter()
+router = APIRouter(prefix="/student", tags=["Student Cohorts"])
 logger = logging.getLogger(__name__)
 
 @router.get("/cohorts", response_model=List[Dict[str, Any]])

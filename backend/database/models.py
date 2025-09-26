@@ -1,5 +1,5 @@
 # AI Agent Education Platform - Database Models
-from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, JSON, Table, Float, Index
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Boolean, JSON, Table, Float, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database.connection import Base, settings
@@ -139,6 +139,7 @@ class Scenario(Base):
     # Individual completion boolean fields for easier tracking
     name_completed = Column(Boolean, default=False)
     description_completed = Column(Boolean, default=False)
+    student_role_completed = Column(Boolean, default=False)
     personas_completed = Column(Boolean, default=False)
     scenes_completed = Column(Boolean, default=False)
     images_completed = Column(Boolean, default=False)
@@ -163,6 +164,11 @@ class Scenario(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Unique constraint to prevent duplicate scenarios with same title by same user
+    __table_args__ = (
+        UniqueConstraint('title', 'created_by', name='unique_title_per_user'),
+    )
     
     # Relationships
     creator = relationship("User", back_populates="scenarios", foreign_keys=[created_by])

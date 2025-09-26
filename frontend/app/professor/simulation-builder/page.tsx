@@ -129,6 +129,7 @@ export default function ScenarioBuilder() {
  const teachingNotesInputRef = useRef<HTMLInputElement>(null)
  const [name, setName] = useState("")
  const [description, setDescription] = useState("")
+ const [studentRole, setStudentRole] = useState("")
  const [learningOutcomes, setLearningOutcomes] = useState("")
  const [autofillLoading, setAutofillLoading] = useState(false)
  const [autofillError, setAutofillError] = useState<string | null>(null)
@@ -162,6 +163,7 @@ export default function ScenarioBuilder() {
   const [dbCompletionFields, setDbCompletionFields] = useState({
     nameCompleted: false,
     descriptionCompleted: false,
+    studentRoleCompleted: false,
     personasCompleted: false,
     scenesCompleted: false,
     imagesCompleted: false,
@@ -224,6 +226,7 @@ export default function ScenarioBuilder() {
            
            // Load scenes first to extract personas
            if (draftData.scenes && draftData.scenes.length > 0) {
+             console.log("DEBUG: Raw draftData.scenes:", draftData.scenes);
              // Transform scenes to ensure they have the correct structure for SceneCard
              const transformedScenes = draftData.scenes.map((scene: any) => ({
                ...scene,
@@ -232,6 +235,7 @@ export default function ScenarioBuilder() {
                // Ensure personas_involved is an array of names
                personas_involved: scene.personas_involved || []
              }))
+             console.log("DEBUG: Transformed scenes:", transformedScenes);
              setScenes(transformedScenes)
              
              // Extract all unique personas from scenes (these have the full data)
@@ -367,7 +371,7 @@ export default function ScenarioBuilder() {
     title: name || (autofillResult?.title || ""),
     description: description || (autofillResult?.description || ""),
     learning_outcomes: learningOutcomes || (autofillResult?.learning_outcomes || ""),
-    student_role: autofillResult?.student_role || "",
+    student_role: studentRole || (autofillResult?.student_role || ""),
     key_figures: autofillResult?.key_figures || [],
     // Use the latest scenes and personas state
     scenes: normalizeScenes(scenes),
@@ -383,6 +387,7 @@ export default function ScenarioBuilder() {
     completion_status: {
       name_completed: !!name?.trim() || !!autofillResult,
       description_completed: !!description?.trim() || !!autofillResult,
+      student_role_completed: !!studentRole?.trim() || !!autofillResult,
       personas_completed: personas?.length > 0 || !!autofillResult,
       scenes_completed: scenes?.length > 0 || !!autofillResult,
       images_completed: scenes?.some(scene => scene.image_url) || !!autofillResult,
@@ -413,9 +418,9 @@ export default function ScenarioBuilder() {
      });
      
      // Build endpoint with scenario_id if updating an existing scenario
-     const endpoint = savedScenarioId 
-       ? `/api/scenarios/save?scenario_id=${savedScenarioId}`
-       : "/api/scenarios/save";
+    const endpoint = savedScenarioId 
+      ? `/api/publishing/scenarios/save?scenario_id=${savedScenarioId}`
+      : "/api/publishing/scenarios/save";
      
      debugLog("Save endpoint:", endpoint)
      debugLog("savedScenarioId:", savedScenarioId)
@@ -491,7 +496,7 @@ export default function ScenarioBuilder() {
        estimated_duration: 60
      };
      
-           const response = await apiClient.apiRequest(`/api/scenarios/publish/${scenarioId}`, {
+           const response = await apiClient.apiRequest(`/api/publishing/scenarios/publish/${scenarioId}`, {
        method: "POST",
        body: JSON.stringify(publishData),
      });
@@ -787,6 +792,12 @@ export default function ScenarioBuilder() {
       if (aiData.description) {
         const formattedDescription = formatDescription(aiData.description);
         setDescription(formattedDescription);
+      }
+      
+      // Set the student role
+      if (aiData.student_role) {
+        debugLog("Setting student role:", aiData.student_role);
+        setStudentRole(aiData.student_role);
       }
       
       // Set the learning outcomes
@@ -1918,6 +1929,7 @@ return (
       <SimulationBuilderProgress
         name={name}
         description={description}
+        studentRole={studentRole}
         personas={personas}
         scenes={scenes}
         learningOutcomes={learningOutcomes}
@@ -1927,6 +1939,7 @@ return (
         hasAutofillResult={!!autofillResult}
         nameCompleted={dbCompletionFields.nameCompleted}
         descriptionCompleted={dbCompletionFields.descriptionCompleted}
+        studentRoleCompleted={dbCompletionFields.studentRoleCompleted}
         personasCompleted={dbCompletionFields.personasCompleted}
         scenesCompleted={dbCompletionFields.scenesCompleted}
         imagesCompleted={dbCompletionFields.imagesCompleted}
@@ -2018,6 +2031,22 @@ return (
                      className="mt-1 w-full overflow-visible rounded-none z-10 p-2 min-h-[200px] resize-y whitespace-pre-wrap"
                      style={{ minHeight: '200px', maxHeight: '400px' }}
                    />
+                 </div>
+                 <div className="overflow-visible focus-within:overflow-visible">
+                   <Label htmlFor="studentRole">Student Role</Label>
+                   <Input 
+                     id="studentRole" 
+                     value={studentRole} 
+                     onChange={e => {
+                       setStudentRole(e.target.value);
+                       markAsUnsaved();
+                     }} 
+                     placeholder="e.g., Ng'ang'a Wanjohi (CEO of KasKazi Network), Business Analyst, Strategic Advisor"
+                     className="mt-1 w-full box-border p-2" 
+                   />
+                   <p className="text-sm text-muted-foreground mt-1">
+                     The role the student will assume in this simulation. This could be a specific character from the case study or a business position.
+                   </p>
                  </div>
                  <div className="overflow-visible focus-within:overflow-visible">
                    <Label htmlFor="learning-outcomes">Learning Outcomes</Label>

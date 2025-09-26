@@ -53,6 +53,7 @@ export default function SceneCard({
     const normStudentRole = normalizeName(studentRole || "");
     console.log("useEffect - scene.personas_involved:", scene.personas_involved);
     console.log("useEffect - allPersonas:", allPersonas.map(p => p.name));
+    console.log("useEffect - scene.image_url:", scene.image_url);
     setEditFields({
       title: scene.title,
       description: scene.description,
@@ -183,18 +184,32 @@ export default function SceneCard({
         {/* Left: Image */}
         <div className="flex flex-col items-center justify-center w-40 mr-4">
           <div className="w-32 h-32 flex items-center justify-center rounded-lg border bg-gray-100 overflow-hidden mb-1">
-            {scene.image_url ? (
-              <img
-                src={scene.image_url}
-                alt="Scene"
-                className="object-cover w-full h-full rounded-lg"
-              />
-            ) : (
-              <svg className="w-20 h-20 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="10" />
-                <polyline points="12,6 12,12 16,14" />
-              </svg>
-            )}
+            {(() => {
+              console.log("SceneCard render - scene.image_url:", scene.image_url);
+              console.log("SceneCard render - scene:", scene);
+              return scene.image_url ? (
+                <img
+                  src={scene.image_url}
+                  alt="Scene"
+                  className="object-cover w-full h-full rounded-lg"
+                  onError={(e) => {
+                    console.log("Image failed to load:", scene.image_url);
+                    console.log("Error event:", e);
+                  }}
+                  onLoad={() => {
+                    console.log("Image loaded successfully:", scene.image_url);
+                  }}
+                />
+              ) : (
+                <div className="text-center">
+                  <svg className="w-20 h-20 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12,6 12,12 16,14" />
+                  </svg>
+                  <div className="text-xs text-gray-500 mt-1">No Image</div>
+                </div>
+              );
+            })()}
           </div>
         </div>
         {/* Middle: Details */}

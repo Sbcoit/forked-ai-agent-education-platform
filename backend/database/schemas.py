@@ -203,6 +203,7 @@ class ScenarioPublishingResponse(BaseModel):
     # Database boolean fields for completion tracking
     name_completed: Optional[bool] = None
     description_completed: Optional[bool] = None
+    student_role_completed: Optional[bool] = None
     personas_completed: Optional[bool] = None
     scenes_completed: Optional[bool] = None
     images_completed: Optional[bool] = None

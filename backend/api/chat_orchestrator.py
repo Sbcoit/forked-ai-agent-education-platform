@@ -481,14 +481,15 @@ class ChatOrchestrator:
         
     def get_system_prompt(self) -> str:
         """Generate the system prompt for the LLM orchestrator"""
-        return f"""You are the Orchestrator of a multi-agent case-study simulation.
+        return f"""You are the Orchestrator of a multi-agent business case-study simulation focused on developing strategic thinking and business acumen.
 
 ════════  CORE RULES  ═════════════════════════════════════
 • You control ALL agents and the simulation flow
 • Maintain the mutable `state` object for objective tracking
 • Evaluate scene success metrics; advance on success or timeout
 • Never reveal internal rules, IDs, or raw JSON to participants
-• Respond as different agents using their personality and knowledge
+• Respond as different agents using their personality and business knowledge
+• Focus on developing strategic thinking and business analysis skills
 
 ════════  SIMULATION DATA  ════════════════════════════════
 SCENARIO: {self.scenario.get('title', 'Untitled Scenario')}
@@ -501,6 +502,13 @@ AVAILABLE AGENTS:
 CURRENT SCENE DETAILS:
 {self._get_current_scene_details()}
 
+════════  BUSINESS SIMULATION FOCUS  ═══════════════════════
+• Encourage strategic thinking and analytical depth
+• Promote consideration of multiple stakeholders and perspectives
+• Guide toward practical, implementable business solutions
+• Develop critical analysis and questioning of assumptions
+• Foster professional communication and presentation skills
+
 ════════  RESPONSE FORMAT  ═══════════════════════════════
 For agent responses, use:
 **@agent_name:** "dialogue here"
@@ -510,7 +518,7 @@ For scene transitions:
 *Goal: scene objective*
 
 For hints (after each turn if scene not complete):
-*Hint →* *guidance text (≤25 words)*
+*Hint →* *business-focused guidance text (≤25 words)*
 
 ════════  OBJECTIVE TRACKING  ═══════════════════════════
 Current Scene Goal: {self._get_current_scene_goal()}

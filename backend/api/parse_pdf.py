@@ -865,6 +865,163 @@ def preprocess_case_study_content(raw_content: str) -> dict:
 _openai_semaphore = asyncio.Semaphore(MAX_CONCURRENT_OPENAI)
 _image_semaphore = asyncio.Semaphore(MAX_CONCURRENT_IMAGES)
 
+async def _fast_persona_extraction(content: str, title: str) -> dict:
+    """Fast persona extraction with minimal AI call for autofill"""
+    debug_log("[FAST_AI] Starting fast persona extraction...")
+    
+    prompt = f"""You are a JSON generator for business case study analysis. Extract key information quickly.
+
+STUDENT ROLE IDENTIFICATION:
+For the "student_role" field, determine what role the student should assume in this simulation. This could be:
+- A specific character from the case study (e.g., "Ng'ang'a Wanjohi", "The CEO", "The Marketing Manager")
+- A business role/position (e.g., "Business Analyst", "Consultant", "Strategic Advisor", "Investment Analyst")
+- A stakeholder role (e.g., "Board Member", "Investor", "Customer Representative")
+- A decision-maker role (e.g., "Project Manager", "Operations Director", "Financial Controller")
+
+PRIORITY: Look for the MAIN CHARACTER or PROTAGONIST of the case study first. If there's a clear main character who is the central figure making decisions, the student should play that character.
+
+Look for clues in the case study such as:
+- The main character's name and title (e.g., "Ng'ang'a Wanjohi, CEO of...")
+- "You are [character name]" or "You play the role of [character]"
+- "As [character name], you must..."
+- "Students are asked to step into the shoes of [character]"
+- "You are asked to..." or "Students are tasked with..."
+- "As a [role], you must..."
+- "Your role is to..."
+- "You have been hired as..."
+- "You are the [position] and must decide..."
+
+If there's a clear main character/protagonist, use their name and title (e.g., "Ng'ang'a Wanjohi (CEO of KasKazi Network)").
+If no specific character is mentioned, default to "Business Analyst" as it's a common role for case study analysis.
+
+Return JSON with:
+{{
+  "title": "<exact title>",
+  "description": "<A comprehensive, detailed background description (5-7 paragraphs) covering: business context, challenges, stakeholders, financial details, market dynamics, and decision implications. Include specific numbers, dates, and examples.>",
+  "student_role": "<specific role the student will assume>",
+  "key_figures": [
+    {{
+      "name": "<name or title>",
+      "role": "<their role>",
+      "correlation": "<relationship to narrative>",
+      "background": "<2-3 sentence background>",
+      "primary_goals": ["<goal1>", "<goal2>", "<goal3>"],
+      "personality_traits": {{
+        "analytical": <0-10>,
+        "creative": <0-10>,
+        "assertive": <0-10>,
+        "collaborative": <0-10>,
+        "detail_oriented": <0-10>
+      }}
+    }}
+  ]
+}}
+
+CONTENT:
+{content[:2000]}...
+"""
+    
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You are a JSON generator for business case study analysis. Create detailed descriptions with specific information, numbers, and context. Be thorough and informative."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=4000,
+                temperature=0.1,
+            )
+        )
+        
+        generated_text = response.choices[0].message.content
+        
+        # Extract JSON from response
+        match = re.search(r'({[\s\S]*})', generated_text)
+        if match:
+            json_str = match.group(1)
+            result = json.loads(json_str)
+            debug_log(f"[FAST_AI] Extracted student_role: {result.get('student_role', 'NOT_FOUND')}")
+            return result
+        else:
+            debug_log("[FAST_AI] No JSON found in response")
+            return _create_fallback_result(title, content)
+            
+    except Exception as e:
+        debug_log(f"[FAST_AI_ERROR] {str(e)}")
+        return _create_fallback_result(title, content)
+
+def _create_fallback_result(title: str, content: str) -> dict:
+    """Create fallback result when AI extraction fails"""
+    debug_log("[FALLBACK] Creating fallback result...")
+    
+    # Try to extract a basic role from content
+    student_role = "Business Analyst"  # Default
+    
+    if content:
+        content_lower = content.lower()
+        if "students are tasked" in content_lower or "you are asked" in content_lower:
+            if "analyze" in content_lower:
+                student_role = "Business Analyst"
+            elif "evaluate" in content_lower:
+                student_role = "Strategic Advisor"
+            elif "decide" in content_lower or "decision" in content_lower:
+                student_role = "Decision Maker"
+            elif "consultant" in content_lower:
+                student_role = "Business Consultant"
+    
+    return {
+        "title": title or "Business Case Study",
+        "student_role": student_role,
+        "key_figures": [
+            {
+                "name": "Senior Executive",
+                "role": "Executive Leader",
+                "correlation": "Key decision maker in the business scenario",
+                "background": "Experienced leader with strategic oversight and decision-making authority.",
+                "primary_goals": ["Drive strategic growth", "Ensure organizational success", "Manage stakeholder relationships"],
+                "personality_traits": {
+                    "analytical": 8,
+                    "creative": 6,
+                    "assertive": 7,
+                    "collaborative": 7,
+                    "detail_oriented": 8
+                }
+            },
+            {
+                "name": "Operations Manager",
+                "role": "Operations Lead",
+                "correlation": "Operational expert in the business scenario",
+                "background": "Operational expert focused on day-to-day execution and process optimization.",
+                "primary_goals": ["Optimize processes", "Ensure efficiency", "Manage operational resources"],
+                "personality_traits": {
+                    "analytical": 9,
+                    "creative": 4,
+                    "assertive": 6,
+                    "collaborative": 8,
+                    "detail_oriented": 9
+                }
+            },
+            {
+                "name": "Financial Analyst",
+                "role": "Finance Professional",
+                "correlation": "Financial expert in the business scenario",
+                "background": "Financial expert responsible for budget analysis and financial planning.",
+                "primary_goals": ["Ensure financial health", "Analyze investment opportunities", "Manage risk"],
+                "personality_traits": {
+                    "analytical": 10,
+                    "creative": 3,
+                    "assertive": 5,
+                    "collaborative": 6,
+                    "detail_oriented": 10
+                }
+            }
+        ]
+    }
+
 async def extract_personas_and_key_figures_optimized(combined_content: str, title: str, session_id: str = None) -> dict:
     """Extract personas and key figures using OpenAI with high-quality prompts"""
     debug_log("[AI] Starting persona extraction...")
@@ -885,10 +1042,33 @@ Instructions for key_figures identification:
 - Even if someone/thing is mentioned only once or briefly, include them if they have a discernible role in the narrative
 - CRITICAL: Do NOT include the student, the player, or the role/position the student is playing (as specified in "student_role") in the key_figures array.
 
+STUDENT ROLE IDENTIFICATION:
+For the "student_role" field, determine what role the student should assume in this simulation. This could be:
+- A specific character from the case study (e.g., "Ng'ang'a Wanjohi", "The CEO", "The Marketing Manager")
+- A business role/position (e.g., "Business Analyst", "Consultant", "Strategic Advisor", "Investment Analyst")
+- A stakeholder role (e.g., "Board Member", "Investor", "Customer Representative")
+- A decision-maker role (e.g., "Project Manager", "Operations Director", "Financial Controller")
+
+PRIORITY: Look for the MAIN CHARACTER or PROTAGONIST of the case study first. If there's a clear main character who is the central figure making decisions, the student should play that character.
+
+Look for clues in the case study such as:
+- The main character's name and title (e.g., "Ng'ang'a Wanjohi, CEO of...")
+- "You are [character name]" or "You play the role of [character]"
+- "As [character name], you must..."
+- "Students are asked to step into the shoes of [character]"
+- "You are asked to..." or "Students are tasked with..."
+- "As a [role], you must..."
+- "Your role is to..."
+- "You have been hired as..."
+- "You are the [position] and must decide..."
+
+If there's a clear main character/protagonist, use their name and title (e.g., "Ng'ang'a Wanjohi (CEO of KasKazi Network)").
+If no specific character is mentioned, default to "Business Analyst" as it's a common role for case study analysis.
+
 Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
   "title": "<The exact title of the business case study>",
-  "description": "<A comprehensive, detailed background description that provides students with complete context. This should be 3-4 paragraphs covering: 1) The business/organizational context and current situation, 2) Key challenges, problems, or opportunities being faced, 3) Relevant background information, stakeholders, and constraints, 4) The specific scenario or crisis that students need to address. Students should understand the full situation without needing to read the original document.>",
-  "student_role": "<The specific role the student will assume>",
+  "description": "<A comprehensive, detailed background description that provides students with complete context. This should be 5-7 paragraphs covering: 1) The business/organizational context, current situation, and market environment, 2) Key challenges, problems, opportunities, and competitive landscape, 3) Relevant background information, stakeholders, constraints, and historical context, 4) The specific scenario, crisis, or decision point that students need to address, 5) Financial context, market dynamics, and business model details, 6) Key relationships, partnerships, and external factors, 7) The implications and stakes of the decisions to be made. Include specific details, numbers, dates, and concrete examples from the case study. Students should understand the full situation, context, and complexity without needing to read the original document.>",
+  "student_role": "<The specific role the student will assume - be specific and descriptive>",
   "key_figures": [
     {{
       "name": "<Full name or descriptive title>",
@@ -921,7 +1101,7 @@ CASE STUDY CONTENT:
             lambda: client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a JSON generator for business case study analysis. Focus on creating comprehensive, detailed descriptions that give students complete context without needing the original document."},
+                    {"role": "system", "content": "You are a JSON generator for business case study analysis. Focus on creating comprehensive, detailed descriptions that give students complete context without needing the original document. Include specific details, numbers, dates, financial information, market dynamics, and concrete examples. Make descriptions thorough and informative."},
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=12000,

@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from pydantic_settings import BaseSettings
+from typing import Optional
 import os
 from pathlib import Path
 
@@ -17,8 +18,8 @@ class Settings(BaseSettings):
     secret_key: str = os.getenv("SECRET_KEY", "your-secret-key-here")
     environment: str = os.getenv("ENVIRONMENT", "development")
     cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
-    llamaparse_api_key: str | None = None
-    gemini_api_key: str | None = None
+    llamaparse_api_key: Optional[str] = None
+    gemini_api_key: Optional[str] = None
     
     # Google OAuth settings
     google_client_id: str = os.getenv("GOOGLE_CLIENT_ID", "")

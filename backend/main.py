@@ -190,19 +190,30 @@ async def root():
         "status": "active"
     }
 
-
 @app.get("/api/scenarios/")
 async def get_scenarios(
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """Get scenarios created by the current user with their personas and scenes"""
+    """Get scenarios with their personas and scenes"""
     try:
-        scenarios = db.query(Scenario).filter(
-            Scenario.created_by == current_user.id,
-            Scenario.is_draft == False,  # Only show published scenarios
-            Scenario.deleted_at.is_(None)  # Exclude soft-deleted scenarios
-        ).order_by(Scenario.created_at.desc()).all()
+        # If user is authenticated, show their scenarios; otherwise show all public scenarios
+        if current_user:
+            # For authenticated users, show all their scenarios (both draft and active)
+            # but prioritize active versions over draft versions for the same scenario
+            scenarios = db.query(Scenario).filter(
+                Scenario.created_by == current_user.id,
+                Scenario.deleted_at.is_(None)  # Exclude soft-deleted scenarios
+            ).order_by(
+                Scenario.status.desc(),  # Active scenarios first
+                Scenario.updated_at.desc()  # Then by most recently updated
+            ).all()
+        else:
+            # For unauthenticated users, show all public scenarios
+            scenarios = db.query(Scenario).filter(
+                Scenario.is_public == True,
+                Scenario.deleted_at.is_(None)  # Exclude soft-deleted scenarios
+            ).order_by(Scenario.created_at.desc()).all()
         
         result = []
         for scenario in scenarios:
@@ -308,6 +319,15 @@ async def get_draft_scenarios(
                 "published_version_id": scenario.published_version_id,
                 "created_at": scenario.created_at.isoformat() if scenario.created_at else None,
                 "is_public": scenario.is_public,
+                # Completion status fields
+                "completion_status": scenario.completion_status,
+                "name_completed": scenario.name_completed,
+                "description_completed": scenario.description_completed,
+                "personas_completed": scenario.personas_completed,
+                "scenes_completed": scenario.scenes_completed,
+                "images_completed": scenario.images_completed,
+                "learning_outcomes_completed": scenario.learning_outcomes_completed,
+                "ai_enhancement_completed": scenario.ai_enhancement_completed,
                 "personas": [
                     {
                         "id": persona.id,
@@ -515,6 +535,15 @@ async def get_draft_scenario(
             "published_version_id": scenario.published_version_id,
             "created_at": scenario.created_at.isoformat() if scenario.created_at else None,
             "is_public": scenario.is_public,
+            # Completion status fields
+            "completion_status": scenario.completion_status,
+            "name_completed": scenario.name_completed,
+            "description_completed": scenario.description_completed,
+            "personas_completed": scenario.personas_completed,
+            "scenes_completed": scenario.scenes_completed,
+            "images_completed": scenario.images_completed,
+            "learning_outcomes_completed": scenario.learning_outcomes_completed,
+            "ai_enhancement_completed": scenario.ai_enhancement_completed,
             "personas": [
                 {
                     "id": persona.id,

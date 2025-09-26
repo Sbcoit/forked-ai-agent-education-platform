@@ -8,6 +8,7 @@ import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
 interface SimulationBuilderProgressProps {
   name: string;
   description: string;
+  studentRole?: string;
   personas: any[];
   scenes: any[];
   learningOutcomes: any[];
@@ -18,6 +19,7 @@ interface SimulationBuilderProgressProps {
   // Database boolean fields
   nameCompleted?: boolean;
   descriptionCompleted?: boolean;
+  studentRoleCompleted?: boolean;
   personasCompleted?: boolean;
   scenesCompleted?: boolean;
   imagesCompleted?: boolean;
@@ -29,6 +31,7 @@ interface SimulationBuilderProgressProps {
 const SimulationBuilderProgress: React.FC<SimulationBuilderProgressProps> = ({
   name,
   description,
+  studentRole = "",
   personas,
   scenes,
   learningOutcomes,
@@ -38,6 +41,7 @@ const SimulationBuilderProgress: React.FC<SimulationBuilderProgressProps> = ({
   hasAutofillResult = false,
   nameCompleted,
   descriptionCompleted,
+  studentRoleCompleted,
   personasCompleted,
   scenesCompleted,
   imagesCompleted,
@@ -46,13 +50,14 @@ const SimulationBuilderProgress: React.FC<SimulationBuilderProgressProps> = ({
   className = ""
 }) => {
   // Use database boolean fields if all sections are complete, otherwise use real-time calculation
-  const allDbFieldsComplete = nameCompleted && descriptionCompleted && personasCompleted && 
+  const allDbFieldsComplete = nameCompleted && descriptionCompleted && studentRoleCompleted && personasCompleted && 
                               scenesCompleted && imagesCompleted && learningOutcomesCompleted && 
                               aiEnhancementCompleted;
   
   const sections = allDbFieldsComplete ? [
     { name: "Name", completed: nameCompleted },
     { name: "Description", completed: descriptionCompleted },
+    { name: "Student Role", completed: studentRoleCompleted },
     { name: "Personas", completed: personasCompleted },
     { name: "Scenes", completed: scenesCompleted },
     { name: "Images", completed: imagesCompleted },
@@ -61,6 +66,7 @@ const SimulationBuilderProgress: React.FC<SimulationBuilderProgressProps> = ({
   ] : [
     { name: "Name", completed: !!name?.trim() || hasAutofillResult },
     { name: "Description", completed: !!description?.trim() || hasAutofillResult },
+    { name: "Student Role", completed: !!studentRole?.trim() || hasAutofillResult },
     { name: "Personas", completed: personas?.length > 0 || hasAutofillResult },
     { name: "Scenes", completed: scenes?.length > 0 || hasAutofillResult },
     { name: "Images", completed: scenes?.some(scene => scene.image_url) || hasAutofillResult },

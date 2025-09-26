@@ -12,6 +12,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import time
+import secrets
 
 from database.connection import get_db
 from utilities.rate_limiter import check_anonymous_review_rate_limit
@@ -28,7 +29,7 @@ from database.schemas import (
     AIProcessingResult, ScenarioPersonaResponse, ScenarioSceneResponse
 )
 
-router = APIRouter(prefix="/api/scenarios", tags=["Publishing"])
+router = APIRouter(prefix="/api/publishing/scenarios", tags=["Publishing"])
 
 # Performance optimization constants
 DB_EXECUTOR = ThreadPoolExecutor(max_workers=4)
@@ -38,13 +39,133 @@ BATCH_SIZE = 100  # For bulk database operations
 
 @router.get("/", response_model=List[ScenarioPublishingResponse])
 async def get_scenarios(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    status: Optional[str] = Query(None, description="Filter by status: draft, active, archived"),
+    include_drafts: Optional[bool] = Query(False, description="Include draft scenarios (for testing)"),
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
-    """Get all scenarios"""
+    """Get scenarios with optional filtering by status"""
     try:
-        # Get all scenarios with their related personas and scenes
-        scenarios = db.query(Scenario).all()
-        debug_log(f"Found {len(scenarios)} scenarios")
+        # Start with base query
+        query = db.query(Scenario)
+        
+        # Filter by status if provided
+        if status:
+            if status == "active":
+                # For active scenarios, show only non-draft scenarios that are public
+                query = query.filter(Scenario.is_draft == False, Scenario.is_public == True)
+            elif status == "draft":
+                # For draft scenarios, show only draft scenarios
+                query = query.filter(Scenario.is_draft == True)
+            elif status == "archived":
+                # For archived scenarios, show scenarios with archived status
+                query = query.filter(Scenario.status == "archived")
+        
+        # If no status filter provided, show only active (non-draft) scenarios by default
+        # This prevents showing both draft and active versions of the same scenario
+        # Exception: if include_drafts=True, show all scenarios regardless of draft status
+        if not status and not include_drafts:
+            query = query.filter(Scenario.is_draft == False)
+        
+        scenarios = query.all()
+        debug_log(f"Found {len(scenarios)} scenarios with status filter: {status}")
+        
+        # Convert to response format with personas and scenes
+        scenario_responses = []
+        for scenario in scenarios:
+            # Get personas for this scenario
+            personas = db.query(ScenarioPersona).filter(
+                ScenarioPersona.scenario_id == scenario.id
+            ).all()
+            
+            # Get scenes for this scenario
+            scenes = db.query(ScenarioScene).filter(
+                ScenarioScene.scenario_id == scenario.id
+            ).order_by(ScenarioScene.scene_order).all()
+            
+            scenario_responses.append({
+                "id": scenario.id,
+                "title": scenario.title or "",
+                "description": scenario.description or "",
+                "challenge": scenario.challenge or "",
+                "industry": scenario.industry or "Business",
+                "learning_objectives": scenario.learning_objectives or [],
+                "student_role": scenario.student_role or "Business Analyst",
+                "category": scenario.category,
+                "difficulty_level": scenario.difficulty_level,
+                "estimated_duration": scenario.estimated_duration,
+                "tags": scenario.tags,
+                "pdf_title": scenario.pdf_title,
+                "pdf_source": scenario.pdf_source,
+                "processing_version": scenario.processing_version,
+                "rating_avg": scenario.rating_avg,
+                "rating_count": scenario.rating_count,
+                "source_type": scenario.source_type,
+                "is_public": scenario.is_public,
+                "is_template": scenario.is_template,
+                "allow_remixes": scenario.allow_remixes,
+                "usage_count": scenario.usage_count,
+                "clone_count": scenario.clone_count,
+                "created_by": scenario.created_by,
+                "created_at": scenario.created_at,
+                "updated_at": scenario.updated_at,
+                "status": scenario.status,
+                "is_draft": scenario.is_draft,
+                "personas": [
+                    {
+                        "id": persona.id,
+                        "name": persona.name,
+                        "role": persona.role,
+                        "background": persona.background,
+                        "correlation": persona.correlation,
+                        "primary_goals": persona.primary_goals or [],
+                        "personality_traits": persona.personality_traits or {}
+                    }
+                    for persona in personas
+                ],
+                "scenes": [
+                    {
+                        "id": scene.id,
+                        "title": scene.title,
+                        "description": scene.description,
+                        "user_goal": scene.user_goal,
+                        "scene_order": scene.scene_order,
+                        "estimated_duration": scene.estimated_duration,
+                        "image_url": scene.image_url,
+                        "timeout_turns": scene.timeout_turns,
+                        "success_metric": scene.success_metric
+                    }
+                    for scene in scenes
+                ],
+                "completion_status": scenario.completion_status or {},
+                "name_completed": scenario.name_completed,
+                "description_completed": scenario.description_completed,
+                "student_role_completed": scenario.student_role_completed,
+                "personas_completed": scenario.personas_completed,
+                "scenes_completed": scenario.scenes_completed,
+                "images_completed": scenario.images_completed,
+                "learning_outcomes_completed": scenario.learning_outcomes_completed,
+                "ai_enhancement_completed": scenario.ai_enhancement_completed
+            })
+        
+        return scenario_responses
+        
+    except Exception as e:
+        debug_log(f"Error fetching scenarios: {e}")
+        import traceback
+        debug_log(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch scenarios: {str(e)}")
+
+@router.get("/drafts/", response_model=List[ScenarioPublishingResponse])
+async def get_draft_scenarios(
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """Get draft scenarios only"""
+    try:
+        # Get only draft scenarios
+        scenarios = db.query(Scenario).filter(Scenario.is_draft == True).all()
+        debug_log(f"Found {len(scenarios)} draft scenarios")
         
         # Convert to response format - simplified
         scenario_responses = []
@@ -80,6 +201,7 @@ async def get_scenarios(
                 "completion_status": scenario.completion_status or {},
                 "name_completed": scenario.name_completed,
                 "description_completed": scenario.description_completed,
+                "student_role_completed": scenario.student_role_completed,
                 "personas_completed": scenario.personas_completed,
                 "scenes_completed": scenario.scenes_completed,
                 "images_completed": scenario.images_completed,
@@ -90,10 +212,10 @@ async def get_scenarios(
         return scenario_responses
         
     except Exception as e:
-        debug_log(f"Error fetching scenarios: {e}")
+        debug_log(f"Error fetching draft scenarios: {e}")
         import traceback
         debug_log(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch scenarios: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch draft scenarios: {str(e)}")
 
 @router.post("/save")
 async def save_scenario_draft(
@@ -166,14 +288,18 @@ async def save_scenario_draft(
             scenario.challenge = actual_ai_result.get("description", "")
             scenario.learning_objectives = actual_ai_result.get("learning_outcomes", [])
             scenario.student_role = actual_ai_result.get("student_role", "Business Analyst")
-            scenario.status = "draft"  # Set status to draft when saving
             scenario.completion_status = actual_ai_result.get("completion_status", {})
+            
+            # Always update in place - don't create new versions
+            # This prevents duplicates in the dashboard
+            debug_log(f"Updating scenario in place - preserving status: {scenario.status}")
             
             # Set completion boolean fields - only set to true if all sections are complete
             completion_status = actual_ai_result.get("completion_status", {})
             all_sections_complete = (
                 completion_status.get("name_completed", False) and
                 completion_status.get("description_completed", False) and
+                completion_status.get("student_role_completed", False) and
                 completion_status.get("personas_completed", False) and
                 completion_status.get("scenes_completed", False) and
                 completion_status.get("images_completed", False) and
@@ -183,6 +309,7 @@ async def save_scenario_draft(
             
             scenario.name_completed = completion_status.get("name_completed", False) if all_sections_complete else False
             scenario.description_completed = completion_status.get("description_completed", False) if all_sections_complete else False
+            scenario.student_role_completed = completion_status.get("student_role_completed", False) if all_sections_complete else False
             scenario.personas_completed = completion_status.get("personas_completed", False) if all_sections_complete else False
             scenario.scenes_completed = completion_status.get("scenes_completed", False) if all_sections_complete else False
             scenario.images_completed = completion_status.get("images_completed", False) if all_sections_complete else False
@@ -198,50 +325,108 @@ async def save_scenario_draft(
         
         # Handle create case: no scenario_id provided
         else:
-            # Generate unique ID for new scenario
-            import secrets
-            unique_id = f"SC-{secrets.token_urlsafe(8).upper()}"
-            debug_log(f"Generated unique_id: {unique_id}")
+            # ALWAYS check for existing scenarios first to prevent duplicates
+            # This is a safety net in case the frontend doesn't pass scenario_id
+            existing_scenario = None
             
-            # Create scenario record as draft
-            scenario = Scenario(
-                unique_id=unique_id,
-                title=title,
-                description=actual_ai_result.get("description", ""),
-                challenge=actual_ai_result.get("description", ""),
-                industry="Business",
-                learning_objectives=actual_ai_result.get("learning_outcomes", []),
-                student_role=actual_ai_result.get("student_role", "Business Analyst"),
-                source_type="pdf_upload",
-                pdf_title=title,
-                pdf_source="Uploaded PDF",
-                processing_version="1.0",
-                is_public=False,  # Draft - not public
-                allow_remixes=True,
-                status="draft",  # Set status to draft when creating
-                is_draft=True,  # Mark as draft
-                published_version_id=None,  # No published version yet
-                draft_of_id=None,  # This is the original draft
-                created_by=current_user.id if current_user else None,
-                completion_status=actual_ai_result.get("completion_status", {}),
-                name_completed=False,  # Will be set after creation
-                description_completed=False,
-                personas_completed=False,
-                scenes_completed=False,
-                images_completed=False,
-                learning_outcomes_completed=False,
-                ai_enhancement_completed=False,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
-            )
-            db.add(scenario)
-            db.flush()
+            if current_user:
+                # For authenticated users, check for scenarios with same title by same user
+                existing_scenario = db.query(Scenario).filter(
+                    Scenario.title == title,
+                    Scenario.created_by == current_user.id,
+                    Scenario.deleted_at.is_(None)
+                ).order_by(Scenario.updated_at.desc()).first()  # Get most recent
+                debug_log(f"Checking for existing scenario for user {current_user.id} with title '{title}'")
+            else:
+                # For unauthenticated users, check for scenarios with same title and no user
+                existing_scenario = db.query(Scenario).filter(
+                    Scenario.title == title,
+                    Scenario.created_by.is_(None),
+                    Scenario.deleted_at.is_(None)
+                ).order_by(Scenario.updated_at.desc()).first()  # Get most recent
+                debug_log(f"Checking for existing scenario (no user) with title '{title}'")
+            
+            if existing_scenario:
+                debug_log(f"DUPLICATE PREVENTION: Found existing scenario ID {existing_scenario.id}, updating instead of creating new one")
+                # Update the existing scenario instead of creating a new one
+                existing_scenario.description = actual_ai_result.get("description", "")
+                existing_scenario.challenge = actual_ai_result.get("description", "")
+                existing_scenario.learning_objectives = actual_ai_result.get("learning_outcomes", [])
+                existing_scenario.student_role = actual_ai_result.get("student_role", "Business Analyst")
+                existing_scenario.completion_status = actual_ai_result.get("completion_status", {})
+                existing_scenario.updated_at = datetime.utcnow()
+                scenario = existing_scenario
+                debug_log(f"Updated existing scenario {scenario.id} instead of creating duplicate")
+            else:
+                debug_log(f"No existing scenario found, creating new one with title '{title}'")
+                # Generate unique ID for new scenario
+                unique_id = f"SC-{secrets.token_urlsafe(8).upper()}"
+                debug_log(f"Generated unique_id: {unique_id}")
+                
+                # Create scenario record as draft
+                scenario = Scenario(
+                    unique_id=unique_id,
+                    title=title,
+                    description=actual_ai_result.get("description", ""),
+                    challenge=actual_ai_result.get("description", ""),
+                    industry="Business",
+                    learning_objectives=actual_ai_result.get("learning_outcomes", []),
+                    student_role=actual_ai_result.get("student_role", "Business Analyst"),
+                    source_type="pdf_upload",
+                    pdf_title=title,
+                    pdf_source="Uploaded PDF",
+                    processing_version="1.0",
+                    is_public=False,  # Draft - not public
+                    allow_remixes=True,
+                    status="draft",  # Set status to draft when creating
+                    is_draft=True,  # Mark as draft
+                    published_version_id=None,  # No published version yet
+                    draft_of_id=None,  # This is the original draft
+                    created_by=current_user.id if current_user else None,
+                    completion_status=actual_ai_result.get("completion_status", {}),
+                    name_completed=False,  # Will be set after creation
+                    description_completed=False,
+                    student_role_completed=False,
+                    personas_completed=False,
+                    scenes_completed=False,
+                    images_completed=False,
+                    learning_outcomes_completed=False,
+                    ai_enhancement_completed=False,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                try:
+                    db.add(scenario)
+                    db.flush()
+                except Exception as e:
+                    if "unique_title_per_user" in str(e):
+                        debug_log(f"Unique constraint violation - scenario with same title already exists, updating instead")
+                        # Find the existing scenario and update it
+                        existing_scenario = db.query(Scenario).filter(
+                            Scenario.title == title,
+                            Scenario.created_by == current_user.id if current_user else None,
+                            Scenario.deleted_at.is_(None)
+                        ).first()
+                        if existing_scenario:
+                            existing_scenario.description = actual_ai_result.get("description", "")
+                            existing_scenario.challenge = actual_ai_result.get("description", "")
+                            existing_scenario.learning_objectives = actual_ai_result.get("learning_outcomes", [])
+                            existing_scenario.student_role = actual_ai_result.get("student_role", "Business Analyst")
+                            existing_scenario.completion_status = actual_ai_result.get("completion_status", {})
+                            existing_scenario.updated_at = datetime.utcnow()
+                            scenario = existing_scenario
+                            debug_log(f"Updated existing scenario {scenario.id} due to unique constraint violation")
+                        else:
+                            raise e
+                    else:
+                        raise e
             
             # Set completion boolean fields - only set to true if all sections are complete
             completion_status_for_db = actual_ai_result.get("completion_status", {})
             all_sections_complete = (
                 completion_status_for_db.get("name_completed", False) and
                 completion_status_for_db.get("description_completed", False) and
+                completion_status_for_db.get("student_role_completed", False) and
                 completion_status_for_db.get("personas_completed", False) and
                 completion_status_for_db.get("scenes_completed", False) and
                 completion_status_for_db.get("images_completed", False) and
@@ -252,6 +437,7 @@ async def save_scenario_draft(
             if all_sections_complete:
                 scenario.name_completed = completion_status_for_db.get("name_completed", False)
                 scenario.description_completed = completion_status_for_db.get("description_completed", False)
+                scenario.student_role_completed = completion_status_for_db.get("student_role_completed", False)
                 scenario.personas_completed = completion_status_for_db.get("personas_completed", False)
                 scenario.scenes_completed = completion_status_for_db.get("scenes_completed", False)
                 scenario.images_completed = completion_status_for_db.get("images_completed", False)
@@ -503,6 +689,87 @@ async def save_scenario_draft(
         print(f"[ERROR] Failed to save scenario: {e}")
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to save scenario: {str(e)}")
+
+@router.put("/{scenario_id}/status")
+async def update_scenario_status(
+    scenario_id: int,
+    status_data: dict,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """Update scenario status (draft, active, archived)"""
+    try:
+        scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
+        if not scenario:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+        
+        # Check permissions - only creator can update status
+        if current_user and scenario.created_by != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only update scenarios you created")
+        
+        new_status = status_data.get("status")
+        if new_status not in ["draft", "active", "archived"]:
+            raise HTTPException(status_code=400, detail="Invalid status. Must be 'draft', 'active', or 'archived'")
+        
+        scenario.status = new_status
+        
+        # Update is_draft and is_public based on status
+        if new_status == "active":
+            scenario.is_draft = False
+            scenario.is_public = True
+        elif new_status == "draft":
+            scenario.is_draft = True
+            scenario.is_public = False
+        # archived status keeps existing is_draft/is_public values
+        
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": f"Scenario status updated to {new_status}",
+            "scenario_id": scenario_id,
+            "new_status": new_status
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update scenario status: {str(e)}")
+
+@router.delete("/unique/{unique_id}")
+async def delete_scenario_by_unique_id(
+    unique_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
+    """Delete scenario by unique_id"""
+    try:
+        scenario = db.query(Scenario).filter(Scenario.unique_id == unique_id).first()
+        if not scenario:
+            raise HTTPException(status_code=404, detail="Scenario not found")
+        
+        # Check permissions - only creator can delete
+        if current_user and scenario.created_by != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only delete scenarios you created")
+        
+        # Soft delete
+        scenario.deleted_at = datetime.utcnow()
+        scenario.deleted_by = current_user.id if current_user else None
+        
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Scenario deleted successfully",
+            "unique_id": unique_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete scenario: {str(e)}")
 
 @router.post("/publish/{scenario_id}")
 async def publish_scenario(

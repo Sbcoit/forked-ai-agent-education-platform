@@ -530,10 +530,20 @@ async def assign_simulation_to_cohort(
         
         # Create student simulation instances and notifications for each student
         for student in students:
-            # Create student simulation instance
+            # Create UserProgress record first
+            user_progress = UserProgress(
+                user_id=student.student_id,
+                scenario_id=simulation_data.simulation_id,
+                simulation_status="not_started"
+            )
+            db.add(user_progress)
+            db.flush()  # Flush to get the ID
+            
+            # Create student simulation instance with user_progress_id
             student_instance = StudentSimulationInstance(
                 cohort_assignment_id=cohort_simulation.id,
-                student_id=student.student_id
+                student_id=student.student_id,
+                user_progress_id=user_progress.id
             )
             db.add(student_instance)
             

@@ -687,7 +687,7 @@ class StudentSimulationInstanceResponse(BaseModel):
     id: int
     cohort_assignment_id: int
     student_id: int
-    user_progress_id: Optional[int]
+    user_progress_id: int
     status: str
     started_at: Optional[datetime]
     completed_at: Optional[datetime]

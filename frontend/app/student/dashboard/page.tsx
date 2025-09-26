@@ -516,24 +516,29 @@ export default function StudentDashboard() {
             
             <div className="space-y-4">
               {recentSimulations.map((simulation) => (
-                <Card key={simulation.id} className="bg-white border border-gray-200">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
+                <Card key={simulation.id} className="bg-white border border-gray-200 rounded-lg shadow-sm">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900">{simulation.title}</h3>
-                        <p className="text-sm text-gray-600">{simulation.course}</p>
-                        <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
+                        <h3 className="font-bold text-gray-900 text-lg mb-2">{simulation.title}</h3>
+                        <div className="flex items-center space-x-4 text-sm text-gray-500 mb-3">
+                          <span>{simulation.course}</span>
                           <span>Completed {simulation.completedDate}</span>
                           <span>{simulation.duration}</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            Completed
+                          </span>
                         </div>
                       </div>
                       
                       <div className="text-right">
-                        <div className="flex items-center space-x-4 mb-2">
-                          <div className="text-right">
-                            <p className="text-lg font-bold text-gray-900">{simulation.score} ({simulation.grade})</p>
-                            <p className="text-sm text-gray-600">{simulation.rank}</p>
-                          </div>
+                        <div className="text-sm text-gray-600 mb-2">
+                          Score: {simulation.score} ({simulation.grade})
+                        </div>
+                        <div className="text-sm text-gray-600 mb-2">
+                          Rank: {simulation.rank}
                         </div>
                         <Link href="#" className="text-sm text-blue-600 hover:text-blue-800">
                           {simulation.action}

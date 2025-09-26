@@ -891,11 +891,11 @@ export default function Cohorts() {
                         const completionPercentage = totalStudents > 0 ? (completedStudents / totalStudents) * 100 : 0
                         
                         return (
-                          <div key={simulation.id} className="bg-white border border-gray-200 rounded-lg p-6">
+                          <div key={simulation.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-6">
                             <div className="flex items-start justify-between">
                               <div className="flex-1">
                                 <div className="flex items-center justify-between mb-2">
-                                  <h4 className="font-semibold text-gray-900">
+                                  <h4 className="font-bold text-gray-900 text-lg">
                                     {simulation.simulation?.title || `Simulation ${simulation.simulation_id}`}
                                   </h4>
                                   <button
@@ -910,19 +910,30 @@ export default function Cohorts() {
                                     )}
                                   </button>
                                 </div>
-                                <div className="flex items-center space-x-4 mb-3">
-                                  <span className="text-sm text-gray-600">
+                                <div className="flex items-center space-x-4 text-sm text-gray-500 mb-3">
+                                  <span>
                                     Assigned {new Date(simulation.assigned_at).toLocaleDateString('en-US', { 
                                       month: 'short', 
                                       day: 'numeric' 
                                     })}
                                   </span>
                                   {simulation.due_date && (
-                                    <span className="text-sm text-gray-600">
+                                    <span>
                                       Due {new Date(simulation.due_date).toLocaleDateString('en-US', { 
                                         month: 'short', 
                                         day: 'numeric' 
                                       })}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  {simulation.simulation?.is_draft ? (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                      Draft
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                      Active
                                     </span>
                                   )}
                                   <span className={`text-xs px-2 py-1 rounded-full ${
@@ -932,11 +943,6 @@ export default function Cohorts() {
                                   }`}>
                                     {simulation.is_required ? 'Required' : 'Optional'}
                                   </span>
-                                  {simulation.simulation?.is_draft && (
-                                    <span className="text-xs px-2 py-1 rounded-full bg-yellow-100 text-yellow-800">
-                                      Draft
-                                    </span>
-                                  )}
                                 </div>
                               </div>
                               

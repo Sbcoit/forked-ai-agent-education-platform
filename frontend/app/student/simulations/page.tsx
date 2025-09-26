@@ -46,7 +46,7 @@ export default function StudentSimulations() {
         const instances = instancesResponse || []
         
         // Transform instances to match UI expectations
-        const transformedSimulations = instances.map(instance => {
+        const transformedSimulations = instances.map((instance: any) => {
           const cohortAssignment = instance.cohort_assignment
           const simulation = cohortAssignment?.simulation || {}
           
@@ -413,27 +413,37 @@ export default function StudentSimulations() {
             ) : (
               <div className="space-y-4">
                 {filteredSimulations.map((simulation) => (
-                <Card key={simulation.id} className="bg-white border border-gray-200">
+                <Card key={simulation.id} className="bg-white border border-gray-200 rounded-lg shadow-sm">
                   <CardContent className="p-6">
-                    <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <h3 className="font-semibold text-gray-900 text-lg">{simulation.title}</h3>
+                        <h3 className="font-bold text-gray-900 text-lg mb-2">{simulation.title}</h3>
+                        <div className="flex items-center space-x-4 text-sm text-gray-500 mb-3">
+                          <span>{simulation.course}</span>
+                          <span>{simulation.instructor}</span>
+                          <span>{simulation.duration}</span>
+                        </div>
+                        <div className="flex items-center space-x-2 mb-3">
                           {getStatusBadge(simulation.status)}
-                          {simulation.tags.map((tag, index) => (
+                          {simulation.tags.map((tag: string, index: number) => (
                             <span key={index}>
                               {getTagBadge(tag)}
                             </span>
                           ))}
                         </div>
-                        
-                        <div className="flex items-center space-x-4 text-sm text-gray-600 mb-3">
-                          <span>{simulation.course}</span>
-                          <span>{simulation.instructor}</span>
-                          <span>{simulation.duration}</span>
+                        <p className="text-gray-600">{simulation.description}</p>
+                      </div>
+                      
+                      <div className="text-right">
+                        <div className="text-sm text-gray-600 mb-2">
+                          {simulation.completion_percentage || 0}% completed
                         </div>
-                        
-                        <p className="text-gray-600 mb-4">{simulation.description}</p>
+                        <div className="w-32 bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-gray-800 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${simulation.completion_percentage || 0}%` }}
+                          ></div>
+                        </div>
                       </div>
                     </div>
                     
@@ -496,7 +506,7 @@ export default function StudentSimulations() {
                     
                     {/* Action Buttons */}
                     <div className="flex space-x-3">
-                      {simulation.actions.map((action, index) => {
+                      {simulation.actions.map((action: string, index: number) => {
                         const isPrimary = action === "Start Simulation" || action === "Continue"
                         return (
                           <Button

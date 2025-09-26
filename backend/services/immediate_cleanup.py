@@ -21,27 +21,8 @@ def immediate_cleanup_all_archives() -> Tuple[int, Dict[str, Any], Dict[str, Any
     Returns:
         Tuple of (cleaned_count, stats_before, stats_after)
     """
-    db = next(get_db())
-    service = SoftDeletionService(db)
-    
-    try:
-        # Get stats before cleanup
-        stats_before = service.get_archive_stats()
-        
-        # Run immediate cleanup (0 days = delete everything)
-        cleaned_count = service.cleanup_old_archives(0)
-        
-        # Get stats after cleanup
-        stats_after = service.get_archive_stats()
-        
-        return cleaned_count, stats_before, stats_after
-        
-    except Exception as e:
-        logger.exception("Error during immediate cleanup")
-        return 0, {}, {}
-    
-    finally:
-        db.close()
+    # Since we're not using archive tables anymore, just return 0
+    return 0, {}, {}
 
 
 def immediate_cleanup_scenario_archives(scenario_id: int) -> Tuple[int, Dict[str, Any]]:
@@ -54,33 +35,8 @@ def immediate_cleanup_scenario_archives(scenario_id: int) -> Tuple[int, Dict[str
     Returns:
         Tuple of (cleaned_count, stats_after)
     """
-    db = next(get_db())
-    
-    try:
-        # Delete archived records for specific scenario
-        result = db.execute(
-            text("""
-            DELETE FROM user_progress_archive 
-            WHERE scenario_id = :scenario_id
-            """),
-            {'scenario_id': scenario_id}
-        )
-        
-        cleaned_count = result.rowcount
-        db.commit()
-        
-        # Get updated stats
-        service = SoftDeletionService(db)
-        stats_after = service.get_archive_stats()
-        
-        return cleaned_count, stats_after
-        
-    except Exception as e:
-        logger.error(f"Error cleaning up scenario {scenario_id}", exc_info=True)
-        return 0, {}
-    
-    finally:
-        db.close()
+    # Since we're not using archive tables anymore, just return 0
+    return 0, {}
 
 
 def immediate_cleanup_user_archives(user_id: int) -> Tuple[int, Dict[str, Any]]:
@@ -93,33 +49,8 @@ def immediate_cleanup_user_archives(user_id: int) -> Tuple[int, Dict[str, Any]]:
     Returns:
         Tuple of (cleaned_count, stats_after)
     """
-    db = next(get_db())
-    
-    try:
-        # Delete archived records for specific user
-        result = db.execute(
-            text("""
-            DELETE FROM user_progress_archive 
-            WHERE user_id = :user_id
-            """),
-            {'user_id': user_id}
-        )
-        
-        cleaned_count = result.rowcount
-        db.commit()
-        
-        # Get updated stats
-        service = SoftDeletionService(db)
-        stats_after = service.get_archive_stats()
-        
-        return cleaned_count, stats_after
-        
-    except Exception as e:
-        logger.error(f"Error cleaning up user {user_id}", exc_info=True)
-        return 0, {}
-    
-    finally:
-        db.close()
+    # Since we're not using archive tables anymore, just return 0
+    return 0, {}
 
 
 def get_cleanup_report() -> Dict[str, Any]:
@@ -129,39 +60,13 @@ def get_cleanup_report() -> Dict[str, Any]:
     Returns:
         Dictionary with cleanup statistics and recommendations
     """
-    db = next(get_db())
-    service = SoftDeletionService(db)
-    
-    try:
-        stats = service.get_archive_stats()
-        
-        # Calculate recommendations
-        total_archives = stats.get('total_archives', 0)
-        
-        if total_archives == 0:
-            recommendation = "No cleanup needed - no archived data found"
-        elif total_archives < 10:
-            recommendation = "Low archive count - cleanup not urgent"
-        elif total_archives < 100:
-            recommendation = "Moderate archive count - consider cleanup"
-        else:
-            recommendation = "High archive count - cleanup recommended"
-        
-        return {
-            'archive_stats': stats,
-            'recommendation': recommendation,
-            'cleanup_available': total_archives > 0,
-            'timestamp': datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        return {
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }
-    
-    finally:
-        db.close()
+    # Since we're not using archive tables anymore, return empty stats
+    return {
+        'archive_stats': {},
+        'recommendation': "No cleanup needed - archive tables not in use",
+        'cleanup_available': False,
+        'timestamp': datetime.now().isoformat()
+    }
 
 
 # Example usage functions

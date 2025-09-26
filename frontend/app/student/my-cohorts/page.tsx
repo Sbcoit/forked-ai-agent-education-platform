@@ -460,51 +460,32 @@ export default function StudentMyCohorts() {
                       <div className="space-y-3">
                         {cohort.simulations && cohort.simulations.length > 0 ? (
                           cohort.simulations.map((simulation: any) => (
-                          <div key={simulation.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
-                            <div className="flex-1">
-                              <div className="flex items-center space-x-3 mb-2">
-                                <h4 className="font-medium text-gray-900">{simulation.title}</h4>
-                                {getSimulationStatusBadge(simulation.status)}
-                              </div>
-                              <div className="flex items-center space-x-4 text-sm text-gray-600">
-                                <span>{simulation.progress}</span>
-                                <span>{simulation.ranking}</span>
-                                {simulation.dueDate && <span>Due: {simulation.dueDate}</span>}
-                                {simulation.completedDate && <span>Completed: {simulation.completedDate}</span>}
-                              </div>
-                              {simulation.progressPercentage > 0 && simulation.progressPercentage < 100 && (
-                                <div className="mt-2">
-                                  <div className="w-full bg-gray-200 rounded-full h-1.5">
-                                    <div 
-                                      className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                                      style={{ width: `${simulation.progressPercentage}%` }}
-                                    ></div>
-                                  </div>
+                          <div key={simulation.id} className="bg-white border border-gray-200 rounded-lg shadow-sm p-6">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <h4 className="font-bold text-gray-900 text-lg mb-2">{simulation.title}</h4>
+                                <div className="flex items-center space-x-4 text-sm text-gray-500 mb-3">
+                                  <span>Assigned {simulation.assignedDate || 'Dec 1'}</span>
+                                  {simulation.dueDate && <span>Due {simulation.dueDate}</span>}
                                 </div>
-                              )}
-                            </div>
-                            
-                            <div className="text-right">
-                              {simulation.status === "completed" && (
-                                <div className="mb-2">
-                                  <p className="text-sm font-semibold text-gray-900">{simulation.score}</p>
-                                  <p className="text-xs text-gray-600">{simulation.xpEarned}</p>
+                                <div className="flex items-center space-x-2">
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                    Active
+                                  </span>
                                 </div>
-                              )}
-                              {simulation.status === "available" && (
-                                <p className="text-xs text-gray-600 mb-2">{simulation.xpReward}</p>
-                              )}
-                              {simulation.status === "in_progress" && (
-                                <p className="text-xs text-gray-600 mb-2">{simulation.xpReward}</p>
-                              )}
+                              </div>
                               
-                              <Button size="sm" variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50">
-                                {simulation.status === "completed" && <Eye className="h-4 w-4 mr-2" />}
-                                {simulation.status === "available" && <Play className="h-4 w-4 mr-2" />}
-                                {simulation.status === "in_progress" && <Play className="h-4 w-4 mr-2" />}
-                                {simulation.status === "completed" ? "View Results" : 
-                                 simulation.status === "available" ? "Start" : "Continue"}
-                              </Button>
+                              <div className="text-right">
+                                <div className="text-sm text-gray-600 mb-2">
+                                  {simulation.completedCount || 18}/{simulation.totalCount || 24} completed
+                                </div>
+                                <div className="w-32 bg-gray-200 rounded-full h-2">
+                                  <div 
+                                    className="bg-gray-800 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${simulation.progressPercentage || 75}%` }}
+                                  ></div>
+                                </div>
+                              </div>
                             </div>
                           </div>
                           ))

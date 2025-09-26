@@ -392,80 +392,74 @@ export default function StudentChat() {
             
             <div className="space-y-4">
               {availableSimulations.map((simulation) => (
-                <Card key={simulation.id} className="bg-white border border-gray-200">
+                <Card key={simulation.id} className="bg-white border border-gray-200 rounded-lg shadow-sm">
                   <CardContent className="p-6">
-                    <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <div className="flex items-center space-x-3 mb-2">
-                          <h3 className="font-semibold text-gray-900 text-lg">{simulation.title}</h3>
-                          {getStatusBadge(simulation.status)}
-                        </div>
-                        
-                        <div className="flex items-center space-x-4 text-sm text-gray-600 mb-3">
+                        <h3 className="font-bold text-gray-900 text-lg mb-2">{simulation.title}</h3>
+                        <div className="flex items-center space-x-4 text-sm text-gray-500 mb-3">
                           <span>{simulation.course}</span>
                           <span>{simulation.instructor}</span>
                           <span>{simulation.duration}</span>
                         </div>
-                        
-                        <p className="text-gray-600 mb-4">{simulation.description}</p>
-                        
-                        {/* Progress for in-progress simulations */}
-                        {simulation.status === "in_progress" && (
-                          <div className="mb-4">
-                            <div className="flex justify-between text-sm text-gray-600 mb-2">
-                              <span>Progress</span>
-                              <span>{simulation.progress}%</span>
-                            </div>
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div 
-                                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                style={{ width: `${simulation.progress}%` }}
-                              ></div>
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Scenarios */}
-                        <div className="mb-4">
-                          <h4 className="text-sm font-medium text-gray-900 mb-2">Scenarios:</h4>
-                          <div className="space-y-2">
-                            {simulation.scenarios.map((scenario, index) => (
-                              <div key={scenario.id} className="flex items-center space-x-3">
-                                {getScenarioStatusIcon(scenario.status)}
-                                <div className="flex-1">
-                                  <p className="text-sm font-medium text-gray-900">{scenario.title}</p>
-                                  <p className="text-xs text-gray-600">{scenario.description}</p>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                        <div className="flex items-center space-x-2 mb-3">
+                          {getStatusBadge(simulation.status)}
                         </div>
+                        <p className="text-gray-600 mb-4">{simulation.description}</p>
                       </div>
                       
-                      <div className="text-right ml-6">
-                        <div className="flex items-center space-x-2 mb-4">
-                          <Star className="h-4 w-4 text-yellow-500" />
-                          <span className="text-sm font-medium text-gray-900">{simulation.xpReward}</span>
+                      <div className="text-right">
+                        <div className="text-sm text-gray-600 mb-2">
+                          {simulation.progress || 0}% completed
                         </div>
-                        
-                        <Button
-                          onClick={() => handleStartSimulation(simulation)}
-                          className="bg-black text-white hover:bg-gray-800"
-                          disabled={simulation.status === "locked"}
-                        >
-                          {simulation.status === "in_progress" ? (
-                            <>
-                              <Play className="h-4 w-4 mr-2" />
-                              Continue
-                            </>
-                          ) : (
-                            <>
-                              <Play className="h-4 w-4 mr-2" />
-                              Start Simulation
-                            </>
-                          )}
-                        </Button>
+                        <div className="w-32 bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-gray-800 h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${simulation.progress || 0}%` }}
+                          ></div>
+                        </div>
                       </div>
+                    </div>
+                    
+                    {/* Scenarios */}
+                    <div className="mb-4">
+                      <h4 className="text-sm font-medium text-gray-900 mb-2">Scenarios:</h4>
+                      <div className="space-y-2">
+                        {simulation.scenarios.map((scenario, index) => (
+                          <div key={scenario.id} className="flex items-center space-x-3">
+                            {getScenarioStatusIcon(scenario.status)}
+                            <div className="flex-1">
+                              <p className="text-sm font-medium text-gray-900">{scenario.title}</p>
+                              <p className="text-xs text-gray-600">{scenario.description}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <Star className="h-4 w-4 text-yellow-500" />
+                        <span className="text-sm font-medium text-gray-900">{simulation.xpReward}</span>
+                      </div>
+                      
+                      <Button
+                        onClick={() => handleStartSimulation(simulation)}
+                        className="bg-black text-white hover:bg-gray-800"
+                        disabled={simulation.status === "locked"}
+                      >
+                        {simulation.status === "in_progress" ? (
+                          <>
+                            <Play className="h-4 w-4 mr-2" />
+                            Continue
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-4 w-4 mr-2" />
+                            Start Simulation
+                          </>
+                        )}
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

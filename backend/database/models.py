@@ -652,7 +652,7 @@ class StudentSimulationInstance(Base):
     id = Column(Integer, primary_key=True, index=True)
     cohort_assignment_id = Column(Integer, ForeignKey("cohort_simulations.id"), nullable=False, index=True)
     student_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    user_progress_id = Column(Integer, ForeignKey("user_progress.id"), nullable=True, index=True)
+    user_progress_id = Column(Integer, ForeignKey("user_progress.id"), nullable=False, index=True)
     
     # Instance status
     status = Column(String, default="not_started")  # not_started, in_progress, completed, submitted, graded

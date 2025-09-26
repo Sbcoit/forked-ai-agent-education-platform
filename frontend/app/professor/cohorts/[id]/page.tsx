@@ -87,6 +87,42 @@ export default function CohortDetail() {
     fetchCohortData()
   }, [params.id])
 
+  // Listen for simulation status changes from dashboard
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'simulationStatusChanged' && e.newValue) {
+        try {
+          const changeData = JSON.parse(e.newValue)
+          console.log('Simulation status changed, refreshing cohort data:', changeData)
+          
+          // Refresh cohort data to get updated simulation statuses
+          const refreshCohortData = async () => {
+            try {
+              // Refresh simulations data
+              const simulationsData = await apiClient.getCohortSimulations(params.id as string)
+              setSimulations(simulationsData)
+            } catch (error) {
+              console.warn('Failed to refresh cohort data after simulation status change:', error)
+            }
+          }
+          
+          refreshCohortData()
+          
+          // Clear the notification
+          localStorage.removeItem('simulationStatusChanged')
+        } catch (error) {
+          console.error('Failed to parse simulation status change notification:', error)
+        }
+      }
+    }
+    
+    window.addEventListener('storage', handleStorageChange)
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+    }
+  }, [params.id])
+
   const [searchTerm, setSearchTerm] = useState("")
   const [studentFilter, setStudentFilter] = useState("All Students")
   const [showStudentFilterDropdown, setShowStudentFilterDropdown] = useState(false)
@@ -521,31 +557,39 @@ export default function CohortDetail() {
                     const completionPercentage = totalStudents > 0 ? (completedStudents / totalStudents) * 100 : 0
                     
                     return (
-                      <Card key={simulation.id} className="bg-white border border-gray-200">
+                      <Card key={simulation.id} className="bg-white border border-gray-200 rounded-lg shadow-sm">
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
-                              <h4 className="font-semibold text-gray-900 mb-2">
+                              <h4 className="font-bold text-gray-900 text-lg mb-2">
                                 {simulation.simulation?.title || `Simulation ${simulation.simulation_id}`}
                               </h4>
-                              <div className="flex items-center space-x-4 mb-3">
-                                <span className="text-sm text-gray-600">
+                              <div className="flex items-center space-x-4 text-sm text-gray-500 mb-3">
+                                <span>
                                   Assigned {new Date(simulation.assigned_at).toLocaleDateString('en-US', { 
                                     month: 'short', 
                                     day: 'numeric' 
                                   })}
                                 </span>
                                 {simulation.due_date && (
-                                  <span className="text-sm text-gray-600">
+                                  <span>
                                     Due {new Date(simulation.due_date).toLocaleDateString('en-US', { 
                                       month: 'short', 
                                       day: 'numeric' 
                                     })}
                                   </span>
                                 )}
-                                <Badge className="bg-green-100 text-green-800 text-xs">
-                                  Active
-                                </Badge>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                {simulation.simulation?.is_draft ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                    Draft
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                    Active
+                                  </span>
+                                )}
                               </div>
                             </div>
                             

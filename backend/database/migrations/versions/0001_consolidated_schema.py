@@ -20,6 +20,7 @@ def upgrade() -> None:
     # Create users table
     op.create_table('users',
         sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('user_id', sa.String(15), nullable=True),
         sa.Column('email', sa.String(), nullable=True),
         sa.Column('full_name', sa.String(), nullable=True),
         sa.Column('username', sa.String(), nullable=True),
@@ -39,6 +40,7 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
         sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('user_id'),
         sa.UniqueConstraint('email'),
         sa.UniqueConstraint('google_id'),
         sa.UniqueConstraint('username')

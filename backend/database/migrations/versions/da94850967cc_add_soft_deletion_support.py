@@ -37,44 +37,10 @@ def upgrade() -> None:
     op.create_index('idx_user_progress_archived_at', 'user_progress', ['archived_at'])
     op.create_index('idx_user_progress_active', 'user_progress', ['archived_at'], postgresql_where=sa.text('archived_at IS NULL'))
     
-    # Create user_progress_archive table for long-term storage
-    op.create_table('user_progress_archive',
-        sa.Column('id', sa.Integer(), nullable=False),
-        sa.Column('user_id', sa.Integer(), nullable=True),
-        sa.Column('scenario_id', sa.Integer(), nullable=True),
-        sa.Column('current_scene_id', sa.Integer(), nullable=True),
-        sa.Column('simulation_status', sa.String(), nullable=True),
-        sa.Column('scenes_completed', sa.JSON(), nullable=True),
-        sa.Column('total_attempts', sa.Integer(), nullable=True),
-        sa.Column('hints_used', sa.Integer(), nullable=True),
-        sa.Column('forced_progressions', sa.Integer(), nullable=True),
-        sa.Column('orchestrator_data', sa.JSON(), nullable=True),
-        sa.Column('completion_percentage', sa.Float(), nullable=True),
-        sa.Column('total_time_spent', sa.Integer(), nullable=True),
-        sa.Column('session_count', sa.Integer(), nullable=True),
-        sa.Column('final_score', sa.Float(), nullable=True),
-        sa.Column('started_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('completed_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('last_activity', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('archived_at', sa.DateTime(timezone=True), nullable=False),
-        sa.Column('archived_reason', sa.String(), nullable=True),
-        sa.Column('original_user_progress_id', sa.Integer(), nullable=False),
-        sa.PrimaryKeyConstraint('id')
-    )
-    
-    # Create indexes for archive table
-    op.create_index('idx_user_progress_archive_scenario_id', 'user_progress_archive', ['scenario_id'])
-    op.create_index('idx_user_progress_archive_user_id', 'user_progress_archive', ['user_id'])
-    op.create_index('idx_user_progress_archive_archived_at', 'user_progress_archive', ['archived_at'])
-    op.create_index('idx_user_progress_archive_original_id', 'user_progress_archive', ['original_user_progress_id'])
+    # Note: user_progress_archive table removed - using soft deletion instead
 
 
 def downgrade() -> None:
-    # Drop archive table
-    op.drop_table('user_progress_archive')
-    
     # Drop indexes
     op.drop_index('idx_user_progress_active', 'user_progress')
     op.drop_index('idx_user_progress_archived_at', 'user_progress')

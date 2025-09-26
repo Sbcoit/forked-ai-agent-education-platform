@@ -7,7 +7,7 @@ from typing import List, Optional
 import logging
 
 from database.connection import get_db
-from database.models import User, StudentSimulationInstance, CohortSimulation, Cohort, Scenario
+from database.models import User, StudentSimulationInstance, CohortSimulation, Cohort, Scenario, UserProgress
 from database.schemas import StudentSimulationInstanceResponse, StudentSimulationInstanceCreate, StudentSimulationInstanceUpdate
 from utilities.auth import require_student
 
@@ -75,10 +75,25 @@ async def create_student_simulation_instance(
     if existing_instance:
         raise HTTPException(status_code=400, detail="Simulation instance already exists")
     
-    # Create the instance
+    # Get the cohort assignment to get the simulation_id
+    cohort_assignment = db.query(CohortSimulation).filter(
+        CohortSimulation.id == instance_data.cohort_assignment_id
+    ).first()
+    
+    # Create UserProgress record first
+    user_progress = UserProgress(
+        user_id=current_user.id,
+        scenario_id=cohort_assignment.simulation_id,
+        simulation_status="not_started"
+    )
+    db.add(user_progress)
+    db.flush()  # Flush to get the ID
+    
+    # Create the instance with user_progress_id
     instance = StudentSimulationInstance(
         cohort_assignment_id=instance_data.cohort_assignment_id,
-        student_id=current_user.id
+        student_id=current_user.id,
+        user_progress_id=user_progress.id
     )
     
     db.add(instance)

@@ -133,6 +133,18 @@ class Scenario(Base):
     # Status field for Draft/Active tags
     status = Column(String, default="draft", index=True)  # draft, active, archived
     
+    # Completion tracking for simulation builder
+    completion_status = Column(JSON, nullable=True)  # Track completion of different sections
+    
+    # Individual completion boolean fields for easier tracking
+    name_completed = Column(Boolean, default=False)
+    description_completed = Column(Boolean, default=False)
+    personas_completed = Column(Boolean, default=False)
+    scenes_completed = Column(Boolean, default=False)
+    images_completed = Column(Boolean, default=False)
+    learning_outcomes_completed = Column(Boolean, default=False)
+    ai_enhancement_completed = Column(Boolean, default=False)
+    
     # Draft system fields
     is_draft = Column(Boolean, default=True, index=True)  # True for draft, False for published
     published_version_id = Column(Integer, ForeignKey("scenarios.id"), nullable=True)  # Reference to published version

@@ -157,7 +157,6 @@ export default function SceneCard({
   console.log("studentRole:", studentRole);
   console.log("normStudentRole:", normStudentRole);
   console.log("allPersonas:", allPersonas.map(p => p.name));
-  console.log("Normalized editFields.personas_involved:", editFields.personas_involved.map(normalizeName));
   console.log("Normalized allPersonas:", allPersonas.map(p => normalizeName(p.name)));
   console.log("filteredPersonasInvolved:", filteredPersonasInvolved);
 
@@ -236,7 +235,6 @@ export default function SceneCard({
   console.log("studentRole:", studentRole);
   console.log("normStudentRole:", normStudentRole);
   console.log("allPersonas:", allPersonas.map(p => p.name));
-  console.log("Normalized editFields.personas_involved:", editFields.personas_involved.map(normalizeName));
   console.log("Normalized allPersonas:", allPersonas.map(p => normalizeName(p.name)));
   console.log("filteredPersonasInvolved:", filteredPersonasInvolved);
 

@@ -36,6 +36,65 @@ BATCH_SIZE = 100  # For bulk database operations
 
 # --- SCENARIO PUBLISHING ENDPOINTS ---
 
+@router.get("/", response_model=List[ScenarioPublishingResponse])
+async def get_scenarios(
+    db: Session = Depends(get_db)
+):
+    """Get all scenarios"""
+    try:
+        # Get all scenarios with their related personas and scenes
+        scenarios = db.query(Scenario).all()
+        debug_log(f"Found {len(scenarios)} scenarios")
+        
+        # Convert to response format - simplified
+        scenario_responses = []
+        for scenario in scenarios:
+            scenario_responses.append({
+                "id": scenario.id,
+                "title": scenario.title or "",
+                "description": scenario.description or "",
+                "challenge": scenario.challenge or "",
+                "industry": scenario.industry or "Business",
+                "learning_objectives": scenario.learning_objectives or [],
+                "student_role": scenario.student_role or "Business Analyst",
+                "category": scenario.category,
+                "difficulty_level": scenario.difficulty_level,
+                "estimated_duration": scenario.estimated_duration,
+                "tags": scenario.tags,
+                "pdf_title": scenario.pdf_title,
+                "pdf_source": scenario.pdf_source,
+                "processing_version": scenario.processing_version,
+                "rating_avg": scenario.rating_avg,
+                "rating_count": scenario.rating_count,
+                "source_type": scenario.source_type,
+                "is_public": scenario.is_public,
+                "is_template": scenario.is_template,
+                "allow_remixes": scenario.allow_remixes,
+                "usage_count": scenario.usage_count,
+                "clone_count": scenario.clone_count,
+                "created_by": scenario.created_by,
+                "created_at": scenario.created_at,
+                "updated_at": scenario.updated_at,
+                "personas": [],
+                "scenes": [],
+                "completion_status": scenario.completion_status or {},
+                "name_completed": scenario.name_completed,
+                "description_completed": scenario.description_completed,
+                "personas_completed": scenario.personas_completed,
+                "scenes_completed": scenario.scenes_completed,
+                "images_completed": scenario.images_completed,
+                "learning_outcomes_completed": scenario.learning_outcomes_completed,
+                "ai_enhancement_completed": scenario.ai_enhancement_completed
+            })
+        
+        return scenario_responses
+        
+    except Exception as e:
+        debug_log(f"Error fetching scenarios: {e}")
+        import traceback
+        debug_log(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch scenarios: {str(e)}")
+
 @router.post("/save")
 async def save_scenario_draft(
     ai_result: dict,
@@ -108,6 +167,28 @@ async def save_scenario_draft(
             scenario.learning_objectives = actual_ai_result.get("learning_outcomes", [])
             scenario.student_role = actual_ai_result.get("student_role", "Business Analyst")
             scenario.status = "draft"  # Set status to draft when saving
+            scenario.completion_status = actual_ai_result.get("completion_status", {})
+            
+            # Set completion boolean fields - only set to true if all sections are complete
+            completion_status = actual_ai_result.get("completion_status", {})
+            all_sections_complete = (
+                completion_status.get("name_completed", False) and
+                completion_status.get("description_completed", False) and
+                completion_status.get("personas_completed", False) and
+                completion_status.get("scenes_completed", False) and
+                completion_status.get("images_completed", False) and
+                completion_status.get("learning_outcomes_completed", False) and
+                completion_status.get("ai_enhancement_completed", False)
+            )
+            
+            scenario.name_completed = completion_status.get("name_completed", False) if all_sections_complete else False
+            scenario.description_completed = completion_status.get("description_completed", False) if all_sections_complete else False
+            scenario.personas_completed = completion_status.get("personas_completed", False) if all_sections_complete else False
+            scenario.scenes_completed = completion_status.get("scenes_completed", False) if all_sections_complete else False
+            scenario.images_completed = completion_status.get("images_completed", False) if all_sections_complete else False
+            scenario.learning_outcomes_completed = completion_status.get("learning_outcomes_completed", False) if all_sections_complete else False
+            scenario.ai_enhancement_completed = completion_status.get("ai_enhancement_completed", False) if all_sections_complete else False
+            
             scenario.updated_at = datetime.utcnow()
             db.flush()
             # Store existing scene and persona IDs for cleanup
@@ -142,12 +223,41 @@ async def save_scenario_draft(
                 published_version_id=None,  # No published version yet
                 draft_of_id=None,  # This is the original draft
                 created_by=current_user.id if current_user else None,
+                completion_status=actual_ai_result.get("completion_status", {}),
+                name_completed=False,  # Will be set after creation
+                description_completed=False,
+                personas_completed=False,
+                scenes_completed=False,
+                images_completed=False,
+                learning_outcomes_completed=False,
+                ai_enhancement_completed=False,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
             db.add(scenario)
             db.flush()
-            debug_log(f"Created draft scenario with ID: {scenario.id}")
+            
+            # Set completion boolean fields - only set to true if all sections are complete
+            completion_status_for_db = actual_ai_result.get("completion_status", {})
+            all_sections_complete = (
+                completion_status_for_db.get("name_completed", False) and
+                completion_status_for_db.get("description_completed", False) and
+                completion_status_for_db.get("personas_completed", False) and
+                completion_status_for_db.get("scenes_completed", False) and
+                completion_status_for_db.get("images_completed", False) and
+                completion_status_for_db.get("learning_outcomes_completed", False) and
+                completion_status_for_db.get("ai_enhancement_completed", False)
+            )
+            
+            if all_sections_complete:
+                scenario.name_completed = completion_status_for_db.get("name_completed", False)
+                scenario.description_completed = completion_status_for_db.get("description_completed", False)
+                scenario.personas_completed = completion_status_for_db.get("personas_completed", False)
+                scenario.scenes_completed = completion_status_for_db.get("scenes_completed", False)
+                scenario.images_completed = completion_status_for_db.get("images_completed", False)
+                scenario.learning_outcomes_completed = completion_status_for_db.get("learning_outcomes_completed", False)
+                scenario.ai_enhancement_completed = completion_status_for_db.get("ai_enhancement_completed", False)
+                db.flush()
 
         # Save personas - optimized batch operations
         persona_mapping = {}

@@ -3,7 +3,7 @@ import asyncio
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Form
 from sqlalchemy.orm import Session
 import httpx
 import openai
@@ -34,6 +34,8 @@ LLAMAPARSE_API_KEY = settings.llamaparse_api_key
 OPENAI_API_KEY = settings.openai_api_key
 from utilities.secure_logging import secure_print_api_key_status
 from utilities.debug_logging import debug_log
+from utilities.rate_limiter import async_retry
+from .pdf_progress import progress_manager
 
 secure_print_api_key_status("LLAMAPARSE_API_KEY", LLAMAPARSE_API_KEY)
 secure_print_api_key_status("OPENAI_API_KEY", OPENAI_API_KEY)
@@ -95,13 +97,13 @@ async def extract_text_from_context_files(context_files: List[UploadFile]) -> st
             context_texts.append(f"[Context File: {file.filename}]\n[Unsupported file type]\n")
     return "\n".join(context_texts)
 
-async def parse_file_flexible(file: UploadFile) -> str:
+async def parse_file_flexible(file: UploadFile, session_id: str = None) -> str:
     """Parse a file using the appropriate method based on file type."""
     filename = file.filename.lower() if file.filename else ""
     
     # For PDF files, use LlamaParse
     if filename.endswith('.pdf') or file.content_type == "application/pdf":
-        return await parse_with_llamaparse(file)
+        return await parse_with_llamaparse(file, session_id)
     
     # For text-based files, extract text directly
     elif filename.endswith(('.txt', '.md')) or file.content_type in ["text/plain", "text/markdown"]:
@@ -129,7 +131,7 @@ async def extract_text_from_file(file: UploadFile) -> str:
 _llamaparse_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLAMAPARSE)
 
 @async_retry(retries=3, delay=2.0)
-async def parse_with_llamaparse(file: UploadFile) -> str:
+async def parse_with_llamaparse(file: UploadFile, session_id: str = None) -> str:
     """Send a file to LlamaParse and return the parsed markdown content with rate limiting."""
     if not LLAMAPARSE_API_KEY:
         raise HTTPException(status_code=500, detail="LlamaParse API key not configured.")
@@ -139,10 +141,18 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
         start_time = time.time()
         
         try:
+            # Update progress: Starting upload
+            if session_id:
+                progress_manager.update_progress(session_id, "upload", 10, "Reading file...")
+            
             # Read file contents once and store them
             contents = await file.read()
             headers = {"Authorization": f"Bearer {LLAMAPARSE_API_KEY}"}
             files = {"file": (file.filename, contents, file.content_type)}
+            
+            # Update progress: File read, starting upload
+            if session_id:
+                progress_manager.update_progress(session_id, "upload", 50, "Uploading to LlamaParse...")
             
             # Use optimized HTTP client with connection pooling
             limits = httpx.Limits(max_keepalive_connections=10, max_connections=20)
@@ -154,6 +164,10 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
                     upload_response = await client.post(LLAMAPARSE_API_URL, headers=headers, files=files)
                     upload_response.raise_for_status()
                     
+                    # Update progress: Upload complete
+                    if session_id:
+                        progress_manager.update_progress(session_id, "upload", 100, "Upload complete")
+                    
                     job_data = upload_response.json()
                     job_id = job_data.get("id") or job_data.get("job_id") or job_data.get("jobId")
                     
@@ -161,6 +175,10 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
                         raise HTTPException(status_code=500, detail=f"No job ID in LlamaParse response")
                     
                     debug_log(f"[OPTIMIZED] Got job ID: {job_id} for {file.filename}")
+                    
+                    # Update progress: Starting processing
+                    if session_id:
+                        progress_manager.update_progress(session_id, "processing", 5, "Processing document...")
                     
                     # Optimized polling with exponential backoff
                     wait_times = [1, 2, 3, 5, 5, 5]  # Faster initial polling
@@ -171,9 +189,24 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
                         status_response.raise_for_status()
                         status_data = status_response.json()
                         
+                        # Update progress based on attempt number
+                        if session_id:
+                            processing_progress = min(5 + (attempt * 2), 95)  # Gradually increase from 5% to 95%
+                            progress_manager.update_progress(
+                                session_id, 
+                                "processing", 
+                                processing_progress, 
+                                f"Processing document... (attempt {attempt + 1}/{max_polls})",
+                                {"job_id": job_id, "attempt": attempt + 1}
+                            )
+                        
                         status = status_data.get("status")
                         if status in ["COMPLETED", "SUCCESS"]:
                             debug_log(f"[OPTIMIZED] Job {job_id} completed in {time.time() - start_time:.2f}s")
+                            
+                            # Update progress: Processing complete, retrieving results
+                            if session_id:
+                                progress_manager.update_progress(session_id, "processing", 100, "Processing complete, retrieving results...")
                             
                             # Try multiple result formats in parallel
                             result_tasks = [
@@ -199,12 +232,16 @@ async def parse_with_llamaparse(file: UploadFile) -> str:
                             
                         elif status == "FAILED":
                             error_msg = status_data.get("error", "Unknown error")
+                            if session_id:
+                                progress_manager.error_processing(session_id, f"LlamaParse job failed: {error_msg}")
                             raise HTTPException(status_code=500, detail=f"LlamaParse job failed: {error_msg}")
                         
                         # Dynamic wait time
                         wait_time = wait_times[min(attempt, len(wait_times) - 1)]
                         await asyncio.sleep(wait_time)
                     
+                    if session_id:
+                        progress_manager.error_processing(session_id, f"LlamaParse job timed out for {file.filename}")
                     raise HTTPException(status_code=500, detail=f"LlamaParse job timed out for {file.filename}")
                     
                 except httpx.HTTPStatusError as e:
@@ -357,6 +394,243 @@ async def get_default_personas():
             }
         ]
     }
+
+async def parse_pdf_with_progress(
+    file: UploadFile,
+    context_files: Optional[List[UploadFile]] = None,
+    save_to_db: bool = False,
+    session_id: str = None,
+    db: Session = None
+):
+    """Parse PDF with real-time progress tracking"""
+    import uuid
+    
+    debug_log(f"[DEBUG] Received session_id parameter: {session_id}")
+    debug_log(f"[DEBUG] Session_id type: {type(session_id)}")
+    
+    # Generate session ID if not provided
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        debug_log(f"[DEBUG] Generated new session_id: {session_id}")
+    
+    debug_log(f"/api/parse-pdf-with-progress/ endpoint hit with session_id: {session_id}")
+    
+    # Initialize progress tracking immediately
+    if session_id:
+        debug_log(f"[PROGRESS] Initializing progress tracking for session: {session_id}")
+        progress_manager.update_progress(session_id, "upload", 0, "Starting file processing...")
+        debug_log(f"[PROGRESS] Session initialized, checking if exists: {session_id in progress_manager.progress_data}")
+    
+    # Normalize context_files to empty list if None
+    if context_files is None:
+        context_files = []
+    elif not isinstance(context_files, list):
+        context_files = [context_files]
+    
+    if not LLAMAPARSE_API_KEY:
+        if session_id:
+            progress_manager.error_processing(session_id, "LlamaParse API key not configured")
+        raise HTTPException(status_code=500, detail="LlamaParse API key not configured.")
+    
+    # Support PDF, TXT, and other text-based files for the main file
+    supported_main_types = ["application/pdf", "text/plain", "text/markdown", "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
+    if file.content_type not in supported_main_types and not (file.filename and file.filename.lower().endswith(('.pdf', '.txt', '.md', '.doc', '.docx'))):
+        if session_id:
+            progress_manager.error_processing(session_id, "Unsupported file type")
+        raise HTTPException(status_code=400, detail="Only PDF, TXT, MD, DOC, and DOCX files are supported for the main file.")
+    
+    try:
+        # Process all files in optimized parallel batches
+        debug_log(f"[PROGRESS] Starting parallel processing of {len(context_files) + 1} files...")
+        start_time = time.time()
+        
+        # Create semaphore for file processing to avoid overwhelming the system
+        file_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLAMAPARSE)
+        
+        async def process_file_with_semaphore(file_item, name):
+            async with file_semaphore:
+                return await parse_file_flexible(file_item, session_id)
+        
+        # Create tasks for all files (main PDF + context files)
+        tasks = []
+        
+        # Add main file task (highest priority)
+        main_task = process_file_with_semaphore(file, "main_file")
+        tasks.append(("main_file", main_task))
+        
+        # Add context file tasks
+        for i, ctx_file in enumerate(context_files):
+            ctx_task = process_file_with_semaphore(ctx_file, f"context_{i}")
+            tasks.append((ctx_file.filename, ctx_task))
+        
+        debug_log(f"[PROGRESS] Created {len(tasks)} parallel tasks with semaphore control")
+        
+        # Execute all tasks in parallel with timeout protection
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*[task for _, task in tasks], return_exceptions=True),
+                timeout=300.0  # 5 minute total timeout
+            )
+        except asyncio.TimeoutError:
+            if session_id:
+                progress_manager.error_processing(session_id, "File processing timed out after 5 minutes")
+            raise HTTPException(status_code=504, detail="File processing timed out after 5 minutes")
+        
+        # Process results efficiently
+        main_markdown = ""
+        context_markdowns = []
+        
+        for i, (name, result) in enumerate(zip([name for name, _ in tasks], results)):
+            if isinstance(result, Exception):
+                debug_log(f"[ERROR] Failed to process {name}: {result}")
+                if name == "main_file":
+                    if session_id:
+                        progress_manager.error_processing(session_id, f"Failed to process main file: {result}")
+                    raise result  # Main file failure is critical
+                else:
+                    context_markdowns.append(f"[Context File: {name}]\n[Could not extract context: {result}]\n")
+            else:
+                debug_log(f"[PROGRESS] Successfully processed {name}, content length: {len(result)}")
+                if name == "main_file":
+                    main_markdown = result
+                else:
+                    context_markdowns.append(f"[Context File: {name}]\n{result.strip()}\n")
+        
+        context_text = "\n".join(context_markdowns)
+        file_processing_time = time.time() - start_time
+        debug_log(f"[PROGRESS] All files processed in {file_processing_time:.2f}s. Main: {len(main_markdown)}, Context: {len(context_text)}")
+        
+        # Preprocess content once (CPU-bound, run in thread pool)
+        debug_log("[PROGRESS] Preprocessing content...")
+        preprocessed = await asyncio.get_event_loop().run_in_executor(
+            CPU_EXECUTOR, preprocess_case_study_content, main_markdown
+        )
+        
+        title = preprocessed["title"]
+        cleaned_content = preprocessed["cleaned_content"]
+        
+        # Send title update immediately
+        if session_id:
+            progress_manager.send_field_update(session_id, "title", title, "Extracted document title")
+        
+        # Process with AI using optimized pipeline with real-time updates
+        debug_log("[PROGRESS] Starting AI processing pipeline...")
+        ai_start_time = time.time()
+        
+        try:
+            ai_result = await process_with_ai_optimized_with_updates_from_preprocessed(preprocessed, context_text, session_id)
+        except Exception as e:
+            debug_log(f"[ERROR] AI processing with updates failed: {e}")
+            # Fallback to regular processing
+            ai_result = await process_with_ai_optimized_from_preprocessed(preprocessed, context_text)
+            
+        ai_processing_time = time.time() - ai_start_time
+        debug_log(f"[PROGRESS] AI processing completed in {ai_processing_time:.2f}s")
+        
+        # Update progress: Processing complete
+        progress_manager.update_progress(session_id, "processing", 100, "Processing complete")
+        
+        # Send field updates incrementally as they're processed
+        if session_id and ai_result:
+            try:
+                # Send title update immediately
+                if "title" in ai_result:
+                    progress_manager.send_field_update(session_id, "title", ai_result["title"], "Extracted document title")
+                    await asyncio.sleep(0.5)  # Small delay to show incremental updates
+                
+                # Send description update
+                if "description" in ai_result:
+                    progress_manager.send_field_update(session_id, "description", ai_result["description"], "Extracted document description")
+                    await asyncio.sleep(0.5)
+                
+                # Send student role update
+                if "student_role" in ai_result:
+                    progress_manager.send_field_update(session_id, "student_role", ai_result["student_role"], "Identified student role")
+                    await asyncio.sleep(0.5)
+                
+                # Send personas update
+                if "key_figures" in ai_result:
+                    progress_manager.send_field_update(session_id, "personas", ai_result["key_figures"], f"Extracted {len(ai_result['key_figures'])} personas")
+                    await asyncio.sleep(0.5)
+                
+                # Send scenes update
+                if "scenes" in ai_result:
+                    debug_log(f"[DEBUG] Sending scenes update with {len(ai_result['scenes'])} scenes")
+                    for i, scene in enumerate(ai_result["scenes"]):
+                        debug_log(f"[DEBUG] Scene {i+1}: {scene.get('title', 'Untitled')} - Image URL: {scene.get('image_url', 'None')}")
+                    progress_manager.send_field_update(session_id, "scenes", ai_result["scenes"], f"Generated {len(ai_result['scenes'])} scenes")
+                    await asyncio.sleep(0.5)
+                
+                # Send learning outcomes update
+                if "learning_outcomes" in ai_result:
+                    progress_manager.send_field_update(session_id, "learning_outcomes", ai_result["learning_outcomes"], f"Generated {len(ai_result['learning_outcomes'])} learning outcomes")
+                    await asyncio.sleep(0.5)
+                
+                # Send AI enhancement completion update
+                progress_manager.send_field_update(session_id, "ai_enhancement_complete", True, "AI enhancement completed successfully")
+                
+                # Mark as complete only after all field updates are sent
+                progress_manager.complete_processing(session_id, {
+                    "success": True,
+                    "data": ai_result,
+                    "message": "PDF parsing completed successfully"
+                })
+                    
+            except Exception as e:
+                debug_log(f"[ERROR] Failed to send field updates: {e}")
+                progress_manager.error_processing(session_id, f"Failed to send field updates: {e}")
+        
+        # Ensure personas are properly formatted for frontend
+        if "key_figures" in ai_result:
+            debug_log(f"[DEBUG] Found {len(ai_result['key_figures'])} personas in AI result")
+            for i, persona in enumerate(ai_result["key_figures"]):
+                debug_log(f"[DEBUG] Persona {i+1}: {persona.get('name', 'Unknown')} - {persona.get('role', 'Unknown role')}")
+        else:
+            debug_log("[WARNING] No key_figures found in AI result")
+
+        # Debug: Log personas_involved for all scenes and scene_cards before saving
+        for key in ["scenes", "scene_cards"]:
+            if key in ai_result:
+                for scene in ai_result[key]:
+                    print(f"[DEBUG] Scene '{scene.get('title', scene.get('scene_title', ''))}' personas_involved: {scene.get('personas_involved', [])}")
+        
+        # Save to database if requested
+        if save_to_db:
+            debug_log("[PROGRESS] Database saving not implemented yet")
+            # TODO: Implement database saving functionality
+            return {
+                "success": True,
+                "data": ai_result,
+                "session_id": session_id,
+                "message": "PDF parsed successfully (database saving not implemented)"
+            }
+        else:
+            # Processing already completed after field updates
+            # No need to call complete_processing again
+            
+            return {
+                "success": True,
+                "data": ai_result,
+                "session_id": session_id,
+                "message": "PDF parsed successfully"
+            }
+            
+    except Exception as e:
+        debug_log(f"[ERROR] PDF parsing failed: {e}")
+        if session_id:
+            progress_manager.error_processing(session_id, f"PDF parsing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"PDF parsing failed: {e}")
+
+@router.post("/parse-pdf-with-progress")
+async def parse_pdf_with_progress_route(
+    file: UploadFile = File(...),
+    context_files: Optional[List[UploadFile]] = File(None),
+    save_to_db: bool = Form(False),
+    session_id: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Parse PDF with real-time progress tracking via WebSocket"""
+    return await parse_pdf_with_progress(file, context_files, save_to_db, session_id, db)
 
 @router.post("/api/parse-pdf/")
 async def parse_pdf(
@@ -591,251 +865,11 @@ def preprocess_case_study_content(raw_content: str) -> dict:
 _openai_semaphore = asyncio.Semaphore(MAX_CONCURRENT_OPENAI)
 _image_semaphore = asyncio.Semaphore(MAX_CONCURRENT_IMAGES)
 
-async def process_with_ai_optimized(parsed_content: str, context_text: str = "") -> dict:
-    """Optimized AI processing with parallel API calls and better error handling"""
-    debug_log("[OPTIMIZED] Starting optimized AI processing pipeline")
-    start_time = time.time()
+async def extract_personas_and_key_figures_optimized(combined_content: str, title: str, session_id: str = None) -> dict:
+    """Extract personas and key figures using OpenAI with high-quality prompts"""
+    debug_log("[AI] Starting persona extraction...")
     
-    try:
-        # Step 1: Preprocess content (CPU-bound, run in thread pool)
-        preprocessed = await asyncio.get_event_loop().run_in_executor(
-            CPU_EXECUTOR, preprocess_case_study_content, parsed_content
-        )
-        
-        title = preprocessed["title"]
-        cleaned_content = preprocessed["cleaned_content"]
-        
-        # Prepare combined content
-        if context_text.strip():
-            combined_content = f"""
-IMPORTANT CONTEXT FILES (most authoritative, follow these first):
-{context_text}
-
-CASE STUDY CONTENT (main PDF):
-{cleaned_content}
-"""
-        else:
-            combined_content = cleaned_content
-        
-        debug_log(f"[OPTIMIZED] Content preprocessing completed in {time.time() - start_time:.2f}s")
-        
-        # Step 2: Run both AI calls in parallel
-        ai_tasks_start = time.time()
-        
-        # Create tasks for parallel execution
-        base_analysis_task = _get_base_analysis_with_semaphore(combined_content, title, cleaned_content)
-        
-        # Execute base analysis first
-        base_result = await base_analysis_task
-        debug_log(f"[OPTIMIZED] Base analysis completed in {time.time() - ai_tasks_start:.2f}s")
-        
-        # Step 3: Generate scenes based on base analysis
-        scenes_task = _generate_scenes_with_semaphore(base_result)
-        scenes = await scenes_task
-        
-        # Step 4: Generate images for scenes in parallel
-        if scenes:
-            debug_log(f"[OPTIMIZED] Starting parallel image generation for {len(scenes)} scenes")
-            image_tasks = [
-                _generate_scene_image_with_semaphore(
-                    scene.get("description", ""), 
-                    scene.get("title", f"Scene {i+1}"), 
-                    0
-                )
-                for i, scene in enumerate(scenes)
-            ]
-            
-            image_urls = await asyncio.gather(*image_tasks, return_exceptions=True)
-            
-            # Combine scenes with images
-            processed_scenes = []
-            for i, scene in enumerate(scenes):
-                if isinstance(scene, dict):
-                    processed_scene = {
-                        "title": scene.get("title", f"Scene {i+1}"),
-                        "description": scene.get("description", ""),
-                        "personas_involved": scene.get("personas_involved", []),
-                        "user_goal": scene.get("user_goal", ""),
-                        "sequence_order": scene.get("sequence_order", i+1),
-                        "image_url": image_urls[i] if i < len(image_urls) and not isinstance(image_urls[i], Exception) else "",
-                        "successMetric": scene.get("success_metric", "")
-                    }
-                    processed_scenes.append(processed_scene)
-        else:
-            processed_scenes = []
-        
-        # Step 5: Compile final result
-        key_figures = base_result.get("key_figures", [])
-        final_result = {
-            "title": base_result.get("title") or title,
-            "description": base_result.get("description") or (cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content),
-            "student_role": base_result.get("student_role") or "Business Analyst",
-            "key_figures": key_figures,
-            "personas": key_figures,  # Add personas as alias for frontend compatibility
-            "scenes": processed_scenes,
-            "learning_outcomes": base_result.get("learning_outcomes", [
-                "1. Analyze the business situation presented in the case study",
-                "2. Identify key stakeholders and their interests",
-                "3. Develop strategic recommendations based on the analysis",
-                "4. Evaluate the impact of decisions on organizational performance",
-                "5. Apply business concepts and frameworks to real-world scenarios"
-            ])
-        }
-        
-        # Step 6: Post-processing optimizations
-        final_result = await _post_process_result(final_result)
-        
-        total_time = time.time() - start_time
-        debug_log(f"[OPTIMIZED] Complete AI pipeline finished in {total_time:.2f}s")
-        debug_log(f"[OPTIMIZED] Generated {len(final_result.get('key_figures', []))} personas and {len(processed_scenes)} scenes")
-        
-        return final_result
-        
-    except Exception as e:
-        debug_log(f"[ERROR] Optimized AI processing failed: {str(e)}")
-        # Return fallback content
-        return {
-            "title": "Business Case Study",
-            "description": "Failed to process case study content",
-            "key_figures": [],
-            "scenes": [],
-            "learning_outcomes": [
-                "1. Analyze the business situation presented in the case study",
-                "2. Identify key stakeholders and their interests"
-            ]
-        }
-
-async def _get_base_analysis_with_semaphore(combined_content: str, title: str, cleaned_content: str) -> dict:
-    """Get base case study analysis with semaphore control"""
-    async with _openai_semaphore:
-        return await _get_base_analysis(combined_content, title, cleaned_content)
-
-async def _generate_scenes_with_semaphore(base_result: dict) -> list:
-    """Generate scenes with semaphore control"""
-    async with _openai_semaphore:
-        return await generate_scenes_with_ai(base_result)
-
-async def _generate_scene_image_with_semaphore(description: str, title: str, scenario_id: int) -> str:
-    """Generate scene image with semaphore control"""
-    async with _image_semaphore:
-        return await generate_scene_image(description, title, scenario_id)
-
-async def _post_process_result(result: dict) -> dict:
-    """Post-process AI result for consistency and validation"""
-    # Run post-processing in thread pool since it's CPU-bound
-    return await asyncio.get_event_loop().run_in_executor(
-        CPU_EXECUTOR, _post_process_sync, result
-    )
-
-def _post_process_sync(result: dict) -> dict:
-    """Synchronous post-processing for thread pool execution"""
-    # Remove main character from key_figures
-    student_role = result.get("student_role", "").lower()
-    key_figures = result.get("key_figures", [])
-    
-    filtered_key_figures = []
-    for fig in key_figures:
-        if fig.get("is_main_character", False):
-            debug_log(f"Removing main character from key_figures: {fig.get('name', '')}")
-            continue
-        filtered_key_figures.append(fig)
-    
-    result["key_figures"] = filtered_key_figures
-    
-    # Ensure every scene has personas_involved
-    for scene in result.get("scenes", []):
-        if not scene.get("personas_involved"):
-            # Add first available persona
-            if filtered_key_figures:
-                scene["personas_involved"] = [filtered_key_figures[0]["name"]]
-    
-    return result
-
-async def _fast_persona_extraction(content: str, title: str) -> dict:
-    """ULTRA-FAST persona extraction for autofill with minimal prompt"""
-    debug_log("[FAST_AI] Starting ultra-fast persona extraction")
-    
-    # Ultra-streamlined prompt for speed
-    prompt = f"""Extract personas from this business case. Return ONLY JSON:
-
-{{
-  "title": "{title}",
-  "student_role": "<main decision-maker role>",
-  "key_figures": [
-    {{
-      "name": "<person/entity name>",
-      "role": "<their role>",
-      "background": "<brief background>",
-      "primary_goals": ["goal1", "goal2"],
-      "personality_traits": {{"analytical": 7, "creative": 5, "assertive": 6, "collaborative": 7, "detail_oriented": 7}}
-    }}
-  ]
-}}
-
-Find ALL people, companies, roles mentioned in this content. Be thorough but fast.
-
-CONTENT: {content[:3000]}"""  # Truncate for speed
-    
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: client.chat.completions.create(
-                model="gpt-4o-mini",  # Use faster model
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=2000,  # Reduced for speed
-                temperature=0.1,  # Lower for consistency
-            )
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        
-        # Quick JSON extraction
-        import re
-        json_match = re.search(r'({[\s\S]*})', result_text)
-        if json_match:
-            result = json.loads(json_match.group(1))
-            debug_log(f"[FAST_AI] Extracted {len(result.get('key_figures', []))} personas quickly")
-            return result
-        else:
-            debug_log("[FAST_AI] JSON extraction failed, using fallback")
-            return _create_fast_fallback(title)
-            
-    except Exception as e:
-        debug_log(f"[FAST_AI_ERROR] {str(e)}")
-        return _create_fast_fallback(title)
-
-def _create_fast_fallback(title: str) -> dict:
-    """Create fast fallback result for autofill"""
-    return {
-        "title": title,
-        "student_role": "Business Manager",
-        "key_figures": [
-            {
-                "name": "Senior Executive",
-                "role": "Executive Leader",
-                "background": "Experienced leader with strategic oversight responsibilities.",
-                "primary_goals": ["Drive business growth", "Make strategic decisions"],
-                "personality_traits": {"analytical": 8, "creative": 6, "assertive": 7, "collaborative": 7, "detail_oriented": 8}
-            },
-            {
-                "name": "Operations Manager", 
-                "role": "Operations Lead",
-                "background": "Operational expert focused on execution and process optimization.",
-                "primary_goals": ["Optimize operations", "Ensure efficiency"],
-                "personality_traits": {"analytical": 9, "creative": 4, "assertive": 6, "collaborative": 8, "detail_oriented": 9}
-            }
-        ]
-    }
-
-async def _get_base_analysis(combined_content: str, title: str, cleaned_content: str) -> dict:
-    """Get base case study analysis using OpenAI"""
-    debug_log("[OPTIMIZED] Starting base analysis with OpenAI")
-    
-    # Create comprehensive prompt for base analysis (optimized version of original)
-    prompt = f"""
-You are a highly structured JSON-only generator trained to analyze business case studies for college business education.
+    prompt = f"""You are a highly structured JSON-only generator trained to analyze business case studies for college business education.
 
 CRITICAL: You must identify ALL named individuals, companies, organizations, and significant unnamed roles mentioned within the case study narrative. Focus ONLY on characters and entities that are part of the business story being told.
 
@@ -853,7 +887,7 @@ Instructions for key_figures identification:
 
 Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
   "title": "<The exact title of the business case study>",
-  "description": "<A comprehensive, multi-paragraph background description>",
+  "description": "<A comprehensive, detailed background description that provides students with complete context. This should be 3-4 paragraphs covering: 1) The business/organizational context and current situation, 2) Key challenges, problems, or opportunities being faced, 3) Relevant background information, stakeholders, and constraints, 4) The specific scenario or crisis that students need to address. Students should understand the full situation without needing to read the original document.>",
   "student_role": "<The specific role the student will assume>",
   "key_figures": [
     {{
@@ -871,13 +905,6 @@ Your task is to analyze the following business case study content and return a J
       }},
       "is_main_character": <true if this figure matches the student_role, otherwise false>
     }}
-  ],
-  "learning_outcomes": [
-    "1. <Outcome 1>",
-    "2. <Outcome 2>",
-    "3. <Outcome 3>",
-    "4. <Outcome 4>",
-    "5. <Outcome 5>"
   ]
 
 Output ONLY a valid JSON object. Do not include any extra commentary.
@@ -894,10 +921,10 @@ CASE STUDY CONTENT:
             lambda: client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are a JSON generator for business case study analysis."},
+                    {"role": "system", "content": "You are a JSON generator for business case study analysis. Focus on creating comprehensive, detailed descriptions that give students complete context without needing the original document."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=8192,
+                max_tokens=12000,
                 temperature=0.2,
             )
         )
@@ -931,26 +958,160 @@ CASE STUDY CONTENT:
                     }
                 ]
             
-            debug_log(f"[SUCCESS] Base analysis returned {len(result.get('key_figures', []))} personas")
+            debug_log(f"[SUCCESS] Persona extraction returned {len(result.get('key_figures', []))} personas")
             return result
         else:
-            debug_log("[WARNING] No JSON found in base analysis response")
-            return _create_fallback_result(title, combined_content)
+            debug_log("[WARNING] No JSON found in persona extraction response")
+            return _create_fallback_personas(title)
             
     except Exception as e:
-        debug_log(f"[ERROR] Base analysis failed: {str(e)}")
-        return _create_fallback_result(title, combined_content)
+        debug_log(f"[ERROR] Persona extraction failed: {str(e)}")
+        return _create_fallback_personas(title)
 
-def _create_fallback_result(title: str, content: str) -> dict:
-    """Create fallback result when AI analysis fails"""
+async def generate_scenes_optimized(combined_content: str, title: str, session_id: str = None) -> list:
+    """Generate scenes using OpenAI with high-quality prompts"""
+    debug_log("[AI] Starting scene generation...")
+    
+    prompt = f"""Create exactly 4 interactive scenes for this business case study. Output ONLY a JSON array of scenes.
+
+CASE CONTEXT:
+Title: {title}
+Content: {combined_content[:2000]}...
+
+Create 4 scenes following this progression:
+1. Crisis Assessment/Initial Briefing
+2. Investigation/Analysis Phase  
+3. Solution Development
+4. Implementation/Approval
+
+Each scene MUST have:
+- title: Short descriptive name
+- description: 2-3 sentences with vivid setting details for image generation
+- personas_involved: Array of 2-4 actual persona names from the content
+- user_goal: Specific objective the student must achieve
+- sequence_order: 1, 2, 3, or 4
+- goal: Write a short, general summary of what the user should aim to accomplish in this scene
+- success_metric: A clear, measurable way to determine if the student has accomplished the specific goal
+
+Output format - ONLY this JSON array:
+[
+  {{
+    "title": "Scene Title",
+    "description": "Detailed setting description with visual elements...",
+    "personas_involved": ["Persona Name 1", "Persona Name 2"],
+    "user_goal": "Specific actionable goal",
+    "goal": "General summary of what to accomplish",
+    "success_metric": "Specific, measurable criteria for success",
+    "sequence_order": 1
+  }},
+  ...4 scenes total
+]
+"""
+    
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You generate JSON arrays of scenes. Output ONLY valid JSON array, no extra text."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=2048,
+                temperature=0.3,
+            )
+        )
+        
+        scenes_text = response.choices[0].message.content.strip()
+        debug_log(f"[AI] Scenes AI response: {scenes_text[:200]}...")
+        
+        # Extract JSON array from response
+        json_match = re.search(r'(\[[\s\S]*\])', scenes_text)
+        if json_match:
+            scenes_json = json_match.group(1)
+            scenes = json.loads(scenes_json)
+            debug_log(f"[SUCCESS] Generated {len(scenes)} scenes")
+            return scenes
+        else:
+            debug_log("[WARNING] No JSON array found in scenes response")
+            return _create_fallback_scenes()
+            
+    except Exception as e:
+        debug_log(f"[ERROR] Scene generation failed: {str(e)}")
+        return _create_fallback_scenes()
+
+async def generate_learning_outcomes_optimized(combined_content: str, title: str, session_id: str = None) -> list:
+    """Generate learning outcomes using OpenAI with high-quality prompts"""
+    debug_log("[AI] Starting learning outcomes generation...")
+    
+    prompt = f"""Generate exactly 5 learning outcomes for this business case study. Output ONLY a JSON array of learning outcomes.
+
+CASE CONTEXT:
+Title: {title}
+Content: {combined_content[:1500]}...
+
+Create 5 learning outcomes that are:
+- Specific and measurable
+- Relevant to business education
+- Aligned with the case study content
+- Progressive in complexity
+
+Output format - ONLY this JSON array:
+[
+  "1. <Outcome 1>",
+  "2. <Outcome 2>",
+  "3. <Outcome 3>",
+  "4. <Outcome 4>",
+  "5. <Outcome 5>"
+]
+"""
+    
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        
+        response = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": "You generate JSON arrays of learning outcomes. Output ONLY valid JSON array, no extra text."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=1024,
+                temperature=0.2,
+            )
+        )
+        
+        outcomes_text = response.choices[0].message.content.strip()
+        debug_log(f"[AI] Learning outcomes AI response: {outcomes_text[:200]}...")
+        
+        # Extract JSON array from response
+        json_match = re.search(r'(\[[\s\S]*\])', outcomes_text)
+        if json_match:
+            outcomes_json = json_match.group(1)
+            outcomes = json.loads(outcomes_json)
+            debug_log(f"[SUCCESS] Generated {len(outcomes)} learning outcomes")
+            return outcomes
+        else:
+            debug_log("[WARNING] No JSON array found in learning outcomes response")
+            return _create_fallback_learning_outcomes()
+            
+    except Exception as e:
+        debug_log(f"[ERROR] Learning outcomes generation failed: {str(e)}")
+        return _create_fallback_learning_outcomes()
+
+def _create_fallback_personas(title: str) -> dict:
+    """Create fallback personas when AI processing fails"""
     return {
         "title": title or "Business Case Study",
-        "description": content[:500] + "..." if len(content) > 500 else content,
-        "student_role": "Business Analyst",
+        "description": "Business case study scenario requiring strategic analysis and decision-making.",
+        "student_role": "Business Manager",
         "key_figures": [
             {
-                "name": "Team Lead",
-                "role": "Senior Manager", 
+                "name": "Senior Executive",
+                "role": "Executive Leader",
                 "correlation": "Key decision maker in the business scenario",
                 "background": "Experienced leader responsible for strategic decisions and team coordination.",
                 "primary_goals": ["Drive business growth", "Manage team effectively", "Deliver results"],
@@ -964,11 +1125,11 @@ def _create_fallback_result(title: str, content: str) -> dict:
                 "is_main_character": False
             },
             {
-                "name": "Project Manager",
-                "role": "Operations Manager",
+                "name": "Operations Manager",
+                "role": "Operations Lead",
                 "correlation": "Manages operational aspects of the business scenario",
                 "background": "Detail-oriented professional focused on execution and process improvement.",
-                "primary_goals": ["Ensure project success", "Optimize processes", "Meet deadlines"],
+                "primary_goals": ["Ensure operational efficiency", "Optimize processes", "Meet deadlines"],
                 "personality_traits": {
                     "analytical": 9,
                     "creative": 4,
@@ -978,20 +1139,63 @@ def _create_fallback_result(title: str, content: str) -> dict:
                 },
                 "is_main_character": False
             }
-        ],
-        "learning_outcomes": [
-            "1. Analyze business situations and identify key challenges",
-            "2. Develop strategic solutions to complex problems",
-            "3. Apply business frameworks to real-world scenarios",
-            "4. Make data-driven decisions under uncertainty",
-            "5. Communicate recommendations effectively to stakeholders"
         ]
     }
 
-@async_retry(retries=2, delay=1.0)
+def _create_fallback_scenes() -> list:
+    """Create fallback scenes when AI processing fails"""
+    return [
+        {
+            "title": "Initial Assessment",
+            "description": "A professional boardroom meeting where key stakeholders gather to discuss the business situation.",
+            "personas_involved": ["Senior Executive", "Operations Manager"],
+            "user_goal": "Understand the current business situation and identify key challenges",
+            "goal": "Assess the situation",
+            "success_metric": "Successfully identify the main business challenges",
+            "sequence_order": 1
+        },
+        {
+            "title": "Analysis Phase",
+            "description": "A focused analysis session with data review and stakeholder interviews.",
+            "personas_involved": ["Operations Manager", "Senior Executive"],
+            "user_goal": "Gather and analyze relevant business data",
+            "goal": "Analyze available information",
+            "success_metric": "Complete comprehensive analysis of business metrics",
+            "sequence_order": 2
+        },
+        {
+            "title": "Solution Development",
+            "description": "A collaborative strategy session to develop potential solutions.",
+            "personas_involved": ["Senior Executive", "Operations Manager"],
+            "user_goal": "Develop viable solutions to address identified challenges",
+            "goal": "Create actionable solutions",
+            "success_metric": "Present well-structured solution recommendations",
+            "sequence_order": 3
+        },
+        {
+            "title": "Implementation Planning",
+            "description": "A final meeting to approve solutions and plan implementation steps.",
+            "personas_involved": ["Senior Executive", "Operations Manager"],
+            "user_goal": "Secure approval and plan implementation of chosen solution",
+            "goal": "Get implementation approval",
+            "success_metric": "Gain stakeholder approval for implementation plan",
+            "sequence_order": 4
+        }
+    ]
+
+def _create_fallback_learning_outcomes() -> list:
+    """Create fallback learning outcomes when AI processing fails"""
+    return [
+        "1. Analyze business situations and identify key challenges",
+        "2. Develop strategic solutions to complex problems",
+        "3. Apply business frameworks to real-world scenarios",
+        "4. Make data-driven decisions under uncertainty",
+        "5. Communicate recommendations effectively to stakeholders"
+    ]
+
 async def generate_scene_image(scene_description: str, scene_title: str, scenario_id: int = 0) -> str:
-    """Generate an image for a scene using OpenAI's DALL-E API with optimization"""
-    debug_log(f"[OPTIMIZED] Generating image for scene: {scene_title}")
+    """Generate an image for a scene using OpenAI's DALL-E API"""
+    debug_log(f"[IMAGE] Generating image for scene: {scene_title}")
     start_time = time.time()
     
     try:
@@ -1014,14 +1218,7 @@ async def generate_scene_image(scene_description: str, scene_title: str, scenari
         
         image_url = response.data[0].url
         generation_time = time.time() - start_time
-        debug_log(f"[OPTIMIZED] Generated image for '{scene_title}' in {generation_time:.2f}s")
-        
-        # Optional: Download and save image locally (disabled for performance)
-        # if scenario_id > 0:
-        #     from utilities.image_storage import download_and_save_image
-        #     local_path = await download_and_save_image(image_url, scene_title, scenario_id)
-        #     if local_path:
-        #         return local_path
+        debug_log(f"[IMAGE] Generated image for '{scene_title}' in {generation_time:.2f}s")
         
         return image_url
         
@@ -1029,1231 +1226,177 @@ async def generate_scene_image(scene_description: str, scene_title: str, scenari
         debug_log(f"[ERROR] Image generation failed for scene '{scene_title}': {str(e)}")
         return ""  # Return empty string on failure
 
-async def generate_scenes_with_ai(base_result: dict) -> list:
-    """Generate scenes using a separate AI call based on the base case study analysis"""
-    print("[DEBUG] Generating scenes with separate AI call...")
+async def process_with_ai_optimized_with_updates_from_preprocessed(preprocessed: dict, context_text: str = "", session_id: str = None) -> dict:
+    """AI processing with real-time field updates using preprocessed content"""
+    debug_log("[OPTIMIZED] Starting optimized AI processing pipeline with real-time updates")
+    start_time = time.time()
+    
     try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        
-        # Extract context from the base result
-        title = base_result.get("title", "Business Case Study")
-        description = base_result.get("description", "")
-        student_role = base_result.get("student_role", "Manager")
-        key_figures = base_result.get("key_figures", [])
-        
-        # Create persona names list for easy reference
-        persona_names = [fig.get("name", "") for fig in key_figures if fig.get("name")]
-        
-        scenes_prompt = f"""
-Create exactly 4 interactive scenes for this business case study. Output ONLY a JSON array of scenes.
-
-CASE CONTEXT:
-Title: {title}
-Student Role: {student_role}
-Description: {description[:500]}...
-
-AVAILABLE PERSONAS: {', '.join(persona_names)}
-
-Create 4 scenes following this progression:
-1. Crisis Assessment/Initial Briefing
-2. Investigation/Analysis Phase  
-3. Solution Development
-4. Implementation/Approval
-
-Each scene MUST have:
-- title: Short descriptive name
-- description: 2-3 sentences with vivid setting details for image generation
-- personas_involved: Array of 2-4 actual persona names from the list above
-- user_goal: Specific objective the student must achieve
-- sequence_order: 1, 2, 3, or 4
-- goal: Write a short, general summary of what the user should aim to accomplish in this scene. The goal should be directly inspired by and derived from the success metric, but do NOT include the specific success criteria or give away the answer. It should be clear and motivating, less specific than the success metric, and should not reveal the exact actions or information needed to achieve success.
-- success_metric: A clear, measurable way to determine if the student (main character) has accomplished the specific goal of the scene, written in a way that is directly tied to the actions and decisions required in the narrative. Focus on what the student must do or achieve in the context of this scene, not just a generic outcome.
-
-Output format - ONLY this JSON array:
-[
-  {{
-    "title": "Scene Title",
-    "description": "Detailed setting description with visual elements...",
-    "personas_involved": ["Actual Name 1", "Actual Name 2"],
-    "user_goal": "Specific actionable goal",
-    "goal": "General, non-revealing summary of what to accomplish",
-    "success_metric": "Specific, measurable criteria for success",
-    "sequence_order": 1
-  }},
-  ...4 scenes total
-]
-"""
-        
-        print("[DEBUG] Sending scenes generation prompt to OpenAI...")
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You generate JSON arrays of scenes. Output ONLY valid JSON array, no extra text."},
-                    {"role": "user", "content": scenes_prompt}
-                ],
-                max_tokens=2048,
-                temperature=0.3,
-            )
-        )
-        
-        scenes_text = response.choices[0].message.content.strip()
-        print(f"[DEBUG] Scenes AI response: {scenes_text[:200]}...")
-        
-        # Extract JSON array from response
-        import re
-        json_match = re.search(r'(\[[\s\S]*\])', scenes_text)
-        if json_match:
-            scenes_json = json_match.group(1)
-            scenes = json.loads(scenes_json)
-            print(f"[DEBUG] Successfully parsed {len(scenes)} scenes")
-            return scenes
-        else:
-            print("[WARNING] No JSON array found in scenes response")
-            return []
-            
-    except Exception as e:
-        print(f"[ERROR] Scene generation failed: {str(e)}")
-        return []
-
-async def process_with_ai(parsed_content: str, context_text: str = "") -> dict:
-    """Process the parsed PDF content with OpenAI to extract business case study information"""
-    print("[DEBUG] Processing content with OpenAI LLM")
-    try:
-        preprocessed = preprocess_case_study_content(parsed_content)
         title = preprocessed["title"]
         cleaned_content = preprocessed["cleaned_content"]
         
-        # Prepend context files' content as most important
+        # Prepare combined content
         if context_text.strip():
-            print(f"[DEBUG] Context files provided, length: {len(context_text)} characters")
-            print(f"[DEBUG] Context files preview: {context_text[:500]}...")
             combined_content = f"""
 IMPORTANT CONTEXT FILES (most authoritative, follow these first):
 {context_text}
 
-CASE STUDY CONTENT (main PDF):
+MAIN CASE STUDY CONTENT:
 {cleaned_content}
 """
-            print(f"[DEBUG] Combined content length: {len(combined_content)} characters")
         else:
-            print("[DEBUG] No context files provided, using only main content")
             combined_content = cleaned_content
-            
-        # --- AI Prompt for Scenario Extraction ---
-        prompt = f"""
-You are a highly structured JSON-only generator trained to analyze business case studies for college business education.
-
-CRITICAL CONTEXT USAGE INSTRUCTIONS:
-- If context files (teaching notes, instructor materials, etc.) are provided, they contain the MOST AUTHORITATIVE information about learning objectives, grading criteria, and pedagogical focus
-- ALWAYS prioritize information from context files over the main case study content when there are conflicts
-- Use context files to inform and enhance the learning outcomes, scene design, and success metrics
-- Context files may contain specific learning objectives, assessment criteria, or teaching guidance that should be incorporated into the simulation design
-
-CRITICAL: You must identify ALL named individuals, companies, organizations, and significant unnamed roles mentioned within the case study narrative. Focus ONLY on characters and entities that are part of the business story being told.
-
-Instructions for key_figures identification:
-- Find ALL types of key figures that can be turned into personas, including:
-  * Named individuals who are characters in the case study (people with first and last names like "John Smith", "Mary Johnson", "Wanjohi", etc.)
-  * Companies and organizations mentioned in the narrative (e.g., "Kaskazi Network", "Competitors", "Suppliers")
-  * Unnamed but important roles within the story (e.g., "The CEO", "The Board of Directors", "The Marketing Manager")
-  * Groups and stakeholders in the narrative (e.g., "Customers", "Employees", "Shareholders", "Partners")
-  * External entities mentioned in the story (e.g., "Government Agencies", "Regulatory Bodies", "Industry Analysts")
-  * Any entity that influences the narrative or decision-making process within the case study
-- Look for names in the format: "FirstName LastName" or "Title LastName" or "FirstName Title"
-- Focus ONLY on the case study narrative content - ignore author sections, acknowledgments, footnotes, or other metadata
-- Include both named and unnamed entities that are part of the business story - do not prioritize one over the other
-- Even if someone/thing is mentioned only once or briefly, include them if they have a discernible role in the narrative
-- Do not skip anyone/anything based on perceived importance - include ALL relevant figures and entities from the story
-- CRITICAL: Do NOT include the student, the player, or the role/position the student is playing (as specified in "student_role") in the key_figures array. Only include non-player characters (NPCs) and entities from the business narrative. The player/student role must be excluded even if mentioned by name or title in the content.
-
-IMPORTANT SCENE GENERATION RULES:
-- For each scene:
-  * The personas_involved array must list only non-student figures (from key_figures) who are actively referenced in the scene_description.
-  * The scene_description must always mention, in-depth and narratively, at least one non-student persona from the personas/key_figures list. The figure(s) must be woven into the scene in a way that makes narrative sense and advances the business scenario. The description should be multi-paragraph, detailed, and immersive, not superficial.
-  * CRITICAL: The personas_involved array must NEVER include the main character/student role, even if they are mentioned by name in the scene. The student is the player and should not be listed as a persona they interact with.
-  * Double-check that no persona in personas_involved matches the student_role or the main character name.
-  * If the scene involves the main character, focus on the OTHER people they interact with, not the main character themselves.
-
-Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
-  "title": "<The exact title of the business case study>",
-  "description": "<A highly comprehensive, multi-paragraph, and in-depth background that includes: 1) the business context, history, and market environment, 2) the main challenges, decisions, and their implications, 3) an explicit and prominent statement that the student will be tackling the case study as the primary decision-maker or central figure (include their name/title if available), 4) clear references to the key figures, their roles, and their relationships to the student’s role, and 5) a synthesis of deeper context, connections, and business analysis inferred from the case study. The description should be analytical, engaging, and written in a professional tone suitable for business education.>",
-  "student_role": "<The specific role or position the student will assume in this case study. This should be the primary decision-maker or central figure in the case study (e.g., 'CEO', 'Marketing Manager', 'Consultant', 'Founder', etc.). This person/role will NOT be included in key_figures since the student will be playing this role.
-
-EXAMPLES OF HOW TO IDENTIFY THE STUDENT ROLE:
-
-Example 1: Case: "In 2020, Howard Schultz, CEO of Starbucks, was considering expanding into new markets in Asia."
-→ student_role: "CEO" (Howard Schultz is the main decision-maker)
-
-Example 2: Case: "You are the marketing director of a mid-sized e-commerce company, deciding on the budget allocation for the upcoming year."
-→ student_role: "Marketing Director" (explicitly stated as "You are")
-
-Example 3: Case: "Jane, the founder of a fintech startup, needs to pitch to investors to secure Series A funding."
-→ student_role: "Founder" (Jane is the main character making decisions)
-
-Example 4: Case: "The plant manager must decide whether to implement a new automated production line to improve efficiency."
-→ student_role: "Plant Manager" (the main decision-maker in the scenario)
-
-Example 5: Case: "As CFO of a global retail chain, Robert is evaluating options to reduce operational costs across regions."
-→ student_role: "CFO" (Robert is the main character, but the role is CFO)
-
-Example 6: Case: "You are the HR manager of a tech company, facing high employee turnover and low morale, and need to design a retention strategy."
-→ student_role: "HR Manager" (explicitly stated as "You are")
-
-Example 7: Case: "The product manager at a consumer electronics firm must decide whether to launch a new gadget ahead of the competitor."
-→ student_role: "Product Manager" (the main decision-maker)
-
-Example 8: Case: "As the sustainability officer of a multinational, Maria must create a plan to reduce the company's carbon footprint while maintaining profitability."
-→ student_role: "Sustainability Officer" (Maria is the main character, but the role is Sustainability Officer)
-
-Example 9: Case: "You are a consultant hired to advise a struggling airline on restructuring its operations to avoid bankruptcy."
-→ student_role: "Consultant" (explicitly stated as "You are")
-
-Example 10: Case: "The compliance officer must evaluate whether the company's new data handling practices meet global privacy regulations."
-→ student_role: "Compliance Officer" (the main decision-maker)
-
-Example 11: Case: "A small business owner is deciding whether to accept venture capital funding, balancing growth with maintaining control of the company."
-→ student_role: "Small Business Owner" (the main decision-maker)
-
-Example 12: Case: "The supply chain manager must address delays caused by geopolitical disruptions affecting key suppliers."
-→ student_role: "Supply Chain Manager" (the main decision-maker)
-
-KEY IDENTIFICATION RULES:
-- Look for the primary decision-maker or central figure in the case
-- If the case says "You are [role]" or "As [role]", that's the student role
-- If a specific person is mentioned as the main character, identify their role/title
-- The student role should be someone who makes key decisions in the scenario
-- This person/role should NOT appear in key_figures since the student plays this role>",
-  "key_figures": [
-    {{
-      "name": "<Full name of figure (e.g., 'John Smith', 'Wanjohi', 'Lisa Mwezi Schuepbach'), or descriptive title if unnamed (e.g., 'The Board of Directors', 'Competitor CEO', 'Industry Analyst')>",
-      "role": "<Their role or inferred role. If unknown, use 'Unknown'>",
-      "correlation": "<A brief explanation of this figure's relationship to the narrative of the case study>",
-      "background": "<A 2-3 sentence background/bio of this person/entity based on the case study content>",
-      "primary_goals": [
-        "<Goal 1>",
-        "<Goal 2>",
-        "<Goal 3>"
-      ],
-      "personality_traits": {{
-        "analytical": <0-10 rating>,
-        "creative": <0-10 rating>,
-        "assertive": <0-10 rating>,
-        "collaborative": <0-10 rating>,
-        "detail_oriented": <0-10 rating>
-      }},
-      "is_main_character": <true if this figure matches the student_role, otherwise false or omit>
-    }}
-  ],
-  "learning_outcomes": [
-    "1. <Outcome 1 - prioritize learning objectives from context files if available>",
-    "2. <Outcome 2 - use teaching notes to inform specific skills and knowledge to be developed>",
-    "3. <Outcome 3 - incorporate assessment criteria from context files>",
-    "4. <Outcome 4 - align with pedagogical goals mentioned in teaching materials>",
-    "5. <Outcome 5 - ensure outcomes support the overall educational objectives>"
-  ],
-  "scene_cards": [
-    {{
-      "scene_title": "<Short, clear title for this scene (e.g., 'Executive Team Faces Budget Cuts')>",
-      "goal": "<What the characters or learners are trying to accomplish in this scene. Reference or support one or more of the main learning outcomes in the way this goal is written, but do not list them explicitly.>",
-      "core_challenge": "<The main business dilemma, conflict, or tradeoff happening in this scene. Reference or support the learning outcomes in the narrative, but do not list them explicitly.>",
-      "scene_description": "<A highly detailed, immersive, and at least 200-word, multi-paragraph narrative summary of what happens in this scene. Write in the second person, always centering the experience around the main character (the student role) as the decision-maker. Explicitly mention and involve all personas_involved by name, describing their actions, dialogue, and interactions with the main character. Make the narrative realistic, in-depth, and grounded in the case study context.>",
-      "success_metric": "<A clear, measurable way to determine if the student (main character) has accomplished the specific goal of the scene, written in a way that is directly tied to the actions and decisions required in the narrative. Focus on what the student must do or achieve in the context of this scene, not just a generic outcome.>",
-      "personas_involved": [
-        "<Persona Name 1>",
-        "<Persona Name 2>"
-      ]
-    }}
-  ]
-}}
-
-Scene Card generation instructions:
-- Break the case into 4–6 important scenes.
-- Each scene_card MUST be unique: do not repeat or duplicate scene_title, goal, core_challenge, scene_description, success_metric, or personas_involved across different scenes. Each scene must cover a different part of the narrative or a different business challenge/decision.
-- If the case study content is limited, synthesize plausible but non-repetitive scenes based on the available information, but do not copy or repeat any field between scenes.
-- Each scene should align to one of the following simplified stages of business case analysis:
-  * Context & Setup
-  * Analysis & Challenges
-  * Decisions & Tradeoffs
-  * Actions & Outcomes
-- For each scene_card, ensure the goal, core_challenge, scene_description, and success_metric are written in a way that references or supports the main learning outcomes, but do not embed or list the learning outcomes directly in the scene_card fields.
-- IMPORTANT: If context files (teaching notes) are provided, use them to inform the scene design, success metrics, and learning objectives. Teaching notes may contain specific assessment criteria, grading rubrics, or pedagogical approaches that should be reflected in the scene design.
-- The scene_title must NOT include stage names, numbers, or generic labels (such as "Context & Setup", "Analysis & Challenges", "Decisions & Tradeoffs", "Actions & Outcomes", or similar). The title should be a concise, descriptive summary of the scene's unique content only.
-- For each scene_card, include a personas_involved field listing the names of personas (from the key_figures array) who are actively participating in or relevant to the scene. The scene_description and goal should narratively reference these personas.
-- Do not invent facts; only use what is in the case study content and context files.
-- Each scene_card object must include exactly those 6 fields listed above. 
-- The success_metric field is required for every scene and must be a clear, measurable metric but make sure to avoid anything numeric related (not vague like "learn something"). Use context files to inform appropriate success metrics if available.
-
-Important generation rules:
-- Output ONLY a valid JSON object. Do not include any extra commentary, markdown, or formatting.
-- All fields are required.
-- The "scene_cards" field must be an array of 4–6 complete, well-structured scene card objects.
-
-CASE STUDY CONTENT (context files first, then main PDF):
-{combined_content}
-"""
         
-        print("[DEBUG] Combined content length:", len(combined_content))
-        print("[DEBUG] Prompt sent to OpenAI")
+        # Send description update
+        if session_id:
+            progress_manager.send_field_update(session_id, "description", cleaned_content[:500] + "...", "Extracted document description")
         
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        # Step 2: Parallel AI calls for different components
+        debug_log("[OPTIMIZED] Starting parallel AI processing...")
         
-        # Try with high token limit first, fallback to lower if needed
-        max_tokens_attempts = [16384, 12288, 8192]
-        response = None
-        for attempt, max_tokens in enumerate(max_tokens_attempts):
-            try:
-                debug_log(f"Attempting OpenAI call with max_tokens={max_tokens} (attempt {attempt + 1})")
-                response = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[
-                            {"role": "system", "content": "You are a JSON generator for business case study analysis. Extract comprehensive information about key figures and their relationships."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        max_tokens=max_tokens,
-                        temperature=0.2,
-                    )
-                )
-                break  # Success, exit the retry loop
-            except Exception as api_error:
-                debug_log(f"OpenAI call failed with max_tokens={max_tokens}: {str(api_error)}")
-                if attempt == len(max_tokens_attempts) - 1:  # Last attempt
-                    raise api_error  # Re-raise the last error
-                # Try next lower token limit
-                continue
-        if response is None:
-            raise Exception("OpenAI call failed for all token limits.")
-        generated_text = response.choices[0].message.content
-        print(f"[DEBUG] Raw OpenAI response length: {len(generated_text)} characters")
-        print(f"[DEBUG] First 500 characters of response: {generated_text[:500]}...")
-        print(f"[DEBUG] Last 500 characters of response: ...{generated_text[-500:]}")
-        # Check if response was likely truncated
-        finish_reason = response.choices[0].finish_reason
-        print(f"[DEBUG] OpenAI finish_reason: {finish_reason}")
-        if finish_reason == "length":
-            debug_log("[WARNING] OpenAI response was truncated due to max_tokens limit!")
-            debug_log("[WARNING] Consider using a more concise prompt or higher token limit")
-        # Check if response contains key fields
-        if '"key_figures"' in generated_text:
-            debug_log("✓ Response contains 'key_figures' field")
-        else:
-            debug_log("✗ Response does NOT contain 'key_figures' field")
+        # Create tasks for parallel execution
+        tasks = []
         
-        # Try to extract JSON from the response using regex
-        match = re.search(r'({[\s\S]*})', generated_text)
-        if match:
-            json_str = match.group(1)
-            
-            # Try to fix incomplete JSON by adding missing closing brackets
-            if not json_str.rstrip().endswith('}'):
-                print("[DEBUG] JSON appears incomplete, attempting to fix...")
-                # Count open braces and brackets to determine what's missing
-                open_braces = json_str.count('{') - json_str.count('}')
-                open_brackets = json_str.count('[') - json_str.count(']')
-                
-                # Add missing closing brackets and braces
-                json_str += ']' * open_brackets + '}' * open_braces
-                print(f"[DEBUG] Added {open_brackets} closing brackets and {open_braces} closing braces")
-            
-            try:
-                ai_result = json.loads(json_str)
-                print("[DEBUG] First AI call successful, now generating scenes...")
-                debug_log(f"First AI result keys: {list(ai_result.keys())}")
-                debug_log(f"Number of key figures: {len(ai_result.get('key_figures', []))}")
-                
-                # Second AI call to generate scenes
-                try:
-                    scenes = await generate_scenes_with_ai(ai_result)
-                    print(f"[DEBUG] Second AI call returned {len(scenes) if isinstance(scenes, list) else 0} scenes")
-                except Exception as scenes_error:
-                    print(f"[ERROR] Second AI call failed: {scenes_error}")
-                    scenes = []
-                processed_scenes = []
-                
-                # If no scenes were generated by AI, create fallback scenes
-                if not scenes:
-                    print("[WARNING] No scenes generated by second AI call, using fallback...")
-                    key_figures = ai_result.get("key_figures", [])
-                    student_role = ai_result.get("student_role", "Manager")
-                    
-                    # Extract key personas for scenes
-                    senior_figures = [fig["name"] for fig in key_figures if any(word in fig.get("role", "").lower() for word in ["vp", "vice", "president", "senior", "global"])]
-                    team_figures = [fig["name"] for fig in key_figures if any(word in fig.get("role", "").lower() for word in ["manager", "engineer", "support", "advocate"])]
-                    all_names = [fig["name"] for fig in key_figures]
-                    
-                    # Create case-specific scenes based on context
-                    fallback_scenes = [
-                        {
-                            "title": "Crisis Assessment Meeting",
-                            "description": "You are in the main conference room with senior leadership, reviewing the urgent situation that requires immediate attention. The atmosphere is tense with incident reports and client communications displayed on screens around the room.",
-                            "personas_involved": senior_figures[:3] if len(senior_figures) >= 3 else all_names[:3],
-                            "user_goal": f"As the {student_role}, assess the scope of the crisis and understand the immediate risks to the organization.",
-                            "sequence_order": 1
-                        },
-                        {
-                            "title": "Team Investigation",
-                            "description": "You are conducting interviews with team members across different locations to understand what went wrong. The setting varies from video calls to in-person meetings as you piece together the timeline of events.",
-                            "personas_involved": team_figures[:4] if len(team_figures) >= 4 else all_names[1:5],
-                            "user_goal": "Identify the root causes of the issues and gather perspectives from team members.",
-                            "sequence_order": 2
-                        },
-                        {
-                            "title": "Solution Development Workshop",
-                            "description": "You are leading a collaborative session with team members present and others joining virtually. Whiteboards are filled with process diagrams and improvement plans as you work to develop solutions.",
-                            "personas_involved": (team_figures + senior_figures)[:4] if len(key_figures) >= 4 else all_names[:4],
-                            "user_goal": "Develop concrete solutions and create an implementation plan.",
-                            "sequence_order": 3
-                        },
-                        {
-                            "title": "Implementation Approval Meeting",
-                            "description": "You are presenting your comprehensive action plan to leadership in the boardroom. Charts showing your recommendations and success metrics are displayed as you seek approval.",
-                            "personas_involved": senior_figures[:3] if len(senior_figures) >= 3 else all_names[-3:],
-                            "user_goal": "Secure approval for your plan and establish clear success metrics and timelines.",
-                            "sequence_order": 4
-                        }
-                    ]
-                    scenes = fallback_scenes[:4]
-                
-                if scenes:
-                    print(f"[DEBUG] Processing {len(scenes)} scenes for image generation...")
-                    
-                    # Generate images for each scene in parallel
-                    image_tasks = []
-                    scenario_id = ai_result.get('scenario_id') or 0
-                    for scene in scenes:
-                        if isinstance(scene, dict) and "description" in scene and "title" in scene:
-                            task = generate_scene_image(scene["description"], scene["title"], scenario_id)
-                            image_tasks.append(task)
-                        else:
-                            # Create a simple async function that returns empty string
-                            async def empty_task():
-                                return ""
-                            image_tasks.append(empty_task())
-                    
-                    # Wait for all image generations to complete
-                    image_urls = await asyncio.gather(*image_tasks, return_exceptions=True)
-                    
-                    # Combine scenes with their generated images
-                    for i, scene in enumerate(scenes):
-                        if isinstance(scene, dict):
-                            processed_scene = {
-                                "title": scene.get("title", f"Scene {i+1}"),
-                                "description": scene.get("description", ""),
-                                "personas_involved": scene.get("personas_involved", []),
-                                "user_goal": scene.get("user_goal", ""),
-                                "sequence_order": scene.get("sequence_order", i+1),
-                                "image_url": image_urls[i] if i < len(image_urls) and not isinstance(image_urls[i], Exception) else "",
-                                "successMetric": scene.get("success_metric", "")
-                            }
-                            processed_scenes.append(processed_scene)
-                            print(f"[DEBUG] Scene {i+1}: {processed_scene['title']} - Image: {'Generated' if processed_scene['image_url'] else 'Failed'}")
-                
-                final_result = {
-                    "title": ai_result.get("title") or title,
-                    "description": ai_result.get("description") or (cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content),
-                    "student_role": ai_result.get("student_role") or "",
-                    "key_figures": ai_result.get("key_figures") if "key_figures" in ai_result else [],
-                    "scenes": processed_scenes,
-                    "learning_outcomes": ai_result.get("learning_outcomes") or [
-                        "1. Analyze the business situation presented in the case study",
-                        "2. Identify key stakeholders and their interests",
-                        "3. Develop strategic recommendations based on the analysis",
-                        "4. Evaluate the impact of decisions on organizational performance",
-                        "5. Apply business concepts and frameworks to real-world scenarios"
-                    ]
-                }
-                debug_log(f"Successfully parsed JSON! Final AI result sent to frontend with {len(final_result.get('key_figures', []))} key figures and {len(processed_scenes)} scenes")
-                debug_log("Key figures names:", [fig.get('name', 'Unknown') for fig in final_result.get('key_figures', [])])
-                print("[DEBUG] Scene titles:", [scene.get('title', 'Unknown') for scene in processed_scenes])
-                debug_log(f"Final result keys: {list(final_result.keys())}")
-                print(f"[DEBUG] Scenes in final result: {len(final_result.get('scenes', []))}")
-                print("[DEBUG] Raw AI scenes:", ai_result.get("scene_cards", []))
-                
-                # Post-processing validation to ensure student role is not in key_figures
-                student_role = final_result.get("student_role", "").lower()
-                key_figures = final_result.get("key_figures", [])
-
-                # Capture main character name before removing from key_figures
-                main_character_name = None
-                print(f"[DEBUG] Checking {len(key_figures)} key_figures for main character...")
-                for i, fig in enumerate(key_figures):
-                    print(f"[DEBUG] Persona {i}: {fig.get('name', '')} - is_main_character: {fig.get('is_main_character', False)}")
-                    if fig.get("is_main_character", False):
-                        main_character_name = fig.get("name", "")
-                        debug_log(f"Main character identified: {main_character_name}")
-                        break
-
-                # After parsing key_figures, filter out any with is_main_character true
-                filtered_key_figures = []
-                for fig in key_figures:
-                    if fig.get("is_main_character", False):
-                        debug_log(f"Removing main character from key_figures: {fig.get('name', '')}")
-                        continue
-                    filtered_key_figures.append(fig)
-                final_result["key_figures"] = filtered_key_figures
-
-                # Ensure every scene has personas_involved and successMetric (fallback to scene_cards if needed)
-                if "scenes" in final_result and "scene_cards" in ai_result:
-                    scene_cards = ai_result["scene_cards"]
-                    key_figure_names = [fig["name"] for fig in final_result["key_figures"]]
-                    student_role = final_result.get("student_role", "").strip().lower()
-                    for i, scene in enumerate(final_result["scenes"]):
-                        # Fallback for personas_involved
-                        if (not scene.get("personas_involved") or len(scene.get("personas_involved", [])) == 0) and i < len(scene_cards):
-                            pi = scene_cards[i].get("personas_involved", [])
-                            if pi:
-                                # Note: Main character filtering will be handled later in the pipeline
-                                scene["personas_involved"] = pi
-                        # --- ENFORCE: At least one non-student persona in personas_involved ---
-                        personas = scene.get("personas_involved", [])
-                        # Note: Main character removal is handled later in the processing pipeline
-                        # Parse description for persona names
-                        desc = scene.get("description", "")
-                        mentioned = [name for name in key_figure_names if name in desc]
-                        for name in mentioned:
-                            if name not in personas:
-                                personas.append(name)
-                        # If still empty, add the first available persona
-                        if not personas and key_figure_names:
-                            first_persona = key_figure_names[0]
-                            personas.append(first_persona)
-                            # Optionally, append a sentence to the description
-                            scene["description"] = desc + f"\n\n{first_persona} is present in this scene."
-                        scene["personas_involved"] = personas
-                        # Fallback for successMetric
-                        if not scene.get("successMetric") and i < len(scene_cards):
-                            metric = scene_cards[i].get("success_metric")
-                            if metric:
-                                scene["successMetric"] = metric
-                print("[DEBUG] Final processed scenes:", final_result.get("scenes", []))
-                
-                # Main character name was already captured above before filtering
-
-                # Final cleanup: Remove main character from all scenes
-                if main_character_name:
-                    print(f"[DEBUG] Starting final cleanup to remove main character: {main_character_name}")
-                    main_character_name_norm = normalize_name(main_character_name)
-                    print(f"[DEBUG] Normalized main character name: '{main_character_name_norm}'")
-                    for scene in final_result.get("scenes", []):
-                        before = list(scene.get("personas_involved", []))
-                        filtered = []
-                        for p in scene.get("personas_involved", []):
-                            p_norm = normalize_name(p)
-                            print(f"[DEBUG] Comparing '{p}' (normalized: '{p_norm}') with '{main_character_name_norm}'")
-                            if p_norm != main_character_name_norm:
-                                filtered.append(p)
-                        print(f"[DEBUG] Filtering personas_involved: {before} | main_character: {main_character_name} | after: {filtered}")
-                        scene["personas_involved"] = filtered
+        # Task 1: Extract personas and key figures
+        tasks.append(extract_personas_and_key_figures_optimized(combined_content, title, session_id))
+        
+        # Task 2: Generate scenes
+        tasks.append(generate_scenes_optimized(combined_content, title, session_id))
+        
+        # Task 3: Generate learning outcomes
+        tasks.append(generate_learning_outcomes_optimized(combined_content, title, session_id))
+        
+        # Execute all tasks in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        personas_result = results[0] if not isinstance(results[0], Exception) else {}
+        scenes_result = results[1] if not isinstance(results[1], Exception) else []
+        learning_outcomes_result = results[2] if not isinstance(results[2], Exception) else []
+        
+        # Handle any exceptions
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                debug_log(f"[ERROR] Task {i} failed: {result}")
+        
+        # Generate images for scenes
+        if scenes_result:
+            debug_log(f"[IMAGE] Starting image generation for {len(scenes_result)} scenes")
+            image_tasks = []
+            for i, scene in enumerate(scenes_result):
+                if isinstance(scene, dict) and "description" in scene and "title" in scene:
+                    task = generate_scene_image(scene["description"], scene["title"], 0)
+                    image_tasks.append(task)
                 else:
-                    print(f"[DEBUG] No main character to remove from scenes")
-                
-                return final_result
-            except json.JSONDecodeError as e:
-                print(f"[ERROR] Failed to parse JSON from AI response even after fixing: {e}")
-                print(f"[ERROR] Fixed JSON attempt: {json_str[:500]}...")
-        else:
-            print("[ERROR] No JSON object found in OpenAI response.")
+                    # Create a simple async function that returns empty string
+                    async def empty_task():
+                        return ""
+                    image_tasks.append(empty_task())
             
-            # Fallback: return structured content
-            return {
-                        "title": title,
-                        "description": cleaned_content[:1500] + "..." if len(cleaned_content) > 1500 else cleaned_content,
-                "key_figures": [],
-            "scenes": [],
-                        "learning_outcomes": [
-                            "1. Analyze the business situation presented in the case study",
-                            "2. Identify key stakeholders and their interests",
-                            "3. Develop strategic recommendations based on the analysis",
-                            "4. Evaluate the impact of decisions on organizational performance",
-                            "5. Apply business concepts and frameworks to real-world scenarios"
-                        ]
-                    }
-    
-    except Exception as e:
-        print(f"[ERROR] AI processing failed: {str(e)}")
-        # Return fallback content
-        return {
-            "title": "Business Case Study",
-            "description": "Failed to process case study content",
-            "key_figures": [],
-            "scenes": [],
-            "learning_outcomes": [
-                "1. Analyze the business situation presented in the case study",
-                "2. Identify key stakeholders and their interests"
-            ]
-        }
-
-async def save_scenario_to_db(
-    ai_result: dict,
-    main_file: UploadFile,
-    context_files: List[UploadFile],
-    main_content: str,
-    context_content: str,
-    user_id: int,
-    db: Session
-) -> int:
-    """
-    Save AI processing results to database
-    Creates scenario with personas, scenes, and files
-    """
-    
-    try:
-        # Extract title from AI result or filename
-        title = ai_result.get("title", main_file.filename.replace(".pdf", ""))
-        
-        # Create scenario record
-        scenario = Scenario(
-            title=title,
-            description=ai_result.get("description", ""),
-            challenge=ai_result.get("description", ""),  # Use description as challenge for now
-            industry="Business",  # Default industry
-            learning_objectives=ai_result.get("learning_outcomes", []),
-            student_role=ai_result.get("student_role", "Business Analyst"),
-            source_type="pdf_upload",
-            pdf_content=main_content,
-            pdf_title=title,
-            pdf_source="Uploaded PDF",
-            processing_version="1.0",
-            is_public=False,  # Start as private draft
-            allow_remixes=True,
-            created_by=user_id,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
-        )
-        
-        db.add(scenario)
-        db.flush()  # Get scenario ID
-        
-        print(f"[DEBUG] Created scenario with ID: {scenario.id}")
-        
-        # Save personas
-        persona_mapping = {}  # name -> persona_id for scene relationships
-        key_figures = ai_result.get("key_figures", [])
-        
-        for figure in key_figures:
-            if isinstance(figure, dict) and figure.get("name"):
-                persona = ScenarioPersona(
-                    scenario_id=scenario.id,
-                    name=figure.get("name", ""),
-                    role=figure.get("role", ""),
-                    background=figure.get("background", ""),
-                    correlation=figure.get("correlation", ""),
-                    primary_goals=figure.get("primary_goals", []),
-                    personality_traits=figure.get("personality_traits", {}),
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(persona)
-                db.flush()
-                persona_mapping[figure["name"]] = persona.id
-                print(f"[DEBUG] Created persona: {figure['name']} with ID: {persona.id}")
-        
-        # Save scenes
-        scenes = ai_result.get("scenes", [])
-        for i, scene in enumerate(scenes):
-            if isinstance(scene, dict) and scene.get("title"):
-                print(f"[DEBUG] Scene dict before saving: {scene}")
-                # Use successMetric or success_metric from scene dict, fallback to objectives[0]
-                success_metric = (
-                    scene.get("successMetric") or
-                    scene.get("success_metric") or
-                    scene.get("success_criteria")
-                )
-                if not success_metric and scene.get("objectives"):
-                    success_metric = scene["objectives"][0]
-                scene_record = ScenarioScene(
-                    scenario_id=scenario.id,
-                    title=scene.get("title", ""),
-                    description=scene.get("description", ""),
-                    user_goal=scene.get("user_goal", ""),
-                    scene_order=scene.get("sequence_order", i + 1),  # Use sequence_order from frontend, fallback to loop index
-                    estimated_duration=scene.get("estimated_duration", 30),
-                    image_url=scene.get("image_url", ""),
-                    image_prompt=f"Business scene: {scene.get('title', '')}",
-                    success_metric=success_metric,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
-                )
-                db.add(scene_record)
-                db.flush()
-                print(f"[DEBUG] Saved scene: {scene_record.title}, success_metric: {scene_record.success_metric}")
-                # Link personas to scene (if personas_involved exists)
-                personas_involved = scene.get("personas_involved", [])
-                unique_persona_names = set(personas_involved)
-                for persona_name in unique_persona_names:
-                    if persona_name in persona_mapping:
-                        pid = persona_mapping[persona_name]
-                        db.execute(
-                            scene_personas.insert().values(
-                                scene_id=scene_record.id,
-                                persona_id=pid,
-                                involvement_level="participant"
-                            )
-                        )
-        
-        # Ensure every scene has at least one involved persona (not the main character)
-        # This is additional validation after AI processing
-        student_role = ai_result.get("student_role", "").strip().lower()
-        key_figures = ai_result.get("key_figures", [])
-        key_figure_names = [fig.get("name", "") for fig in key_figures]
-        
-        for scene in ai_result.get("scenes", []):
-            personas = scene.get("personas_involved", [])
-            # Remove main character if present (additional safety check)
-            personas = [p for p in personas if p.strip().lower() != student_role]
+            # Wait for all image generations to complete
+            image_urls = await asyncio.gather(*image_tasks, return_exceptions=True)
             
-            # If still empty, add the first non-student persona
-            if not personas and key_figure_names:
-                first_non_student = next((name for name in key_figure_names if name.strip().lower() != student_role), None)
-                if first_non_student:
-                    personas.append(first_non_student)
-                    print(f"[DEBUG] Added fallback persona '{first_non_student}' to scene '{scene.get('title', '')}'")
-            
-            scene["personas_involved"] = personas
+            # Update scenes with image URLs
+            for i, scene in enumerate(scenes_result):
+                if isinstance(scene, dict):
+                    scene["image_url"] = image_urls[i] if i < len(image_urls) and not isinstance(image_urls[i], Exception) else ""
+                    debug_log(f"[IMAGE] Scene {i+1}: {scene.get('title', 'Untitled')} - Image: {'Generated' if scene['image_url'] else 'Failed'}")
         
-        # Save file metadata
-        scenario_file = ScenarioFile(
-            scenario_id=scenario.id,
-            filename=main_file.filename,
-            file_type="pdf",
-            original_content=main_content[:10000],  # Truncate for storage
-            processed_content=main_content,
-            processing_status="completed",
-            processing_log={
-                "personas_count": len(key_figures),
-                "scenes_count": len(scenes),
-                "processing_timestamp": datetime.utcnow().isoformat()
-            },
-            uploaded_at=datetime.utcnow(),
-            processed_at=datetime.utcnow()
-        )
-        db.add(scenario_file)
-        
-        # Save context files if any
-        for ctx_file in context_files:
-            context_file_record = ScenarioFile(
-                scenario_id=scenario.id,
-                filename=f"context_{ctx_file.filename}",
-                file_type=ctx_file.filename.split(".")[-1] if "." in ctx_file.filename else "txt",
-                original_content=context_content[:5000],  # Truncate for storage
-                processed_content=context_content,
-                processing_status="completed",
-                uploaded_at=datetime.utcnow(),
-                processed_at=datetime.utcnow()
-            )
-            db.add(context_file_record)
-        
-        # Commit all changes
-        db.commit()
-        print(f"[DEBUG] Successfully saved scenario {scenario.id} to database")
-        
-        return scenario.id
-        
-    except Exception as e:
-        print(f"[ERROR] Failed to save scenario to database: {e}")
-        db.rollback()
-        raise e 
-
-def normalize_name(name):
-    # Normalize Unicode, remove accents, convert to ASCII, remove non-alphanum
-    if not name:
-        return ''
-    name = unicodedata.normalize('NFKD', name)
-    name = ''.join(c for c in name if not unicodedata.combining(c))
-    name = name.replace("'", "'").replace("'", "'").replace('"', '"').replace('"', '"')
-    name = name.lower().strip()
-    name = ''.join(c for c in name if c.isalnum())
-    return name
-
-# =============================================================================
-# OPTIMIZED PIPELINE: EMBEDDING-BASED RETRIEVAL (⚡ 70-80% TOKEN REDUCTION)
-# =============================================================================
-
-@router.post("/api/parse-pdf-optimized/")
-async def parse_pdf_optimized(
-    main_file: UploadFile = File(...),
-    context_files: List[UploadFile] = File(default=[]),
-    db: Session = Depends(get_db)
-):
-    """
-    ⚡ OPTIMIZED PIPELINE: ~40-60s total runtime
-    - Uses embeddings + retrieval to cut tokens by 70-80%
-    - gpt-3.5-turbo for fast persona extraction
-    - gpt-4-turbo for analysis & scene generation
-    - Parallel processing where possible
-    """
-    start_time = time.time()
-    debug_log("[OPTIMIZED_PIPELINE] Starting optimized PDF processing")
-    
-    try:
-        # Step 1: Parse and extract content
-        main_content, context_content = await _parse_uploaded_files_optimized(main_file, context_files)
-        combined_content = f"{main_content}\n\n{context_content}"
-        doc_id = f"doc_{hash(combined_content)}"
-        
-        # Step 2: Chunk and embed document
-        debug_log("[OPTIMIZED_PIPELINE] Creating embeddings...")
-        chunk_start = time.time()
-        await embedding_service.chunk_and_embed_document(combined_content, doc_id)
-        debug_log(f"[OPTIMIZED_PIPELINE] Embedding completed in {time.time() - chunk_start:.2f}s")
-        
-        # Step 3: Fast persona extraction (gpt-3.5-turbo)
-        debug_log("[OPTIMIZED_PIPELINE] Starting fast persona extraction...")
-        persona_start = time.time()
-        personas_result = await _fast_persona_extraction_optimized(doc_id, main_file.filename)
-        debug_log(f"[OPTIMIZED_PIPELINE] Persona extraction completed in {time.time() - persona_start:.2f}s")
-        
-        # Step 4 & 5: Parallel execution of full analysis and scene generation
-        debug_log("[OPTIMIZED_PIPELINE] Starting parallel analysis and scene generation...")
-        parallel_start = time.time()
-        
-        analysis_task = _full_analysis_optimized(doc_id, personas_result)
-        scene_task = _scene_generation_optimized(personas_result)
-        
-        # Execute in parallel
-        analysis_result, scenes_result = await asyncio.gather(analysis_task, scene_task)
-        debug_log(f"[OPTIMIZED_PIPELINE] Parallel processing completed in {time.time() - parallel_start:.2f}s")
-        
-        # Step 6: Generate image prompts (templated, near-instant)
-        debug_log("[OPTIMIZED_PIPELINE] Generating image prompts...")
-        image_start = time.time()
-        image_urls = await _generate_optimized_images(scenes_result, analysis_result.get("title", "Business Case"))
-        debug_log(f"[OPTIMIZED_PIPELINE] Image generation completed in {time.time() - image_start:.2f}s")
-        
-        # Step 7: Combine results
+        # Combine all results
         final_result = {
-            **analysis_result,
+            "title": personas_result.get("title", title),  # Use AI-generated title
+            "description": personas_result.get("description", cleaned_content[:500] + "..."),  # Use AI-generated description
+            "student_role": personas_result.get("student_role", "Business Manager"),
+            "key_figures": personas_result.get("key_figures", []),
+            "personas": personas_result.get("personas", []),
             "scenes": scenes_result,
-            "image_urls": image_urls,
-            "personas": analysis_result.get("key_figures", [])  # Frontend compatibility
+            "learning_outcomes": learning_outcomes_result
         }
         
-        # Step 8: Save to database
-        scenario_id = await save_scenario_to_db(
-            main_file, context_files, main_content, context_content, 
-            final_result, db
-        )
+        processing_time = time.time() - start_time
+        debug_log(f"[OPTIMIZED] Processing completed in {processing_time:.2f}s")
         
-        total_time = time.time() - start_time
-        debug_log(f"[OPTIMIZED_PIPELINE] ✅ Complete pipeline finished in {total_time:.2f}s")
-        debug_log(f"[OPTIMIZED_PIPELINE] Generated {len(final_result.get('key_figures', []))} personas and {len(scenes_result)} scenes")
-        
-        return {
-            "status": "success",
-            "scenario_id": scenario_id,
-            "processing_time": f"{total_time:.2f}s",
-            "optimization": "embeddings + retrieval",
-            **final_result
-        }
+        return final_result
         
     except Exception as e:
-        debug_log(f"[OPTIMIZED_PIPELINE_ERROR] {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Optimized processing failed: {str(e)}")
+        debug_log(f"[ERROR] AI processing failed: {str(e)}")
+        raise
 
-@router.post("/api/parse-pdf-super-fast/")
-async def parse_pdf_super_fast(
-    main_file: UploadFile = File(...),
-    context_files: List[UploadFile] = File(default=[]),
-):
-    """
-    ⚡ SUPER FAST AUTOFILL: ~5-15s total runtime
-    - Only persona extraction using embeddings + gpt-3.5-turbo
-    - Perfect for quick autofill scenarios
-    """
+async def process_with_ai_optimized_from_preprocessed(preprocessed: dict, context_text: str = "") -> dict:
+    """Optimized AI processing using preprocessed content"""
+    debug_log("[OPTIMIZED] Starting optimized AI processing pipeline")
     start_time = time.time()
-    debug_log("[SUPER_FAST] Starting super fast persona extraction")
     
     try:
-        # Parse content
-        main_content, context_content = await _parse_uploaded_files_optimized(main_file, context_files)
-        combined_content = f"{main_content}\n\n{context_content}"
-        doc_id = f"fast_{hash(combined_content)}"
+        title = preprocessed["title"]
+        cleaned_content = preprocessed["cleaned_content"]
         
-        # Chunk and embed
-        await embedding_service.chunk_and_embed_document(combined_content, doc_id)
+        # Prepare combined content
+        if context_text.strip():
+            combined_content = f"""
+IMPORTANT CONTEXT FILES (most authoritative, follow these first):
+{context_text}
+
+MAIN CASE STUDY CONTENT:
+{cleaned_content}
+"""
+        else:
+            combined_content = cleaned_content
         
-        # Fast persona extraction only
-        result = await _fast_persona_extraction_optimized(doc_id, main_file.filename)
+        # Step 2: Parallel AI calls for different components
+        debug_log("[OPTIMIZED] Starting parallel AI processing...")
         
-        total_time = time.time() - start_time
-        debug_log(f"[SUPER_FAST] ✅ Completed in {total_time:.2f}s")
+        # Create tasks for parallel execution
+        tasks = []
         
-        return {
-            "status": "success",
-            "processing_time": f"{total_time:.2f}s",
-            "optimization": "super_fast_autofill",
-            **result
+        # Task 1: Extract personas and key figures
+        tasks.append(extract_personas_and_key_figures_optimized(combined_content, title))
+        
+        # Task 2: Generate scenes
+        tasks.append(generate_scenes_optimized(combined_content, title))
+        
+        # Task 3: Generate learning outcomes
+        tasks.append(generate_learning_outcomes_optimized(combined_content, title))
+        
+        # Execute all tasks in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        personas_result = results[0] if not isinstance(results[0], Exception) else {}
+        scenes_result = results[1] if not isinstance(results[1], Exception) else []
+        learning_outcomes_result = results[2] if not isinstance(results[2], Exception) else []
+        
+        # Handle any exceptions
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                debug_log(f"[ERROR] Task {i} failed: {result}")
+        
+        # Combine all results
+        final_result = {
+            "title": personas_result.get("title", title),  # Use AI-generated title
+            "description": personas_result.get("description", cleaned_content[:500] + "..."),  # Use AI-generated description
+            "student_role": personas_result.get("student_role", "Business Manager"),
+            "key_figures": personas_result.get("key_figures", []),
+            "personas": personas_result.get("personas", []),
+            "scenes": scenes_result,
+            "learning_outcomes": learning_outcomes_result
         }
         
+        processing_time = time.time() - start_time
+        debug_log(f"[OPTIMIZED] Processing completed in {processing_time:.2f}s")
+        
+        return final_result
+        
     except Exception as e:
-        debug_log(f"[SUPER_FAST_ERROR] {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Super fast processing failed: {str(e)}")
+        debug_log(f"[ERROR] AI processing failed: {str(e)}")
+        raise
 
-async def _fast_persona_extraction_optimized(doc_id: str, filename: str) -> dict:
-    """Fast persona extraction using gpt-3.5-turbo with retrieved chunks"""
-    
-    # Retrieve top 2-3 most relevant chunks for persona extraction
-    persona_query = "key figures, people, roles, characters, stakeholders, companies, organizations"
-    relevant_chunks = await embedding_service.retrieve_relevant_chunks(
-        query=persona_query,
-        doc_id=doc_id,
-        max_chunks=3  # Top 3 chunks for autofill
+async def process_with_ai_optimized_with_updates(parsed_content: str, context_text: str = "", session_id: str = None) -> dict:
+    """AI processing with real-time field updates - DEPRECATED: Use process_with_ai_optimized_with_updates_from_preprocessed instead"""
+    # Preprocess content first
+    preprocessed = await asyncio.get_event_loop().run_in_executor(
+        CPU_EXECUTOR, preprocess_case_study_content, parsed_content
     )
     
-    if not relevant_chunks:
-        debug_log("[FAST_OPTIMIZED] No chunks found, using fallback")
-        return _create_fast_fallback(filename)
-    
-    # Combine chunks (should be ~1-2k tokens)
-    combined_text = embedding_service.get_combined_chunks_text(relevant_chunks)
-    title = filename.replace('.pdf', '').replace('_', ' ').title()
-    
-    prompt = f"""Extract personas from this business case. Return ONLY JSON:
-
-{{
-  "title": "{title}",
-  "student_role": "<main decision-maker role>",
-  "key_figures": [
-    {{
-      "name": "<person/entity name>",
-      "role": "<their role>",
-      "background": "<brief background>",
-      "primary_goals": ["goal1", "goal2"],
-      "personality_traits": {{"analytical": 7, "creative": 5, "assertive": 6, "collaborative": 7, "detail_oriented": 7}}
-    }}
-  ]
-}}
-
-Find ALL people, companies, roles mentioned in this content. Be thorough but fast.
-
-CONTENT: {combined_text}"""
-    
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: client.chat.completions.create(
-                model="gpt-3.5-turbo",  # ⚡ OPTIMIZED: Faster model
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=2000,
-                temperature=0.1,
-            )
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        
-        # Extract JSON
-        import re
-        json_match = re.search(r'({[\s\S]*})', result_text)
-        if json_match:
-            result = json.loads(json_match.group(1))
-            debug_log(f"[FAST_OPTIMIZED] ⚡ Extracted {len(result.get('key_figures', []))} personas with {len(relevant_chunks)} chunks")
-            return result
-        else:
-            debug_log("[FAST_OPTIMIZED] JSON extraction failed, using fallback")
-            return _create_fast_fallback(title)
-            
-    except Exception as e:
-        debug_log(f"[FAST_OPTIMIZED_ERROR] {str(e)}")
-        return _create_fast_fallback(title)
-
-async def _full_analysis_optimized(doc_id: str, personas_result: dict) -> dict:
-    """Full analysis using gpt-4-turbo with retrieved chunks"""
-    
-    # Retrieve top 3-4 chunks for comprehensive analysis
-    analysis_query = f"business case analysis, {personas_result.get('title', '')}, decision making, strategy"
-    relevant_chunks = await embedding_service.retrieve_relevant_chunks(
-        query=analysis_query,
-        doc_id=doc_id,
-        max_chunks=4  # Top 4 chunks for analysis
-    )
-    
-    if not relevant_chunks:
-        debug_log("[ANALYSIS_OPTIMIZED] No chunks found, using personas only")
-        return personas_result
-    
-    # Combine chunks (~2k tokens max)
-    combined_text = embedding_service.get_combined_chunks_text(relevant_chunks)
-    
-    prompt = f"""
-You are a highly structured JSON-only generator trained to analyze business case studies for college business education.
-
-CRITICAL: You must identify ALL named individuals, companies, organizations, and significant unnamed roles mentioned within the case study narrative. Focus ONLY on characters and entities that are part of the business story being told.
-
-Your task is to analyze the following business case study content and return a JSON object with exactly the following fields:
-  "title": "<The exact title of the business case study>",
-  "description": "<A comprehensive, multi-paragraph background description>",
-  "student_role": "<The specific role the student will assume>",
-  "key_figures": [
-    {{
-      "name": "<Full name or descriptive title>",
-      "role": "<Their role>",
-      "correlation": "<Relationship to the narrative>",
-      "background": "<2-3 sentence background>",
-      "primary_goals": ["<Goal 1>", "<Goal 2>", "<Goal 3>"],
-      "personality_traits": {{
-        "analytical": <0-10>,
-        "creative": <0-10>,
-        "assertive": <0-10>,
-        "collaborative": <0-10>,
-        "detail_oriented": <0-10>
-      }},
-      "is_main_character": <true if this figure matches the student_role, otherwise false>
-    }}
-  ],
-  "learning_outcomes": [
-    "1. <Outcome 1>",
-    "2. <Outcome 2>",
-    "3. <Outcome 3>",
-    "4. <Outcome 4>",
-    "5. <Outcome 5>"
-  ]
-
-Output ONLY a valid JSON object. Do not include any extra commentary.
-
-PREVIOUS PERSONAS FOUND: {json.dumps(personas_result.get('key_figures', []))}
-
-CASE STUDY CONTENT:
-{combined_text}
-"""
-    
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: client.chat.completions.create(
-                model="gpt-4-turbo",  # ⚡ OPTIMIZED: More efficient than gpt-4o
-                messages=[
-                    {"role": "system", "content": "You are a JSON generator for business case study analysis."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=4096,
-                temperature=0.2,
-            )
-        )
-        
-        generated_text = response.choices[0].message.content
-        
-        # Extract JSON
-        match = re.search(r'({[\s\S]*})', generated_text)
-        if match:
-            json_str = match.group(1)
-            result = json.loads(json_str)
-            
-            # Ensure key_figures exist
-            if "key_figures" not in result or not result["key_figures"]:
-                result["key_figures"] = personas_result.get("key_figures", [])
-            
-            debug_log(f"[ANALYSIS_OPTIMIZED] ⚡ Generated analysis with {len(result.get('key_figures', []))} personas using {len(relevant_chunks)} chunks")
-            return result
-        else:
-            debug_log("[ANALYSIS_OPTIMIZED] JSON extraction failed, using personas result")
-            return personas_result
-            
-    except Exception as e:
-        debug_log(f"[ANALYSIS_OPTIMIZED_ERROR] {str(e)}")
-        return personas_result
-
-async def _scene_generation_optimized(personas_result: dict) -> list:
-    """Scene generation using gpt-4-turbo with persona context"""
-    
-    title = personas_result.get("title", "Business Case Study")
-    student_role = personas_result.get("student_role", "Business Manager")
-    description = personas_result.get("description", "Business case study scenario")
-    key_figures = personas_result.get("key_figures", [])
-    persona_names = [figure.get("name", "") for figure in key_figures]
-    
-    scenes_prompt = f"""
-Create exactly 4 interactive scenes for this business case study. Output ONLY a JSON array of scenes.
-
-CASE CONTEXT:
-Title: {title}
-Student Role: {student_role}
-Description: {description[:500]}...
-
-AVAILABLE PERSONAS: {', '.join(persona_names)}
-
-Create 4 scenes following this progression:
-1. Crisis Assessment/Initial Briefing
-2. Investigation/Analysis Phase  
-3. Solution Development
-4. Implementation/Approval
-
-Each scene MUST have:
-- title: Short descriptive name
-- description: 2-3 sentences with vivid setting details for image generation
-- personas_involved: Array of 2-4 actual persona names from the list above
-- user_goal: Specific objective the student must achieve
-- sequence_order: 1, 2, 3, or 4
-- goal: Write a short, general summary of what the user should aim to accomplish in this scene
-- success_metric: A clear, measurable way to determine if the student has accomplished the specific goal
-
-Output format - ONLY this JSON array:
-[
-  {{
-    "title": "Scene Title",
-    "description": "Detailed setting description with visual elements...",
-    "personas_involved": ["Actual Name 1", "Actual Name 2"],
-    "user_goal": "Specific actionable goal",
-    "goal": "General summary of what to accomplish",
-    "success_metric": "Specific, measurable criteria for success",
-    "sequence_order": 1
-  }},
-  ...4 scenes total
-]
-"""
-    
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        
-        response = await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: client.chat.completions.create(
-                model="gpt-4-turbo",  # ⚡ OPTIMIZED: More efficient
-                messages=[
-                    {"role": "system", "content": "You generate JSON arrays of scenes. Output ONLY valid JSON array, no extra text."},
-                    {"role": "user", "content": scenes_prompt}
-                ],
-                max_tokens=2048,
-                temperature=0.3,
-            )
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        
-        # Extract JSON array
-        json_match = re.search(r'(\[[\s\S]*\])', result_text)
-        if json_match:
-            scenes = json.loads(json_match.group(1))
-            debug_log(f"[SCENES_OPTIMIZED] ⚡ Generated {len(scenes)} scenes")
-            return scenes
-        else:
-            debug_log("[SCENES_OPTIMIZED] Failed to extract JSON, using fallback")
-            return _create_fallback_scenes()
-            
-    except Exception as e:
-        debug_log(f"[SCENES_OPTIMIZED_ERROR] {str(e)}")
-        return _create_fallback_scenes()
-
-async def _generate_optimized_images(scenes: list, scenario_title: str) -> list:
-    """Generate images using optimized templating (near-instant)"""
-    
-    if not scenes:
-        return []
-    
-    debug_log(f"[IMAGES_OPTIMIZED] Generating images for {len(scenes)} scenes")
-    
-    # Generate images in parallel with semaphore control
-    image_tasks = []
-    for scene in scenes:
-        scene_title = scene.get("title", "Business Scene")
-        scene_description = scene.get("description", "")
-        task = _generate_scene_image_optimized(scene_description, scene_title, 0)
-        image_tasks.append(task)
-    
-    # Execute all image generation in parallel
-    image_urls = await asyncio.gather(*image_tasks)
-    
-    debug_log(f"[IMAGES_OPTIMIZED] ⚡ Generated {len(image_urls)} images")
-    return image_urls
-
-async def _generate_scene_image_optimized(description: str, title: str, scenario_id: int) -> str:
-    """Generate single scene image with optimized prompt templating"""
-    try:
-        async with _image_semaphore:
-            client = openai.OpenAI(api_key=OPENAI_API_KEY)
-            
-            # ⚡ OPTIMIZED: Direct templating (no GPT-4 needed)
-            image_prompt = f"Professional business illustration: {title}. {description[:100]}. Clean, modern corporate style, educational use."
-            
-            response = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: client.images.generate(
-                    model="dall-e-3",
-                    prompt=image_prompt[:400],
-                    size="1024x1024",
-                    quality="standard",
-                    n=1,
-                )
-            )
-            
-            return response.data[0].url
-            
-    except Exception as e:
-        debug_log(f"[IMAGE_OPTIMIZED_ERROR] {str(e)}")
-        return ""
-
-def _create_fallback_scenes() -> list:
-    """Create fallback scenes for error cases"""
-    return [
-        {
-            "title": "Initial Assessment",
-            "description": "A professional boardroom meeting where key stakeholders gather to discuss the business situation.",
-            "personas_involved": ["Business Manager", "Senior Executive"],
-            "user_goal": "Understand the current business situation and identify key challenges",
-            "goal": "Assess the situation",
-            "success_metric": "Successfully identify the main business challenges",
-            "sequence_order": 1
-        },
-        {
-            "title": "Analysis Phase",
-            "description": "A focused analysis session with data review and stakeholder interviews.",
-            "personas_involved": ["Operations Manager", "Business Manager"],
-            "user_goal": "Gather and analyze relevant business data",
-            "goal": "Analyze available information",
-            "success_metric": "Complete comprehensive analysis of business metrics",
-            "sequence_order": 2
-        },
-        {
-            "title": "Solution Development",
-            "description": "A collaborative strategy session to develop potential solutions.",
-            "personas_involved": ["Senior Executive", "Operations Manager"],
-            "user_goal": "Develop viable solutions to address identified challenges",
-            "goal": "Create actionable solutions",
-            "success_metric": "Present well-structured solution recommendations",
-            "sequence_order": 3
-        },
-        {
-            "title": "Implementation Planning",
-            "description": "A final meeting to approve solutions and plan implementation steps.",
-            "personas_involved": ["Business Manager", "Senior Executive"],
-            "user_goal": "Secure approval and plan implementation of chosen solution",
-            "goal": "Get implementation approval",
-            "success_metric": "Gain stakeholder approval for implementation plan",
-            "sequence_order": 4
-        }
-    ]
-
-async def _parse_uploaded_files_optimized(main_file: UploadFile, context_files: List[UploadFile]) -> tuple:
-    """Parse uploaded files using LlamaParse for PDFs and direct extraction for text files"""
-    main_content = ""
-    context_content = ""
-    
-    try:
-        if main_file.filename.endswith('.pdf'):
-            # Use LlamaParse for PDF files
-            main_content = await parse_with_llamaparse(main_file)
-        else:
-            # Direct text extraction for non-PDF files
-            main_content = (await main_file.read()).decode('utf-8')
-        
-        for ctx_file in context_files:
-            if ctx_file.filename.endswith('.pdf'):
-                # Use LlamaParse for PDF context files
-                ctx_text = await parse_with_llamaparse(ctx_file)
-                context_content += ctx_text + "\n"
-            else:
-                # Direct text extraction for non-PDF context files
-                ctx_text = (await ctx_file.read()).decode('utf-8')
-                context_content += ctx_text + "\n"
-                
-    except Exception as e:
-        debug_log(f"[FILE_PARSE_ERROR] {str(e)}")
-        raise HTTPException(status_code=400, detail=f"File parsing failed: {str(e)}")
-    
-    return main_content.strip(), context_content.strip() 
+    # Call the new function with preprocessed content
+    return await process_with_ai_optimized_with_updates_from_preprocessed(preprocessed, context_text, session_id)

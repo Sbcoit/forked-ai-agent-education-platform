@@ -1,0 +1,161 @@
+"use client"
+
+import React from 'react';
+import { Progress } from '@/components/ui/progress';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
+
+interface SimulationBuilderProgressProps {
+  name: string;
+  description: string;
+  personas: any[];
+  scenes: any[];
+  learningOutcomes: any[];
+  isProcessing?: boolean; // Add processing state
+  isAIEnhancementComplete?: boolean; // Add AI enhancement completion state
+  completionStatus?: { [key: string]: boolean }; // Optional completion status from database
+  hasAutofillResult?: boolean; // Add flag to indicate if autofill was used
+  // Database boolean fields
+  nameCompleted?: boolean;
+  descriptionCompleted?: boolean;
+  personasCompleted?: boolean;
+  scenesCompleted?: boolean;
+  imagesCompleted?: boolean;
+  learningOutcomesCompleted?: boolean;
+  aiEnhancementCompleted?: boolean;
+  className?: string;
+}
+
+const SimulationBuilderProgress: React.FC<SimulationBuilderProgressProps> = ({
+  name,
+  description,
+  personas,
+  scenes,
+  learningOutcomes,
+  isProcessing = false,
+  isAIEnhancementComplete = false,
+  completionStatus,
+  hasAutofillResult = false,
+  nameCompleted,
+  descriptionCompleted,
+  personasCompleted,
+  scenesCompleted,
+  imagesCompleted,
+  learningOutcomesCompleted,
+  aiEnhancementCompleted,
+  className = ""
+}) => {
+  // Use database boolean fields if all sections are complete, otherwise use real-time calculation
+  const allDbFieldsComplete = nameCompleted && descriptionCompleted && personasCompleted && 
+                              scenesCompleted && imagesCompleted && learningOutcomesCompleted && 
+                              aiEnhancementCompleted;
+  
+  const sections = allDbFieldsComplete ? [
+    { name: "Name", completed: nameCompleted },
+    { name: "Description", completed: descriptionCompleted },
+    { name: "Personas", completed: personasCompleted },
+    { name: "Scenes", completed: scenesCompleted },
+    { name: "Images", completed: imagesCompleted },
+    { name: "Learning Outcomes", completed: learningOutcomesCompleted },
+    { name: "AI Enhancement", completed: aiEnhancementCompleted },
+  ] : [
+    { name: "Name", completed: !!name?.trim() || hasAutofillResult },
+    { name: "Description", completed: !!description?.trim() || hasAutofillResult },
+    { name: "Personas", completed: personas?.length > 0 || hasAutofillResult },
+    { name: "Scenes", completed: scenes?.length > 0 || hasAutofillResult },
+    { name: "Images", completed: scenes?.some(scene => scene.image_url) || hasAutofillResult },
+    { name: "Learning Outcomes", completed: learningOutcomes?.length > 0 || (hasAutofillResult && !isProcessing) },
+    { name: "AI Enhancement", completed: isAIEnhancementComplete || (hasAutofillResult && learningOutcomes?.length > 0) },
+  ];
+
+  // Debug logging for images
+  const imagesCompletedLocal = scenes?.some(scene => scene.image_url) || false;
+  const scenesWithImages = scenes?.filter(scene => scene.image_url) || [];
+  console.log('SimulationBuilderProgress - Images debug:', {
+    totalScenes: scenes?.length || 0,
+    scenesWithImages: scenesWithImages.length,
+    imagesCompletedLocal,
+    imagesCompletedFromProp: imagesCompleted,
+    sceneImageUrls: scenes?.map(scene => ({ title: scene.title, image_url: scene.image_url })) || []
+  });
+  
+  // Debug logging for AI Enhancement
+  console.log('SimulationBuilderProgress - AI Enhancement debug:', {
+    isAIEnhancementComplete,
+    hasAutofillResult,
+    isProcessing,
+    aiEnhancementCompletedFromProp: aiEnhancementCompleted,
+    calculatedCompletion: isAIEnhancementComplete || hasAutofillResult,
+    allDbFieldsComplete
+  });
+
+  const completedSections = sections.filter(section => section.completed).length;
+  const totalSections = sections.length;
+  const completionPercentage = Math.round((completedSections / totalSections) * 100);
+
+  const getStatusIcon = (completed: boolean) => {
+    return completed ? 
+      <CheckCircle2 className="h-4 w-4 text-green-500" /> : 
+      <Circle className="h-4 w-4 text-gray-400" />;
+  };
+
+  return (
+    <Card className={`w-full ${className}`}>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg flex items-center gap-2">
+          {isProcessing ? (
+            <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+          ) : (
+            <CheckCircle2 className="h-5 w-5 text-blue-500" />
+          )}
+          <span>Simulation Builder Progress</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Overall Progress */}
+        <div className="space-y-2">
+          <div className="flex justify-between items-center">
+            <span className="text-sm font-medium">
+              {isProcessing ? "Processing PDF..." : `Form Completion: ${completedSections}/${totalSections} sections completed`}
+            </span>
+            <span className="text-sm text-muted-foreground">
+              {isProcessing ? "..." : `${completionPercentage}%`}
+            </span>
+          </div>
+          <Progress 
+            value={isProcessing ? 0 : completionPercentage} 
+            className="h-2"
+          />
+        </div>
+
+        {/* Section Breakdown */}
+        <div className="space-y-2">
+          <h4 className="text-sm font-medium text-gray-700">Sections:</h4>
+          <div className="space-y-1">
+            {sections.map((section, index) => (
+              <div key={index} className="flex items-center gap-2">
+                {getStatusIcon(section.completed)}
+                <span className={`text-sm ${section.completed ? 'text-green-700' : 'text-gray-500'}`}>
+                  {section.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {completionPercentage === 100 && (
+          <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-green-500" />
+              <span className="text-sm font-medium text-green-700">
+                All sections completed! Your simulation is ready.
+              </span>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
+
+export default SimulationBuilderProgress;

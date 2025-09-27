@@ -620,6 +620,76 @@ export const apiClient = {
     return false
   },
 
+  // Unified messaging methods
+  sendMessage: async (messageData: any): Promise<any> => {
+    const response = await apiRequest('/messages/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(messageData)
+    })
+    if (!response.ok) {
+      throw new Error('Failed to send message')
+    }
+    return response.json()
+  },
+
+  getMessages: async (limit: number = 50, offset: number = 0): Promise<any> => {
+    const params = new URLSearchParams({
+      limit: limit.toString(),
+      offset: offset.toString()
+    })
+    const response = await apiRequest(`/messages/?${params}`)
+    if (!response.ok) {
+      throw new Error('Failed to get messages')
+    }
+    return response.json()
+  },
+
+  getMessageThread: async (messageId: number): Promise<any> => {
+    const response = await apiRequest(`/messages/${messageId}`)
+    if (!response.ok) {
+      throw new Error('Failed to get message thread')
+    }
+    return response.json()
+  },
+
+  replyToMessage: async (messageId: number, message: string): Promise<any> => {
+    const response = await apiRequest(`/messages/${messageId}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
+    })
+    if (!response.ok) {
+      throw new Error('Failed to reply to message')
+    }
+    return response.json()
+  },
+
+  markMessageRead: async (messageId: number): Promise<void> => {
+    const response = await apiRequest(`/messages/${messageId}/mark-read`, {
+      method: 'POST'
+    })
+    if (!response.ok) {
+      throw new Error('Failed to mark message as read')
+    }
+  },
+
+  getUsers: async (): Promise<any> => {
+    const response = await apiRequest('/messages/users/')
+    if (!response.ok) {
+      throw new Error('Failed to get users')
+    }
+    return response.json()
+  },
+
+  getMessagingCohorts: async (): Promise<any> => {
+    const response = await apiRequest('/messages/cohorts/')
+    if (!response.ok) {
+      throw new Error('Failed to get cohorts')
+    }
+    return response.json()
+  },
+
   // Generic authenticated request method
   apiRequest: async (endpoint: string, options: RequestInit = {}, silentAuthError: boolean = false): Promise<Response> => {
     return apiRequest(endpoint, options, silentAuthError)

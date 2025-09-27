@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
 import { 
   Bell,
   CheckCircle,
@@ -21,9 +23,14 @@ import {
   Search,
   Clock,
   UserPlus,
-  MessageCircle
+  MessageCircle,
+  MessageSquare,
+  Reply,
+  User
 } from "lucide-react"
 import RoleBasedSidebar from "@/components/RoleBasedSidebar"
+import MessagingModal from "@/components/MessagingModal"
+import MessageViewerModal from "@/components/MessageViewerModal"
 import { useAuth } from "@/lib/auth-context"
 import { apiClient } from "@/lib/api"
 
@@ -40,6 +47,10 @@ export default function StudentNotifications() {
   // Real data from API
   const [notifications, setNotifications] = useState<any[]>([])
   const [pendingInvitations, setPendingInvitations] = useState<any[]>([])
+  
+  // Messaging state
+  const [showMessagingModal, setShowMessagingModal] = useState(false)
+  const [showMessageViewer, setShowMessageViewer] = useState(false)
 
   // Fetch notifications and invitations
   const fetchNotifications = async () => {
@@ -63,6 +74,7 @@ export default function StudentNotifications() {
     }
   }
 
+
   // Handle redirect when user is not authenticated or not a student
   useEffect(() => {
     if (!authLoading && !user) {
@@ -75,6 +87,7 @@ export default function StudentNotifications() {
       fetchNotifications()
     }
   }, [user, authLoading, router])
+
 
   // Show loading while auth is being checked
   if (authLoading) {
@@ -194,6 +207,14 @@ export default function StudentNotifications() {
         return <Clock className="h-5 w-5 text-orange-600" />
       case "achievement":
         return <Star className="h-5 w-5 text-purple-600" />
+      case "professor_message":
+        return <MessageCircle className="h-5 w-5 text-indigo-600" />
+      case "student_reply":
+        return <Reply className="h-5 w-5 text-teal-600" />
+      case "student_message":
+        return <MessageCircle className="h-5 w-5 text-indigo-600" />
+      case "message_sent":
+        return <MessageSquare className="h-5 w-5 text-green-600" />
       default:
         return <Bell className="h-5 w-5 text-gray-600" />
     }
@@ -211,6 +232,14 @@ export default function StudentNotifications() {
         return <Badge className="bg-orange-100 text-orange-800 text-xs">Reminder</Badge>
       case "achievement":
         return <Badge className="bg-purple-100 text-purple-800 text-xs">Achievement</Badge>
+      case "professor_message":
+        return <Badge className="bg-indigo-100 text-indigo-800 text-xs">Message</Badge>
+      case "student_reply":
+        return <Badge className="bg-teal-100 text-teal-800 text-xs">Reply</Badge>
+      case "student_message":
+        return <Badge className="bg-indigo-100 text-indigo-800 text-xs">Message</Badge>
+      case "message_sent":
+        return <Badge className="bg-green-100 text-green-800 text-xs">Sent</Badge>
       default:
         return <Badge className="bg-gray-100 text-gray-800 text-xs">{type}</Badge>
     }
@@ -263,6 +292,13 @@ export default function StudentNotifications() {
                 {unreadCount > 0 && (
                   <Badge className="bg-blue-100 text-blue-800 text-xs">{unreadCount} Unread</Badge>
                 )}
+                <Button
+                  onClick={() => setShowMessagingModal(true)}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                  Compose Message
+                </Button>
               </div>
             </div>
           </div>
@@ -313,62 +349,63 @@ export default function StudentNotifications() {
 
           {/* Summary Statistics */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <Card className="bg-white border border-gray-200">
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4">
-                    <Bell className="h-6 w-6 text-blue-600" />
+              <Card className="bg-white border border-gray-200">
+                <CardContent className="p-6">
+                  <div className="flex items-center">
+                    <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mr-4">
+                      <Bell className="h-6 w-6 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">Total</p>
+                      <p className="text-2xl font-bold text-gray-900">{allNotifications.length}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Total</p>
-                    <p className="text-2xl font-bold text-gray-900">{allNotifications.length}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card className="bg-white border border-gray-200">
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mr-4">
-                    <Bell className="h-6 w-6 text-red-600" />
+              <Card className="bg-white border border-gray-200">
+                <CardContent className="p-6">
+                  <div className="flex items-center">
+                    <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mr-4">
+                      <Bell className="h-6 w-6 text-red-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">Unread</p>
+                      <p className="text-2xl font-bold text-gray-900">{unreadCount}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Unread</p>
-                    <p className="text-2xl font-bold text-gray-900">{unreadCount}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card className="bg-white border border-gray-200">
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4">
-                    <UserPlus className="h-6 w-6 text-green-600" />
+              <Card className="bg-white border border-gray-200">
+                <CardContent className="p-6">
+                  <div className="flex items-center">
+                    <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mr-4">
+                      <UserPlus className="h-6 w-6 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">Invitations</p>
+                      <p className="text-2xl font-bold text-gray-900">{allNotifications.filter(n => n.type === 'invitation').length}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Invitations</p>
-                    <p className="text-2xl font-bold text-gray-900">{allNotifications.filter(n => n.type === 'invitation').length}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card className="bg-white border border-gray-200">
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
-                    <Trophy className="h-6 w-6 text-purple-600" />
+              <Card className="bg-white border border-gray-200">
+                <CardContent className="p-6">
+                  <div className="flex items-center">
+                    <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mr-4">
+                      <Trophy className="h-6 w-6 text-purple-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">Achievements</p>
+                      <p className="text-2xl font-bold text-gray-900">{allNotifications.filter(n => n.type === 'achievement').length}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Achievements</p>
-                    <p className="text-2xl font-bold text-gray-900">{allNotifications.filter(n => n.type === 'achievement').length}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                </CardContent>
+              </Card>
+            </div>
+
 
           {/* Error Message */}
           {error && (
@@ -415,6 +452,12 @@ export default function StudentNotifications() {
                       ? "border-gray-200 bg-white" 
                       : "border-gray-300 bg-gray-50"
                   }`}
+                  onClick={() => {
+                    // Open message viewer for message notifications
+                    if (notification.type === 'professor_message' || notification.type === 'student_reply' || notification.type === 'student_message' || notification.type === 'message_sent') {
+                      setShowMessageViewer(true)
+                    }
+                  }}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start space-x-4">
@@ -547,6 +590,20 @@ export default function StudentNotifications() {
               )}
             </div>
           )}
+
+          {/* Messaging Modal */}
+          <MessagingModal
+            isOpen={showMessagingModal}
+            onClose={() => setShowMessagingModal(false)}
+            currentUser={user}
+          />
+
+          {/* Message Viewer Modal */}
+          <MessageViewerModal
+            isOpen={showMessageViewer}
+            onClose={() => setShowMessageViewer(false)}
+            currentUser={user}
+          />
         </div>
       </div>
     </div>

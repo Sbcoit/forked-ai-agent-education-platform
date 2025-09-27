@@ -6,6 +6,9 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
 import { 
   Bell,
   CheckCircle,
@@ -22,9 +25,17 @@ import {
   Clock,
   UserPlus,
   MessageCircle,
-  CheckCheck
+  CheckCheck,
+  MessageSquare,
+  Send,
+  Plus,
+  Reply,
+  Eye,
+  User
 } from "lucide-react"
 import RoleBasedSidebar from "@/components/RoleBasedSidebar"
+import MessagingModal from "@/components/MessagingModal"
+import MessageViewerModal from "@/components/MessageViewerModal"
 import { useAuth } from "@/lib/auth-context"
 import { apiClient } from "@/lib/api"
 
@@ -49,6 +60,10 @@ export default function ProfessorNotifications() {
   const [typeFilter, setTypeFilter] = useState("All Types")
   const [statusFilter, setStatusFilter] = useState("All Status")
   const [markingRead, setMarkingRead] = useState<number | null>(null)
+  
+  // Messaging state
+  const [showMessagingModal, setShowMessagingModal] = useState(false)
+  const [showMessageViewer, setShowMessageViewer] = useState(false)
 
   // Fetch notifications
   const fetchNotifications = async () => {
@@ -63,6 +78,7 @@ export default function ProfessorNotifications() {
       setLoading(false)
     }
   }
+
 
   // Mark notification as read
   const markAsRead = async (notificationId: number) => {
@@ -108,6 +124,14 @@ export default function ProfessorNotifications() {
         return <Trophy className="h-5 w-5 text-green-600" />
       case 'cohort_update':
         return <Users className="h-5 w-5 text-orange-600" />
+      case 'professor_message':
+        return <MessageCircle className="h-5 w-5 text-indigo-600" />
+      case 'student_reply':
+        return <Reply className="h-5 w-5 text-teal-600" />
+      case 'student_message':
+        return <MessageCircle className="h-5 w-5 text-indigo-600" />
+      case 'message_sent':
+        return <MessageSquare className="h-5 w-5 text-green-600" />
       default:
         return <Bell className="h-5 w-5 text-gray-600" />
     }
@@ -124,6 +148,14 @@ export default function ProfessorNotifications() {
         return 'bg-green-50 border-green-200'
       case 'cohort_update':
         return 'bg-orange-50 border-orange-200'
+      case 'professor_message':
+        return 'bg-indigo-50 border-indigo-200'
+      case 'student_reply':
+        return 'bg-teal-50 border-teal-200'
+      case 'student_message':
+        return 'bg-indigo-50 border-indigo-200'
+      case 'message_sent':
+        return 'bg-green-50 border-green-200'
       default:
         return 'bg-gray-50 border-gray-200'
     }
@@ -166,6 +198,7 @@ export default function ProfessorNotifications() {
     }
   }, [user, authLoading])
 
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -185,87 +218,97 @@ export default function ProfessorNotifications() {
     <div className="min-h-screen bg-gray-50">
       <RoleBasedSidebar />
       
-      <div className="ml-64 p-6">
+      <div className="ml-20 p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Notifications</h1>
             <p className="text-gray-600">Stay updated with student activities and cohort updates</p>
           </div>
-          {unreadCount > 0 && (
+          <div className="flex items-center space-x-3">
+            {unreadCount > 0 && (
+              <Button
+                onClick={markAllAsRead}
+                variant="outline"
+                className="flex items-center space-x-2"
+              >
+                <CheckCheck className="h-4 w-4" />
+                <span>Mark all as read</span>
+              </Button>
+            )}
             <Button
-              onClick={markAllAsRead}
-              variant="outline"
-              className="flex items-center space-x-2"
+              onClick={() => setShowMessagingModal(true)}
+              className="bg-blue-600 hover:bg-blue-700"
             >
-              <CheckCheck className="h-4 w-4" />
-              <span>Mark all as read</span>
+              <MessageSquare className="h-4 w-4 mr-2" />
+              Compose Message
             </Button>
-          )}
+          </div>
         </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <Bell className="h-5 w-5 text-blue-600" />
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <Bell className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Total</p>
+                    <p className="text-2xl font-bold text-gray-900">{notifications.length}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-600">Total</p>
-                  <p className="text-2xl font-bold text-gray-900">{notifications.length}</p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-red-100 rounded-lg">
+                    <Bell className="h-5 w-5 text-red-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Unread</p>
+                    <p className="text-2xl font-bold text-gray-900">{unreadCount}</p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-red-100 rounded-lg">
-                  <Bell className="h-5 w-5 text-red-600" />
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <UserPlus className="h-5 w-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Invitations</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {notifications.filter(n => n.type === 'invitation_response').length}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm text-gray-600">Unread</p>
-                  <p className="text-2xl font-bold text-gray-900">{unreadCount}</p>
+              </CardContent>
+            </Card>
+            
+            <Card>
+              <CardContent className="p-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <BookOpen className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Assignments</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {notifications.filter(n => n.type === 'assignment_completion').length}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-green-100 rounded-lg">
-                  <UserPlus className="h-5 w-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Invitations</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {notifications.filter(n => n.type === 'invitation_response').length}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-purple-100 rounded-lg">
-                  <BookOpen className="h-5 w-5 text-purple-600" />
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Assignments</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {notifications.filter(n => n.type === 'assignment_completion').length}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+              </CardContent>
+            </Card>
+          </div>
+
 
         {/* Search and Filter Bar */}
         <Card className="mb-6">
@@ -309,27 +352,27 @@ export default function ProfessorNotifications() {
 
         {/* Notifications List */}
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
-          </div>
-        ) : error ? (
-          <div className="text-center py-12">
-            <p className="text-red-600">{error}</p>
-          </div>
-        ) : filteredNotifications.length === 0 ? (
-          <Card>
-            <CardContent className="p-12 text-center">
-              <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No notifications found</h3>
-              <p className="text-gray-600">
-                {notifications.length === 0 
-                  ? "You'll receive notifications when students respond to invitations or complete assignments."
-                  : "No notifications match your current filters."
-                }
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+            </div>
+          ) : error ? (
+            <div className="text-center py-12">
+              <p className="text-red-600">{error}</p>
+            </div>
+          ) : filteredNotifications.length === 0 ? (
+            <Card>
+              <CardContent className="p-12 text-center">
+                <Bell className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No notifications found</h3>
+                <p className="text-gray-600">
+                  {notifications.length === 0 
+                    ? "You'll receive notifications when students respond to invitations or complete assignments."
+                    : "No notifications match your current filters."
+                  }
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
           <div className="space-y-4">
             {filteredNotifications.map((notification) => (
               <Card 
@@ -339,6 +382,12 @@ export default function ProfessorNotifications() {
                     ? `${getNotificationColor(notification.type)} border-l-4` 
                     : 'bg-white'
                 }`}
+                onClick={() => {
+                  // Open message viewer for message notifications
+                  if (notification.type === 'professor_message' || notification.type === 'student_reply' || notification.type === 'student_message' || notification.type === 'message_sent') {
+                    setShowMessageViewer(true)
+                  }
+                }}
               >
                 <CardContent className="p-6">
                   <div className="flex items-start space-x-4">
@@ -402,6 +451,20 @@ export default function ProfessorNotifications() {
             ))}
           </div>
         )}
+
+        {/* Messaging Modal */}
+        <MessagingModal
+          isOpen={showMessagingModal}
+          onClose={() => setShowMessagingModal(false)}
+          currentUser={user}
+        />
+
+        {/* Message Viewer Modal */}
+        <MessageViewerModal
+          isOpen={showMessageViewer}
+          onClose={() => setShowMessageViewer(false)}
+          currentUser={user}
+        />
       </div>
     </div>
   )

@@ -431,12 +431,70 @@ The AI Agent Education Platform uses PostgreSQL as its primary database with Ale
 | `archived_at` | TIMESTAMP | Archive time |
 | `archived_reason` | VARCHAR | Archive reason |
 
+## Messaging and Communication Tables
+
+### 20. Professor Student Messages (`professor_student_messages`)
+**Purpose**: Messages between professors and students
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER (PK) | Primary key |
+| `professor_id` | INTEGER (FK) | Professor user ID |
+| `student_id` | INTEGER (FK) | Student user ID |
+| `cohort_id` | INTEGER (FK) | Associated cohort (nullable) |
+| `subject` | VARCHAR(255) | Message subject |
+| `message` | TEXT | Message content |
+| `message_type` | VARCHAR(50) | Message type (general, assignment, feedback, etc.) |
+| `parent_message_id` | INTEGER (FK) | Parent message for replies |
+| `is_reply` | BOOLEAN | Is this a reply message |
+| `professor_read` | BOOLEAN | Professor has read the message |
+| `student_read` | BOOLEAN | Student has read the message |
+| `created_at` | TIMESTAMP | Message creation time |
+| `updated_at` | TIMESTAMP | Last update time |
+
+**Indexes**: professor_id, student_id, cohort_id, parent_message_id, created_at, professor_read, student_read
+
+### 21. Notifications (`notifications`)
+**Purpose**: In-app notifications for users
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER (PK) | Primary key |
+| `user_id` | INTEGER (FK) | User who receives notification |
+| `type` | VARCHAR(50) | Notification type (cohort_invitation, assignment, message, etc.) |
+| `title` | VARCHAR(255) | Notification title |
+| `message` | TEXT | Notification message |
+| `data` | JSON | Additional notification data |
+| `is_read` | BOOLEAN | Notification read status |
+| `created_at` | TIMESTAMP | Notification creation time |
+
+**Indexes**: user_id, type, is_read, created_at
+
+### 22. Cohort Invitations (`cohort_invitations`)
+**Purpose**: Invitations for students to join cohorts
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER (PK) | Primary key |
+| `cohort_id` | INTEGER (FK) | Cohort being invited to |
+| `professor_id` | INTEGER (FK) | Professor sending invitation |
+| `student_id` | INTEGER (FK) | Student being invited |
+| `status` | VARCHAR(20) | Invitation status (pending, accepted, declined, expired) |
+| `invitation_token` | VARCHAR(255) | Unique invitation token |
+| `expires_at` | TIMESTAMP | Invitation expiration time |
+| `accepted_at` | TIMESTAMP | Acceptance time |
+| `declined_at` | TIMESTAMP | Decline time |
+| `created_at` | TIMESTAMP | Invitation creation time |
+| `updated_at` | TIMESTAMP | Last update time |
+
+**Indexes**: cohort_id, professor_id, student_id, status, invitation_token, expires_at
+
 ## LangChain Integration Tables
 
-### 20. LangChain PG Collection (`langchain_pg_collection`)
+### 23. LangChain PG Collection (`langchain_pg_collection`)
 **Purpose**: LangChain collection metadata
 
-### 21. LangChain PG Embedding (`langchain_pg_embedding`)
+### 24. LangChain PG Embedding (`langchain_pg_embedding`)
 **Purpose**: LangChain embedding storage
 
 ## Key Relationships
@@ -457,6 +515,14 @@ The AI Agent Education Platform uses PostgreSQL as its primary database with Ale
 - **Users** → **Cohorts** (1:many) - Users create cohorts
 - **Cohorts** → **Cohort Students** (1:many) - Cohorts have students
 - **Cohorts** → **Cohort Simulations** (1:many) - Cohorts have assigned simulations
+- **Cohorts** → **Cohort Invitations** (1:many) - Cohorts have invitations
+- **Users** → **Cohort Invitations** (1:many) - Users receive invitations
+
+### Messaging and Communication
+- **Users** → **Professor Student Messages** (1:many) - Users send/receive messages
+- **Cohorts** → **Professor Student Messages** (1:many) - Messages can be cohort-specific
+- **Professor Student Messages** → **Professor Student Messages** (1:many) - Message replies
+- **Users** → **Notifications** (1:many) - Users receive notifications
 
 ### AI Integration
 - **User Progress** → **Session Memory** (1:many) - Progress has memory
@@ -478,6 +544,9 @@ The AI Agent Education Platform uses PostgreSQL as its primary database with Ale
 - **Session Memory**: session_id, user_progress_id, scene_id, memory_type, importance_score, last_accessed
 - **Agent Sessions**: session_id, user_progress_id, agent_type, is_active, last_activity
 - **Cache Entries**: cache_key, cache_type, expires_at, last_accessed
+- **Professor Student Messages**: professor_id, student_id, cohort_id, parent_message_id, created_at, professor_read, student_read
+- **Notifications**: user_id, type, is_read, created_at
+- **Cohort Invitations**: cohort_id, professor_id, student_id, status, invitation_token, expires_at
 
 ### Soft Deletion Support
 - **Scenarios**: `deleted_at`, `deleted_by`, `deletion_reason` for soft deletion
@@ -489,6 +558,8 @@ The AI Agent Education Platform uses PostgreSQL as its primary database with Ale
 1. **0001_consolidated_schema**: Initial schema creation
 2. **da94850967cc_add_soft_deletion_support**: Added soft deletion support
 3. **df317c1d90a5_fix_cohort_simulations_foreign_key**: Fixed foreign key reference
+4. **add_messaging_system**: Added messaging and notification system
+5. **add_cohort_invitations**: Added cohort invitation system
 
 ## Database Features
 
@@ -513,6 +584,8 @@ The AI Agent Education Platform uses PostgreSQL as its primary database with Ale
 - Unique constraints prevent duplicates
 - Check constraints for data validation
 - Cascade deletes for dependent records
+- Message threading with parent-child relationships
+- Notification system with template-based messaging
 
 ## Security Considerations
 
@@ -521,5 +594,34 @@ The AI Agent Education Platform uses PostgreSQL as its primary database with Ale
 - Soft deletion preserves audit trails
 - Secure logging for sensitive data
 - Environment-based configuration
+- Role-based access control for messaging
+- Message read status tracking
+- Invitation token-based security
 
-This database structure supports a comprehensive educational simulation platform with AI-powered conversations, cohort management, and detailed progress tracking.
+## Messaging System Features
+
+### Message Types
+- **General Messages**: Standard communication between users
+- **Assignment Messages**: Messages related to specific assignments
+- **Feedback Messages**: Messages containing feedback or grades
+- **Cohort Messages**: Messages associated with specific cohorts
+
+### Notification Types
+- **Cohort Invitations**: New cohort invitation notifications
+- **Assignment Notifications**: Assignment due dates and updates
+- **Message Notifications**: New messages and replies
+- **Grade Notifications**: Grade postings and feedback
+- **Cohort Updates**: Changes to cohort information
+
+### Message Threading
+- **Parent Messages**: Original messages that can receive replies
+- **Reply Messages**: Messages that respond to parent messages
+- **Thread Viewing**: Complete conversation history
+- **Read Status**: Separate read tracking for professors and students
+
+### Cohort Integration
+- **Cohort-Specific Messages**: Messages linked to specific cohorts
+- **Student Enrollment Validation**: Messages only sent to enrolled students
+- **Professor Access Control**: Professors can only message their cohort students
+
+This database structure supports a comprehensive educational simulation platform with AI-powered conversations, cohort management, detailed progress tracking, and a complete messaging and notification system.

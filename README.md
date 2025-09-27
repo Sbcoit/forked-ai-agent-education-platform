@@ -1,5 +1,4 @@
 # 🎓 AI Agent Education Platform
-
 An innovative educational platform that transforms business case studies into immersive AI-powered simulations. Upload PDF case studies, let AI extract key figures and scenarios, then engage students in **linear simulation experiences** with dynamic **ChatOrchestrator** system and intelligent **AI persona interactions**.
 
 ![AI Agent Education Platform](https://img.shields.io/badge/AI-Education-blue?style=for-the-badge)

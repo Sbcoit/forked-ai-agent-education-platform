@@ -54,6 +54,26 @@ class NotificationService:
                 'title_template': 'New Simulation Assigned',
                 'message_template': 'A new simulation "{simulation_title}" has been assigned to your cohort "{cohort_title}"',
                 'priority': 'high'
+            },
+            'professor_message': {
+                'title_template': 'Message from Professor',
+                'message_template': 'You have received a message from {professor_name}: "{message_subject}"',
+                'priority': 'medium'
+            },
+            'student_reply': {
+                'title_template': 'Student Reply',
+                'message_template': '{student_name} has replied to your message: "{message_subject}"',
+                'priority': 'medium'
+            },
+            'student_message': {
+                'title_template': 'Message from Student',
+                'message_template': 'You have received a message from {student_name}: "{message_subject}"',
+                'priority': 'medium'
+            },
+            'message_sent': {
+                'title_template': 'Message Sent',
+                'message_template': 'You sent a message to {recipient_name}: "{message_subject}"',
+                'priority': 'low'
             }
         }
     
@@ -352,3 +372,54 @@ def get_user_notifications(db: Session, user_id: int, limit: int = 50, unread_on
 def get_unread_notification_count(db: Session, user_id: int) -> int:
     """Convenience function to get unread notification count"""
     return notification_service.get_unread_count(db, user_id)
+
+def create_professor_message_notification(db: Session, professor: User, student: User, message_subject: str, cohort_id: Optional[int] = None) -> Optional[Notification]:
+    """Convenience function to create professor message notification"""
+    return notification_service.create_notification(
+        db=db,
+        user_id=student.id,
+        notification_type='professor_message',
+        variables={
+            'professor_name': professor.full_name,
+            'message_subject': message_subject
+        },
+        data={
+            'professor_id': professor.id,
+            'cohort_id': cohort_id,
+            'message_type': 'professor_message'
+        }
+    )
+
+def create_student_reply_notification(db: Session, student: User, professor: User, message_subject: str, cohort_id: Optional[int] = None) -> Optional[Notification]:
+    """Convenience function to create student reply notification"""
+    return notification_service.create_notification(
+        db=db,
+        user_id=professor.id,
+        notification_type='student_reply',
+        variables={
+            'student_name': student.full_name,
+            'message_subject': message_subject
+        },
+        data={
+            'student_id': student.id,
+            'cohort_id': cohort_id,
+            'message_type': 'student_reply'
+        }
+    )
+
+def create_message_sent_notification(db: Session, sender: User, recipient: User, message_subject: str, cohort_id: Optional[int] = None) -> Optional[Notification]:
+    """Convenience function to create message sent notification"""
+    return notification_service.create_notification(
+        db=db,
+        user_id=sender.id,
+        notification_type='message_sent',
+        variables={
+            'recipient_name': recipient.full_name,
+            'message_subject': message_subject
+        },
+        data={
+            'recipient_id': recipient.id,
+            'cohort_id': cohort_id,
+            'message_type': 'message_sent'
+        }
+    )

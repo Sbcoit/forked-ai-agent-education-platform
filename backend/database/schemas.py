@@ -770,6 +770,75 @@ class NotificationResponse(BaseModel):
     class Config:
         from_attributes = True
 
+# --- PROFESSOR-STUDENT MESSAGE SCHEMAS ---
+
+class MessageCreate(BaseModel):
+    """Schema for creating a new message"""
+    recipient_id: int
+    cohort_id: Optional[int] = None
+    subject: str
+    message: str
+    message_type: str = "general"
+
+class MessageReply(BaseModel):
+    """Schema for replying to a message"""
+    message: str
+
+class MessageResponse(BaseModel):
+    """Response schema for messages"""
+    id: int
+    professor_id: int
+    student_id: int
+    cohort_id: Optional[int]
+    subject: str
+    message: str
+    message_type: str
+    parent_message_id: Optional[int]
+    is_reply: bool
+    professor_read: bool
+    student_read: bool
+    created_at: datetime
+    updated_at: datetime
+    
+    # Nested data
+    professor: Optional[Dict[str, Any]] = None
+    student: Optional[Dict[str, Any]] = None
+    cohort: Optional[Dict[str, Any]] = None
+    replies: List['MessageResponse'] = []
+    
+    class Config:
+        from_attributes = True
+
+class MessageListResponse(BaseModel):
+    """Response schema for message lists"""
+    id: int
+    professor_id: int
+    student_id: int
+    cohort_id: Optional[int]
+    subject: str
+    message: str
+    message_type: str
+    parent_message_id: Optional[int]
+    is_reply: bool
+    professor_read: bool
+    student_read: bool
+    created_at: datetime
+    updated_at: datetime
+    
+    # Nested data
+    professor: Optional[Dict[str, Any]] = None
+    student: Optional[Dict[str, Any]] = None
+    cohort: Optional[Dict[str, Any]] = None
+    reply_count: int = 0
+    
+    class Config:
+        from_attributes = True
+
+class MessageThreadResponse(BaseModel):
+    """Response schema for message threads"""
+    parent_message: MessageResponse
+    replies: List[MessageResponse] = []
+
 class EmailTemplate(BaseModel):
     """Schema for email templates"""
     email_type: str

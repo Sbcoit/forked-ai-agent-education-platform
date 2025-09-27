@@ -786,6 +786,49 @@ class Notification(Base):
     )
 
 
+class ProfessorStudentMessage(Base):
+    """Messages between professors and students"""
+    __tablename__ = "professor_student_messages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    professor_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    cohort_id = Column(Integer, ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True, index=True)
+    
+    # Message content
+    subject = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    message_type = Column(String(50), nullable=False, default="general")  # general, assignment, grade, etc.
+    
+    # Threading support
+    parent_message_id = Column(Integer, ForeignKey("professor_student_messages.id", ondelete="CASCADE"), nullable=True)
+    is_reply = Column(Boolean, nullable=False, default=False)
+    
+    # Status tracking
+    professor_read = Column(Boolean, nullable=False, default=True)  # Professor always reads their own messages
+    student_read = Column(Boolean, nullable=False, default=False)
+    
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    professor = relationship("User", foreign_keys=[professor_id])
+    student = relationship("User", foreign_keys=[student_id])
+    cohort = relationship("Cohort")
+    parent_message = relationship("ProfessorStudentMessage", remote_side=[id], backref="replies")
+    
+    # Indexes for performance
+    __table_args__ = (
+        Index('idx_professor_student_messages_professor_id', 'professor_id'),
+        Index('idx_professor_student_messages_student_id', 'student_id'),
+        Index('idx_professor_student_messages_cohort_id', 'cohort_id'),
+        Index('idx_professor_student_messages_parent_id', 'parent_message_id'),
+        Index('idx_professor_student_messages_created_at', 'created_at'),
+        Index('idx_professor_student_messages_type', 'message_type'),
+    )
+
+
 class EmailQueue(Base):
     """Email queue for sending notifications"""
     __tablename__ = "email_queue"

@@ -31,6 +31,7 @@ from database.schemas import (
     ScenarioResponse, ScenarioSceneResponse, ScenarioPersonaResponse
 )
 from .chat_orchestrator import ChatOrchestrator, SimulationState
+from services.few_shot_examples import few_shot_examples_service
 
 router = APIRouter(prefix="/api/simulation", tags=["Simulation"])
 
@@ -563,8 +564,21 @@ async def chat_with_persona(
         "content": request.message
     })
     
+    # Create persona data for few-shot examples
+    persona_data = {
+        'name': target_persona.name,
+        'role': target_persona.role,
+        'personality_traits': target_persona.personality_traits or {},
+        'primary_goals': target_persona.primary_goals or []
+    }
+    
+    # Get role-specific examples
+    examples = few_shot_examples_service.get_adaptive_examples(persona_data, current_attempt)
+    
     # Create AI prompt with persona and scene context
     system_prompt = f"""You are {target_persona.name}, a {target_persona.role} in this business simulation.
+
+{examples}
 
 PERSONA BACKGROUND:
 {target_persona.background}
@@ -574,18 +588,25 @@ PERSONA CORRELATION TO CASE:
 
 PERSONALITY TRAITS: {json.dumps(target_persona.personality_traits)}
 
+PRIMARY GOALS: {', '.join(target_persona.primary_goals or [])}
+
 SCENE CONTEXT:
 Title: {scene.title}
 Description: {scene.description}
 User Goal: {scene.user_goal}
 
-SIMULATION INSTRUCTIONS:
-- Stay in character as {target_persona.name}
-- Respond naturally based on your role and personality
+BUSINESS SIMULATION INSTRUCTIONS:
+- Stay in character as {target_persona.name} with your professional expertise
+- Respond naturally based on your role, personality, and business knowledge
 - Help guide the user toward the scene goal through realistic business interaction
-- Don't directly give away answers, but provide realistic business insights
-- Keep responses concise and professional
-- If the user seems stuck, provide subtle hints through natural conversation
+- Encourage strategic thinking and analytical depth in the user's approach
+- Don't directly give away answers, but provide realistic business insights and frameworks
+- Keep responses concise and professional (2-4 sentences typically)
+- If the user seems stuck, provide subtle hints through natural business conversation
+- Focus on developing the user's business acumen and strategic thinking
+- Consider multiple stakeholders and perspectives in your responses
+- Use appropriate business terminology and frameworks relevant to your role
+- Follow the examples above to maintain consistent character behavior
 - Keep your response concise. Use paragraph breaks for readability.
 """
     
@@ -1469,8 +1490,21 @@ You are about to enter a multi-scene simulation where you'll interact with vario
                             break
                 
                 if target_persona:
+                    # Create persona data for few-shot examples
+                    persona_data = {
+                        'name': target_persona['identity']['name'],
+                        'role': target_persona['identity']['role'],
+                        'personality_traits': target_persona.get('personality', {}),
+                        'primary_goals': target_persona.get('personality', {}).get('goals', [])
+                    }
+                    
+                    # Get role-specific examples
+                    examples = few_shot_examples_service.get_adaptive_examples(persona_data, orchestrator.state.turn_count)
+                    
                     # Create a more focused system prompt for persona interaction
                     system_prompt = f"""You are {target_persona['identity']['name']}, a {target_persona['identity']['role']} in this business simulation.
+
+{examples}
 
 PERSONA BACKGROUND: {target_persona['identity']['bio']}
 
@@ -1480,7 +1514,16 @@ SCENARIO CONTEXT: {orchestrator.scenario.get('description', '')}
 
 PERSONALITY: {target_persona.get('personality', {})}
 
-You are in a meeting about {orchestrator.scenario.get('title', '...')} to address the challenges of {orchestrator.scenario.get('challenge', '')}. 
+BUSINESS SIMULATION FOCUS:
+You are in a strategic business meeting about {orchestrator.scenario.get('title', '...')} to address the challenges of {orchestrator.scenario.get('challenge', '')}. 
+
+Your role is to:
+- Provide professional business insights relevant to your expertise
+- Encourage strategic thinking and analytical depth in the user's approach
+- Guide toward practical, implementable business solutions
+- Consider multiple stakeholders and perspectives
+- Use appropriate business terminology and frameworks
+- Help develop the user's business acumen and strategic thinking
 
 CRITICAL MEMORY INSTRUCTIONS:
 - You have access to the COMPLETE conversation history from THIS SCENE ONLY
@@ -1492,7 +1535,7 @@ CRITICAL MEMORY INSTRUCTIONS:
 
 {memory_context}
 
-Respond as {target_persona['identity']['name']} would, providing information and insights relevant to your role and the current challenges. Be professional and provide specific insights about the distribution network, kiosks, or your role in the business.
+Respond as {target_persona['identity']['name']} would, providing strategic business insights and professional guidance relevant to your role and the current challenges. Focus on developing the user's business analysis skills and strategic thinking.
 
 This is about {orchestrator.scenario.get('title', '...')} and its challenges, NOT about any other company or system.
 
@@ -1520,15 +1563,24 @@ Gently redirect them to use a valid persona mention or provide general guidance.
                     persona_id = None
             else:
                 # General orchestrator response
-                system_prompt = f"""You are the ChatOrchestrator for a business simulation about {orchestrator.scenario.get('title', '...')}.
+                system_prompt = f"""You are the ChatOrchestrator for a strategic business simulation about {orchestrator.scenario.get('title', '...')}.
 
 CURRENT SCENE: {orchestrator.scenario.get('scenes', [{}])[orchestrator.state.current_scene_index].get('title', '...')}
 OBJECTIVE: {orchestrator.scenario.get('scenes', [{}])[orchestrator.state.current_scene_index].get('objectives', ['...'])[0]}
 
+BUSINESS SIMULATION GUIDANCE:
 The user can:
 - Use @mentions to talk to specific team members (e.g., {', '.join([p['id'] for p in orchestrator.scenario.get('personas', [])])})
-- Ask general questions about the situation
-- Request help or guidance
+- Ask strategic questions about the business situation
+- Request guidance on business analysis approaches
+- Seek help with developing solutions and recommendations
+
+Your role is to:
+- Guide users toward strategic thinking and business analysis
+- Encourage consideration of multiple stakeholders and perspectives
+- Help develop practical, implementable business solutions
+- Foster critical analysis and questioning of assumptions
+- Promote professional communication and presentation skills
 
 CRITICAL MEMORY INSTRUCTIONS:
 - You have access to the COMPLETE conversation history from THIS SCENE ONLY
@@ -1539,9 +1591,9 @@ CRITICAL MEMORY INSTRUCTIONS:
 
 {memory_context}
 
-This is about {orchestrator.scenario.get('title', '...')} and its challenges, NOT about any other company or system.
+This is about {orchestrator.scenario.get('title', '...')} and its strategic business challenges, NOT about any other company or system.
 
-Respond helpfully and guide them toward productive interactions with the team members. You have access to the full conversation history, so you can reference previous interactions.
+Respond helpfully and guide them toward productive business interactions with the team members. Focus on developing their strategic thinking and business acumen. You have access to the full conversation history, so you can reference previous interactions.
 
 User's message: {request.message}"""
                 persona_name = "ChatOrchestrator"
@@ -1930,24 +1982,42 @@ async def get_simulation_grading(
         if client and user_responses and scene.success_metric:
             scene_goal = getattr(scene, "user_goal", None) or getattr(scene, "objective", None) or ""
             prompt = f"""
-You are a grading agent for a business simulation. The following are the user's responses for a scene:
+You are an expert grading agent for business simulation education with expertise in business case analysis and strategic thinking.
 
 SCENE SUCCESS METRIC: {scene.success_metric}
 SCENE GOAL: {scene_goal}
+SCENE CONTEXT: {scene.description}
+
 USER RESPONSES:
 """
             for i, msg in enumerate(user_responses, 1):
                 prompt += f"{i}. {msg['content']}\n"
             prompt += """
 
-Grade ONLY based on the success metric above, and secondarily on the scene goal if relevant. Do NOT consider or reference any learning outcomes.
+BUSINESS CASE ANALYSIS GRADING CRITERIA:
+- Strategic Thinking (25 points): Analysis depth, strategic perspective, long-term thinking
+- Problem Identification (20 points): Clear problem definition, root cause analysis
+- Solution Development (25 points): Practical solutions, implementation feasibility
+- Communication Skills (15 points): Clarity, structure, professional presentation
+- Critical Analysis (15 points): Questioning assumptions, considering alternatives
 
-Be moderately lenient: award partial credit for reasonable attempts, and do not require perfect answers for a high score. If the user's responses are on-topic and make a good-faith attempt, they should receive at least 60 points. Only give a very low score if the responses are completely off-topic or irrelevant.
+GRADING PRINCIPLES:
+- Score 0-100 based on alignment with success metric and business analysis quality
+- Award at least 60 points for on-topic, good-faith attempts with basic business understanding
+- Award 70-80 points for solid business analysis with clear reasoning
+- Award 80-90 points for strong strategic thinking and practical insights
+- Award 90-100 points for exceptional analysis with innovative solutions
+- Only give very low scores for completely off-topic or irrelevant responses
 
-Evaluate how well the user's responses align with the success metric and goal. Give a score from 0 to 100 and provide detailed feedback. Respond in JSON:
+Evaluate how well the user's responses demonstrate business acumen and strategic thinking. Provide detailed feedback with business context and actionable recommendations.
+
+Respond in JSON:
 {
   "score": <number>,
-  "feedback": "<detailed feedback>"
+  "feedback": "<detailed business-focused feedback with criteria breakdown>",
+  "strengths": ["<specific strengths demonstrated>"],
+  "improvements": ["<actionable recommendations>"],
+  "business_insights": "<real-world application insights>"
 }
 Output ONLY valid JSON, no extra text.
 """
@@ -2006,21 +2076,35 @@ Output ONLY valid JSON, no extra text.
     overall_feedback = ""
     if client and all_user_responses and learning_outcomes:
         prompt = f"""
-You are a grading agent for a business simulation. The following are the user's responses across all scenes:
+You are an expert grading agent for business simulation education with expertise in business case analysis and strategic thinking.
 
 LEARNING OUTCOMES:
 """
         for i, lo in enumerate(learning_outcomes, 1):
             prompt += f"{i}. {lo}\n"
-        prompt += "USER RESPONSES:\n"
+        prompt += "USER RESPONSES ACROSS ALL SCENES:\n"
         for i, resp in enumerate(all_user_responses, 1):
             prompt += f"{i}. {resp}\n"
         prompt += """
 
-Evaluate how well the user's responses align with the learning outcomes. Give an overall score from 0 to 100 and provide detailed feedback. Respond in JSON:
+BUSINESS SIMULATION EVALUATION CRITERIA:
+- Overall Strategic Thinking: How well did the student demonstrate strategic business perspective?
+- Problem-Solving Approach: Quality of problem identification and solution development across scenes
+- Communication & Presentation: Professional communication skills and clarity
+- Critical Analysis: Depth of analysis and consideration of alternatives
+- Practical Application: Real-world relevance and implementation feasibility
+- Learning Integration: How well concepts were applied across different scenarios
+
+Evaluate the student's overall business acumen development and strategic thinking capabilities. Provide comprehensive feedback with business context and actionable recommendations for continued learning.
+
+Respond in JSON:
 {
   "overall_score": <number>,
-  "overall_feedback": "<detailed feedback>"
+  "overall_feedback": "<comprehensive business-focused feedback>",
+  "key_strengths": ["<major strengths demonstrated>"],
+  "development_areas": ["<areas for improvement>"],
+  "business_acumen_assessment": "<assessment of business thinking development>",
+  "recommendations": ["<specific recommendations for continued learning>"]
 }
 Output ONLY valid JSON, no extra text.
 """

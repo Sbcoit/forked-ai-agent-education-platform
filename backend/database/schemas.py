@@ -198,6 +198,17 @@ class ScenarioPublishingResponse(BaseModel):
     files: Optional[List[ScenarioFileResponse]] = None
     reviews: Optional[List[ScenarioReviewResponse]] = None
     creator: Optional[Dict[str, Any]] = None  # Basic user info
+    completion_status: Optional[Dict[str, Any]] = None  # Completion tracking for simulation builder
+    
+    # Database boolean fields for completion tracking
+    name_completed: Optional[bool] = None
+    description_completed: Optional[bool] = None
+    student_role_completed: Optional[bool] = None
+    personas_completed: Optional[bool] = None
+    scenes_completed: Optional[bool] = None
+    images_completed: Optional[bool] = None
+    learning_outcomes_completed: Optional[bool] = None
+    ai_enhancement_completed: Optional[bool] = None
     
     class Config:
         from_attributes = True

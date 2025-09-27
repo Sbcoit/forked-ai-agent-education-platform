@@ -262,14 +262,14 @@ export const apiClient = {
 
   // Scenario methods
   getScenarios: async (): Promise<Scenario[]> => {
-    const response = await apiRequest('/api/scenarios/')
+    const response = await apiRequest('/api/scenarios/?status=active')
     return response.json()
   },
 
   getUserScenarios: async (userId: number): Promise<Scenario[]> => {
     // For now, return all scenarios since user-specific scenarios endpoint doesn't exist
     // TODO: Add user-specific scenarios endpoint to backend
-    const response = await apiRequest('/api/scenarios/')
+    const response = await apiRequest('/api/scenarios/?status=active')
     return response.json()
   },
 
@@ -330,7 +330,7 @@ export const apiClient = {
     try {
       // Fetch both published and draft scenarios
       const [publishedResponse, draftResponse] = await Promise.all([
-        apiRequest('/api/scenarios/', { method: 'GET' }),
+        apiRequest('/api/scenarios/?status=active', { method: 'GET' }),
         apiRequest('/api/scenarios/drafts/', { method: 'GET' })
       ])
       
@@ -344,15 +344,29 @@ export const apiClient = {
       // Combine scenarios but filter out drafts that have published versions
       const allScenarios = [...publishedScenarios, ...draftScenarios]
       
-      // Filter out drafts that have a published version (to avoid duplicates)
-      const filteredScenarios = allScenarios.filter((scenario: any) => {
-        // Keep published scenarios
-        if (!scenario.is_draft) {
-          return true
+      // Filter out duplicates by title - keep only the most recent version of each scenario
+      const scenarioMap = new Map()
+      
+      // Process scenarios and keep only the most recent version of each title
+      allScenarios.forEach((scenario: any) => {
+        const key = scenario.title
+        const existing = scenarioMap.get(key)
+        
+        if (!existing) {
+          // First scenario with this title
+          scenarioMap.set(key, scenario)
+        } else {
+          // Compare scenarios and keep the most recent one
+          const existingDate = new Date(existing.updated_at || existing.created_at)
+          const currentDate = new Date(scenario.updated_at || scenario.created_at)
+          
+          if (currentDate > existingDate) {
+            scenarioMap.set(key, scenario)
+          }
         }
-        // Keep drafts that don't have a published version
-        return !scenario.published_version_id
       })
+      
+      const filteredScenarios = Array.from(scenarioMap.values())
       
       return filteredScenarios.map((scenario: any) => ({
         id: scenario.id,

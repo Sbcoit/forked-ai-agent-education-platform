@@ -65,23 +65,28 @@ class GradingAgent:
         from langchain.tools import tool
         
         @tool
-        def analyze_user_responses(user_responses: str, success_metric: str) -> str:
-            """Analyze user responses against success metrics"""
-            return f"Analyzing {len(user_responses.split())} words of user responses against success metric: {success_metric}"
+        def analyze_business_thinking(responses: str, success_metric: str) -> str:
+            """Analyze user responses for business thinking quality and strategic analysis"""
+            return f"Analyzing business thinking in {len(responses.split())} words against success metric: {success_metric}. Evaluating strategic perspective, problem identification, and solution development."
         
         @tool
-        def evaluate_learning_objectives(responses: str, objectives: str) -> str:
-            """Evaluate responses against learning objectives"""
-            return f"Evaluating responses against {len(objectives.split(','))} learning objectives"
+        def evaluate_strategic_depth(responses: str, objectives: str) -> str:
+            """Evaluate responses for strategic thinking depth and analytical rigor"""
+            return f"Evaluating strategic depth against {len(objectives.split(','))} learning objectives. Assessing long-term thinking, stakeholder consideration, and critical analysis."
         
         @tool
-        def generate_detailed_feedback(score: int, reasoning: str) -> str:
-            """Generate detailed feedback based on score and reasoning"""
-            return f"Generating feedback for score {score} with reasoning: {reasoning}"
+        def assess_practical_application(responses: str, scene_context: str) -> str:
+            """Assess how well responses demonstrate practical business application"""
+            return f"Assessing practical application in responses within scene context: {scene_context}. Evaluating implementation feasibility and real-world relevance."
         
         @tool
-        def calculate_overall_score(scene_scores: str) -> str:
-            """Calculate overall simulation score from scene scores"""
+        def generate_business_feedback(score: int, reasoning: str, criteria_breakdown: str) -> str:
+            """Generate detailed business-focused feedback with criteria breakdown"""
+            return f"Generating business feedback for score {score} with reasoning: {reasoning}. Criteria breakdown: {criteria_breakdown}"
+        
+        @tool
+        def calculate_weighted_score(scene_scores: str, weights: str) -> str:
+            """Calculate overall simulation score with weighted criteria"""
             try:
                 scores = []
                 for s in scene_scores.split(','):
@@ -90,16 +95,33 @@ class GradingAgent:
                         scores.append(int(s))
                     elif s:  # Non-empty, non-digit string
                         return f"Invalid score format: '{s}' is not a valid number"
+                
+                # Parse weights if provided
+                weight_list = []
+                if weights:
+                    for w in weights.split(','):
+                        w = w.strip()
+                        if w.replace('.', '').isdigit():
+                            weight_list.append(float(w))
+                
+                if scores:
+                    if weight_list and len(weight_list) == len(scores):
+                        weighted_score = sum(s * w for s, w in zip(scores, weight_list))
+                        return f"Weighted overall score: {weighted_score:.1f} (weighted average of {len(scores)} scenes)"
+                    else:
+                        avg_score = sum(scores) / len(scores)
+                        return f"Overall score: {avg_score:.1f} (average of {len(scores)} scenes)"
+                return "No valid scores to calculate"
             except Exception as e:
                 return f"Error parsing scores: {str(e)}"
-            
-            if scores:
-                avg_score = sum(scores) / len(scores)
-                return f"Overall score: {avg_score:.1f} (average of {len(scores)} scenes)"
-            return "No valid scores to calculate"
         
-        return [analyze_user_responses, evaluate_learning_objectives, 
-                generate_detailed_feedback, calculate_overall_score]
+        @tool
+        def identify_learning_gaps(responses: str, expected_outcomes: str) -> str:
+            """Identify specific learning gaps and areas for improvement"""
+            return f"Identifying learning gaps in responses against expected outcomes: {expected_outcomes}. Analyzing knowledge gaps and skill development needs."
+        
+        return [analyze_business_thinking, evaluate_strategic_depth, assess_practical_application,
+                generate_business_feedback, calculate_weighted_score, identify_learning_gaps]
     
     def _create_grading_prompt(self) -> ChatPromptTemplate:
         """Create grading prompt template"""
@@ -111,21 +133,39 @@ class GradingAgent:
     
     def _get_system_prompt(self) -> str:
         """Generate system prompt for grading"""
-        return """You are an expert grading agent for business simulation education.
+        return """You are an expert grading agent for business simulation education with expertise in business case analysis and strategic thinking.
 
 Your role is to:
 1. Evaluate user responses against specific success metrics and learning objectives
-2. Provide fair, constructive feedback that helps students learn
-3. Award appropriate scores based on demonstrated understanding
-4. Be moderately lenient - award partial credit for reasonable attempts
-5. Focus on learning outcomes rather than perfect answers
+2. Assess business analysis quality, strategic thinking, and practical application
+3. Provide fair, constructive feedback that helps students learn
+4. Award appropriate scores based on demonstrated understanding
+5. Focus on learning outcomes and business acumen development
+
+BUSINESS CASE ANALYSIS GRADING CRITERIA:
+- Strategic Thinking (25 points): Analysis depth, strategic perspective, long-term thinking
+- Problem Identification (20 points): Clear problem definition, root cause analysis
+- Solution Development (25 points): Practical solutions, implementation feasibility
+- Communication Skills (15 points): Clarity, structure, professional presentation
+- Critical Analysis (15 points): Questioning assumptions, considering alternatives
 
 GRADING PRINCIPLES:
-- Score 0-100 based on alignment with success metrics
-- Award at least 60 points for on-topic, good-faith attempts
-- Only give very low scores for completely off-topic responses
-- Provide specific, actionable feedback
+- Score 0-100 based on alignment with success metrics and business analysis quality
+- Award at least 60 points for on-topic, good-faith attempts with basic business understanding
+- Award 70-80 points for solid business analysis with clear reasoning
+- Award 80-90 points for strong strategic thinking and practical insights
+- Award 90-100 points for exceptional analysis with innovative solutions
+- Only give very low scores for completely off-topic or irrelevant responses
+- Provide specific, actionable feedback with business context
 - Consider the educational context and learning objectives
+
+A-GRADE PAPER STANDARDS:
+- Demonstrates clear understanding of business concepts
+- Shows strategic thinking and analytical depth
+- Provides practical, implementable solutions
+- Uses appropriate business terminology and frameworks
+- Shows consideration of multiple stakeholders and perspectives
+- Demonstrates critical thinking and questioning of assumptions
 
 Use your tools to analyze responses, evaluate objectives, and generate comprehensive feedback."""
     
@@ -147,15 +187,29 @@ Use your tools to analyze responses, evaluate objectives, and generate comprehen
         # Prepare input
         input_data = {
             "input": f"""
-Grade this scene: {scene.title}
+Grade this business simulation scene: {scene.title}
 
 SUCCESS METRIC: {scene.success_metric or scene.user_goal}
 SCENE GOAL: {scene.user_goal}
+SCENE CONTEXT: {scene.description}
 
 USER RESPONSES:
 {responses_text}
 
-Provide a score (0-100) and detailed feedback. Use your tools to analyze the responses.
+BUSINESS ANALYSIS REQUIREMENTS:
+- Evaluate strategic thinking and analytical depth
+- Assess problem identification and solution development
+- Consider practical application and implementation feasibility
+- Review communication skills and professional presentation
+- Analyze critical thinking and stakeholder consideration
+
+Provide a comprehensive score (0-100) with detailed feedback including:
+1. Score breakdown by criteria (Strategic Thinking, Problem ID, Solution Dev, Communication, Critical Analysis)
+2. Specific strengths demonstrated
+3. Areas for improvement with actionable recommendations
+4. Business context and real-world application insights
+
+Use your tools to analyze the business thinking quality and strategic analysis.
 """
         }
         
@@ -212,17 +266,32 @@ Provide a score (0-100) and detailed feedback. Use your tools to analyze the res
         # Prepare input
         input_data = {
             "input": f"""
-Grade the overall simulation performance:
+Grade the overall business simulation performance:
 
 LEARNING OBJECTIVES:
 {chr(10).join(f"• {obj}" for obj in learning_objectives)}
 
-SCENE PERFORMANCE:
+SCENE PERFORMANCE SUMMARY:
 {scene_summary}
 
-OVERALL SCORE: {overall_score:.1f}
+CALCULATED OVERALL SCORE: {overall_score:.1f}
 
-Provide comprehensive feedback on the overall simulation performance, highlighting strengths and areas for improvement.
+BUSINESS SIMULATION EVALUATION CRITERIA:
+- Overall Strategic Thinking: How well did the student demonstrate strategic business perspective?
+- Problem-Solving Approach: Quality of problem identification and solution development across scenes
+- Communication & Presentation: Professional communication skills and clarity
+- Critical Analysis: Depth of analysis and consideration of alternatives
+- Practical Application: Real-world relevance and implementation feasibility
+- Learning Integration: How well concepts were applied across different scenarios
+
+Provide comprehensive feedback including:
+1. Overall performance assessment with business context
+2. Key strengths demonstrated across the simulation
+3. Specific areas for improvement with actionable recommendations
+4. Business acumen development insights
+5. Recommendations for continued learning and skill development
+
+Use your tools to evaluate strategic depth and identify learning gaps.
 """
         }
         
@@ -321,7 +390,7 @@ Provide comprehensive feedback on the overall simulation performance, highlighti
         # Use LangChain agent for goal validation
         input_data = {
             "input": f"""
-Evaluate if the user has achieved the scene goal:
+Evaluate if the user has achieved the business simulation scene goal:
 
 SCENE GOAL: {scene_goal}
 SCENE DESCRIPTION: {scene_description}
@@ -330,14 +399,21 @@ CURRENT ATTEMPTS: {current_attempts}/{max_attempts}
 CONVERSATION HISTORY:
 {conversation_history}
 
+BUSINESS SIMULATION EVALUATION CRITERIA:
+- Goal Achievement: Has the user demonstrated understanding and addressed the core business challenge?
+- Strategic Thinking: Shows evidence of strategic business perspective and analysis
+- Practical Application: Demonstrates real-world business application and feasibility
+- Communication Quality: Professional communication appropriate for business context
+- Learning Progress: Shows progression in understanding business concepts
+
 Determine:
 1. Has the user achieved the scene goal? (true/false)
-2. Confidence score (0.0-1.0)
-3. Brief reasoning
+2. Confidence score (0.0-1.0) based on business analysis quality
+3. Brief reasoning focusing on business acumen demonstrated
 4. Next action: "continue", "progress", "hint", or "force_progress"
-5. Optional hint message if action is "hint"
+5. Optional hint message if action is "hint" - provide business-focused guidance
 
-Be moderately lenient: If the user's response is on-topic and makes a good-faith attempt, mark the goal as achieved.
+Be moderately lenient but maintain business standards: If the user's response shows good-faith business analysis and addresses the core challenge, mark the goal as achieved.
 """
         }
         

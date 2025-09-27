@@ -1,5 +1,5 @@
 # AI Agent Education Platform - Main FastAPI Application
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Response
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -10,6 +10,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 import asyncio
 import logging
+import time
 from dotenv import load_dotenv
 import os
 
@@ -40,6 +41,7 @@ from api.student.notifications import router as student_notifications_router
 from api.student.cohorts import router as student_cohorts_router
 from api.student.simulation_instances import router as student_simulation_instances_router
 from api.parse_pdf import router as pdf_router
+from api.pdf_progress import router as progress_router
 from api.simulation import router as simulation_router
 from api.publishing import router as publishing_router
 from api.oauth import router as oauth_router, lifespan as oauth_lifespan
@@ -133,6 +135,7 @@ app.add_middleware(
 
 # Include API routers
 app.include_router(pdf_router, tags=["PDF Processing"])
+app.include_router(progress_router, tags=["PDF Progress"])
 app.include_router(simulation_router, tags=["Simulation"])
 app.include_router(publishing_router, tags=["Publishing"])
 app.include_router(oauth_router, tags=["OAuth"])
@@ -143,6 +146,32 @@ app.include_router(messages_router, tags=["Messages"])
 app.include_router(student_notifications_router, tags=["Student Notifications"])
 app.include_router(student_cohorts_router, tags=["Student Cohorts"])
 app.include_router(student_simulation_instances_router, tags=["Student Simulation Instances"])
+
+# Import progress manager for WebSocket endpoint
+from api.pdf_progress import progress_manager
+
+# Add WebSocket endpoint directly to the app
+@app.websocket("/ws/pdf-progress/{session_id}")
+async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """WebSocket endpoint for PDF parsing progress updates"""
+    await progress_manager.connect(websocket, session_id)
+    
+    try:
+        while True:
+            # Keep connection alive and handle any incoming messages
+            data = await websocket.receive_text()
+            import json
+            message = json.loads(data)
+            
+            if message.get("type") == "ping":
+                await websocket.send_text(json.dumps({"type": "pong", "timestamp": time.time()}))
+            
+    except WebSocketDisconnect:
+        progress_manager.disconnect(session_id)
+        print(f"WebSocket {session_id} disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error for session {session_id}: {e}")
+        progress_manager.disconnect(session_id)
 
 # Create database tables (development only)
 if settings.environment != "production":
@@ -165,19 +194,30 @@ async def root():
         "status": "active"
     }
 
-
 @app.get("/api/scenarios/")
 async def get_scenarios(
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
-    """Get scenarios created by the current user with their personas and scenes"""
+    """Get scenarios with their personas and scenes"""
     try:
-        scenarios = db.query(Scenario).filter(
-            Scenario.created_by == current_user.id,
-            Scenario.is_draft == False,  # Only show published scenarios
-            Scenario.deleted_at.is_(None)  # Exclude soft-deleted scenarios
-        ).order_by(Scenario.created_at.desc()).all()
+        # If user is authenticated, show their scenarios; otherwise show all public scenarios
+        if current_user:
+            # For authenticated users, show all their scenarios (both draft and active)
+            # but prioritize active versions over draft versions for the same scenario
+            scenarios = db.query(Scenario).filter(
+                Scenario.created_by == current_user.id,
+                Scenario.deleted_at.is_(None)  # Exclude soft-deleted scenarios
+            ).order_by(
+                Scenario.status.desc(),  # Active scenarios first
+                Scenario.updated_at.desc()  # Then by most recently updated
+            ).all()
+        else:
+            # For unauthenticated users, show all public scenarios
+            scenarios = db.query(Scenario).filter(
+                Scenario.is_public == True,
+                Scenario.deleted_at.is_(None)  # Exclude soft-deleted scenarios
+            ).order_by(Scenario.created_at.desc()).all()
         
         result = []
         for scenario in scenarios:
@@ -283,6 +323,15 @@ async def get_draft_scenarios(
                 "published_version_id": scenario.published_version_id,
                 "created_at": scenario.created_at.isoformat() if scenario.created_at else None,
                 "is_public": scenario.is_public,
+                # Completion status fields
+                "completion_status": scenario.completion_status,
+                "name_completed": scenario.name_completed,
+                "description_completed": scenario.description_completed,
+                "personas_completed": scenario.personas_completed,
+                "scenes_completed": scenario.scenes_completed,
+                "images_completed": scenario.images_completed,
+                "learning_outcomes_completed": scenario.learning_outcomes_completed,
+                "ai_enhancement_completed": scenario.ai_enhancement_completed,
                 "personas": [
                     {
                         "id": persona.id,
@@ -490,6 +539,15 @@ async def get_draft_scenario(
             "published_version_id": scenario.published_version_id,
             "created_at": scenario.created_at.isoformat() if scenario.created_at else None,
             "is_public": scenario.is_public,
+            # Completion status fields
+            "completion_status": scenario.completion_status,
+            "name_completed": scenario.name_completed,
+            "description_completed": scenario.description_completed,
+            "personas_completed": scenario.personas_completed,
+            "scenes_completed": scenario.scenes_completed,
+            "images_completed": scenario.images_completed,
+            "learning_outcomes_completed": scenario.learning_outcomes_completed,
+            "ai_enhancement_completed": scenario.ai_enhancement_completed,
             "personas": [
                 {
                     "id": persona.id,
@@ -885,106 +943,57 @@ async def get_scenario_details(scenario_id: int, db: Session = Depends(get_db)):
         "created_at": scenario.created_at
     }
 
-@app.get("/api/scenarios/{scenario_id}/full")
-async def get_scenario_full(scenario_id: int, db: Session = Depends(get_db)):
-    """Get full scenario with personas and scenes including scene-persona relationships"""
+@app.get("/api/test")
+async def test_endpoint():
+    """Test endpoint to verify server is working"""
+    return {"status": "ok", "message": "Server is working"}
+
+@app.get("/api/test-auth")
+async def test_auth_endpoint(current_user: User = Depends(get_current_user)):
+    """Test endpoint with authentication"""
+    return {"status": "ok", "user": current_user.email}
+
+@app.get("/api/test-db")
+async def test_db_endpoint(db: Session = Depends(get_db)):
+    """Test endpoint with database"""
+    try:
+        count = db.query(Scenario).count()
+        return {"status": "ok", "scenario_count": count}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/test-combined")
+async def test_combined_endpoint(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Test endpoint with both database and authentication"""
+    try:
+        count = db.query(Scenario).count()
+        return {"status": "ok", "scenario_count": count, "user": current_user.email}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/scenario-test/{scenario_id}")
+async def test_scenario_endpoint(scenario_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Test endpoint with scenario_id parameter"""
     try:
         scenario = db.query(Scenario).filter(Scenario.id == scenario_id).first()
         if not scenario:
-            raise HTTPException(status_code=404, detail="Scenario not found")
-        
-        # Get personas for this scenario
-        personas = db.query(ScenarioPersona).filter(
-            ScenarioPersona.scenario_id == scenario_id
-        ).all()
-        
-        # Get scenes for this scenario
-        scenes = db.query(ScenarioScene).filter(
-            ScenarioScene.scenario_id == scenario_id
-        ).order_by(ScenarioScene.scene_order).all()
-        
-        # For each scene, get the involved personas
-        from database.models import scene_personas
-        scenes_with_personas = []
-        for scene in scenes:
-            # Get personas involved in this scene
-            involved_personas = db.query(ScenarioPersona).join(
-                scene_personas, ScenarioPersona.id == scene_personas.c.persona_id
-            ).filter(
-                scene_personas.c.scene_id == scene.id
-            ).all()
-            
-            scene_data = {
-                "id": scene.id,
-                "scenario_id": scene.scenario_id,
-                "title": scene.title,
-                "description": scene.description,
-                "user_goal": scene.user_goal,
-                "scene_order": scene.scene_order,
-                "estimated_duration": scene.estimated_duration,
-                "image_url": scene.image_url,
-                "image_prompt": scene.image_prompt,
-                "timeout_turns": scene.timeout_turns,
-                "success_metric": scene.success_metric,
-                "personas_involved": [p.name for p in involved_personas],
-                "created_at": scene.created_at,
-                "updated_at": scene.updated_at,
-                "personas": [
-                    {
-                        "id": persona.id,
-                        "name": persona.name,
-                        "role": persona.role,
-                        "background": persona.background,
-                        "correlation": persona.correlation,
-                        "primary_goals": persona.primary_goals or [],
-                        "personality_traits": persona.personality_traits or {}
-                    }
-                    for persona in involved_personas
-                ]
-            }
-            scenes_with_personas.append(scene_data)
-        
-        return {
-            "id": scenario.id,
-            "title": scenario.title,
-            "description": scenario.description,
-            "challenge": scenario.challenge,
-            "industry": scenario.industry,
-            "learning_objectives": scenario.learning_objectives or [],
-            "student_role": scenario.student_role,
-            "category": scenario.category,
-            "difficulty_level": scenario.difficulty_level,
-            "estimated_duration": scenario.estimated_duration,
-            "tags": scenario.tags,
-            "pdf_title": scenario.pdf_title,
-            "pdf_source": scenario.pdf_source,
-            "processing_version": scenario.processing_version,
-            "rating_avg": scenario.rating_avg,
-            "source_type": scenario.source_type,
-            "is_public": scenario.is_public,
-            "is_template": scenario.is_template,
-            "allow_remixes": scenario.allow_remixes,
-            "usage_count": scenario.usage_count,
-            "clone_count": scenario.clone_count,
-            "created_by": scenario.created_by,
-            "created_at": scenario.created_at,
-            "updated_at": scenario.updated_at,
-            "personas": [
-                {
-                    "id": persona.id,
-                    "name": persona.name,
-                    "role": persona.role,
-                    "background": persona.background,
-                    "correlation": persona.correlation,
-                    "primary_goals": persona.primary_goals or [],
-                    "personality_traits": persona.personality_traits or {}
-                }
-                for persona in personas
-            ],
-            "scenes": scenes_with_personas
-        }
+            return {"status": "error", "error": "Scenario not found"}
+        return {"status": "ok", "scenario_id": scenario_id, "title": scenario.title, "user": current_user.email}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@app.get("/api/scenarios/{scenario_id}/full")
+async def get_scenario_full(scenario_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Get full scenario with personas and scenes including scene-persona relationships"""
+    try:
+        print(f"[DEBUG] Starting get_scenario_full for scenario_id: {scenario_id}")
+        print(f"[DEBUG] Database session: {db}")
+        print(f"[DEBUG] Current user: {current_user.email}")
+        return {"status": "ok", "scenario_id": scenario_id, "user": current_user.email}
     except Exception as e:
         print(f"[ERROR] get_scenario_full failed: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # --- REDIS CACHE MANAGEMENT ---

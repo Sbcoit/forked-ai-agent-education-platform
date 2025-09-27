@@ -16,7 +16,10 @@ import Link from "next/link"
 import PersonaCard from "@/components/PersonaCard";
 import SceneCard from "@/components/SceneCard";
 import RoleBasedSidebar from "@/components/RoleBasedSidebar";
-import { buildApiUrl, apiClient } from "@/lib/api";
+import SimulationBuilderProgress from "@/components/SimulationBuilderProgress"
+import PDFProgressTrackerHTTP from "@/components/PDFProgressTrackerHTTP"
+import { usePDFParsingWithProgress } from "@/hooks/usePDFParsingWithProgress"
+import { apiClient } from "@/lib/api"
 
 
 // Simple Modal component
@@ -109,6 +112,16 @@ export default function ScenarioBuilder() {
   const router = useRouter()
   const { user, logout, isLoading: authLoading } = useAuth()
   
+  // PDF parsing with progress tracking
+  const { 
+    parsePDFWithProgress, 
+    isLoading: isParsingWithProgress, 
+    sessionId, 
+    error: parsingError, 
+    result: parsingResult,
+    reset: resetParsing 
+  } = usePDFParsingWithProgress()
+  
   // All hooks must be called before any conditional returns
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
  const fileInputRef = useRef<HTMLInputElement>(null)
@@ -116,6 +129,7 @@ export default function ScenarioBuilder() {
  const teachingNotesInputRef = useRef<HTMLInputElement>(null)
  const [name, setName] = useState("")
  const [description, setDescription] = useState("")
+ const [studentRole, setStudentRole] = useState("")
  const [learningOutcomes, setLearningOutcomes] = useState("")
  const [autofillLoading, setAutofillLoading] = useState(false)
  const [autofillError, setAutofillError] = useState<string | null>(null)
@@ -141,7 +155,21 @@ export default function ScenarioBuilder() {
  const [isPublished, setIsPublished] = useState(false);
  const [isSaving, setIsSaving] = useState(false);
  const [isPublishing, setIsPublishing] = useState(false);
- const [savedScenarioId, setSavedScenarioId] = useState<number | null>(null);
+  const [savedScenarioId, setSavedScenarioId] = useState<number | null>(null);
+  const [completionStatus, setCompletionStatus] = useState<{ [key: string]: boolean } | null>(null);
+  const [aiEnhancementComplete, setAiEnhancementComplete] = useState(false);
+  
+  // Database boolean fields for completion tracking
+  const [dbCompletionFields, setDbCompletionFields] = useState({
+    nameCompleted: false,
+    descriptionCompleted: false,
+    studentRoleCompleted: false,
+    personasCompleted: false,
+    scenesCompleted: false,
+    imagesCompleted: false,
+    learningOutcomesCompleted: false,
+    aiEnhancementCompleted: false
+  });
 
  // Authentication logic - must be after all hooks
  useEffect(() => {
@@ -170,6 +198,23 @@ export default function ScenarioBuilder() {
            setName(draftData.title || "")
            setDescription(draftData.description || "")
            
+           // Load completion status if available
+           if (draftData.completion_status) {
+             setCompletionStatus(draftData.completion_status)
+             debugLog("Loaded completion status:", draftData.completion_status)
+           }
+           
+           // Load database boolean completion fields
+           setDbCompletionFields({
+             nameCompleted: draftData.name_completed || false,
+             descriptionCompleted: draftData.description_completed || false,
+             personasCompleted: draftData.personas_completed || false,
+             scenesCompleted: draftData.scenes_completed || false,
+             imagesCompleted: draftData.images_completed || false,
+             learningOutcomesCompleted: draftData.learning_outcomes_completed || false,
+             aiEnhancementCompleted: draftData.ai_enhancement_completed || false
+           });
+           
            // Handle learning objectives - check if it's an array or string
            if (Array.isArray(draftData.learning_objectives)) {
              setLearningOutcomes(draftData.learning_objectives.join("\n"))
@@ -181,6 +226,7 @@ export default function ScenarioBuilder() {
            
            // Load scenes first to extract personas
            if (draftData.scenes && draftData.scenes.length > 0) {
+             console.log("DEBUG: Raw draftData.scenes:", draftData.scenes);
              // Transform scenes to ensure they have the correct structure for SceneCard
              const transformedScenes = draftData.scenes.map((scene: any) => ({
                ...scene,
@@ -189,6 +235,7 @@ export default function ScenarioBuilder() {
                // Ensure personas_involved is an array of names
                personas_involved: scene.personas_involved || []
              }))
+             console.log("DEBUG: Transformed scenes:", transformedScenes);
              setScenes(transformedScenes)
              
              // Extract all unique personas from scenes (these have the full data)
@@ -324,7 +371,7 @@ export default function ScenarioBuilder() {
     title: name || (autofillResult?.title || ""),
     description: description || (autofillResult?.description || ""),
     learning_outcomes: learningOutcomes || (autofillResult?.learning_outcomes || ""),
-    student_role: autofillResult?.student_role || "",
+    student_role: studentRole || (autofillResult?.student_role || ""),
     key_figures: autofillResult?.key_figures || [],
     // Use the latest scenes and personas state
     scenes: normalizeScenes(scenes),
@@ -336,6 +383,17 @@ export default function ScenarioBuilder() {
       primary_goals: persona.primaryGoals, // Map primaryGoals → primary_goals
       personality_traits: persona.traits  // Map traits → personality_traits
     })),
+    // Add completion tracking - only mark as complete when all sections are actually done
+    completion_status: {
+      name_completed: !!name?.trim() || !!autofillResult,
+      description_completed: !!description?.trim() || !!autofillResult,
+      student_role_completed: !!studentRole?.trim() || !!autofillResult,
+      personas_completed: personas?.length > 0 || !!autofillResult,
+      scenes_completed: scenes?.length > 0 || !!autofillResult,
+      images_completed: scenes?.some(scene => scene.image_url) || !!autofillResult,
+      learning_outcomes_completed: learningOutcomes?.length > 0 || (!!autofillResult && !isParsingWithProgress),
+      ai_enhancement_completed: aiEnhancementComplete || (!!autofillResult && learningOutcomes?.length > 0 && !isParsingWithProgress && !parsingError)
+    }
   };
 
   // Debug log to check scenes state before saving
@@ -360,17 +418,27 @@ export default function ScenarioBuilder() {
      });
      
      // Build endpoint with scenario_id if updating an existing scenario
-     const endpoint = savedScenarioId 
-       ? `/api/scenarios/save?scenario_id=${savedScenarioId}`
-       : "/api/scenarios/save";
+    const endpoint = savedScenarioId 
+      ? `/api/publishing/scenarios/save?scenario_id=${savedScenarioId}`
+      : "/api/publishing/scenarios/save";
      
      debugLog("Save endpoint:", endpoint)
      debugLog("savedScenarioId:", savedScenarioId)
+     debugLog("Payload keys:", Object.keys(payload))
+     debugLog("Payload structure:", {
+       title: payload.title,
+       key_figures_count: payload.key_figures?.length,
+       scenes_count: payload.scenes?.length,
+       learning_outcomes_count: payload.learning_outcomes?.length
+     });
      
      const response = await apiClient.apiRequest(endpoint, {
        method: "POST",
        body: JSON.stringify(payload),
      });
+
+     debugLog("Save response status:", response.status);
+     debugLog("Save response ok:", response.ok);
 
      if (response.ok) {
        const result = await response.json();
@@ -385,8 +453,9 @@ export default function ScenarioBuilder() {
        
        return result.scenario_id;
      } else {
-       console.error("Failed to save scenario");
-       alert("Failed to save scenario. Please try again.");
+       const errorText = await response.text();
+       console.error("Failed to save scenario:", response.status, errorText);
+       alert(`Failed to save scenario (${response.status}): ${errorText}`);
        return null;
      }
    } catch (error) {
@@ -427,7 +496,7 @@ export default function ScenarioBuilder() {
        estimated_duration: 60
      };
      
-           const response = await apiClient.apiRequest(`/api/scenarios/publish/${scenarioId}`, {
+           const response = await apiClient.apiRequest(`/api/publishing/scenarios/publish/${scenarioId}`, {
        method: "POST",
        body: JSON.stringify(publishData),
      });
@@ -695,7 +764,258 @@ export default function ScenarioBuilder() {
  };
 
 
- const handleAutofill = async () => {
+ const handleAutofillWithProgress = async () => {
+  if (!uploadedFile) return;
+  
+  // Reset AI enhancement completion state when starting new autofill
+  setAiEnhancementComplete(false);
+  
+  try {
+    const result = await parsePDFWithProgress({
+      file: uploadedFile,
+      contextFiles: uploadedFiles,
+      saveToDb: false
+    });
+
+    if (result.success && result.data) {
+      // Process the result similar to the original handleAutofill
+      const aiData = result.data;
+      debugLog("AI Result:", aiData);
+      
+      // Set the title
+      if (aiData.title) {
+        debugLog("Setting title:", aiData.title);
+        setName(aiData.title);
+      }
+      
+      // Set the description
+      if (aiData.description) {
+        const formattedDescription = formatDescription(aiData.description);
+        setDescription(formattedDescription);
+      }
+      
+      // Set the student role
+      if (aiData.student_role) {
+        debugLog("Setting student role:", aiData.student_role);
+        setStudentRole(aiData.student_role);
+      }
+      
+      // Set the learning outcomes
+      if (aiData.learning_outcomes && Array.isArray(aiData.learning_outcomes)) {
+        const formattedOutcomes = formatLearningOutcomes(aiData.learning_outcomes);
+        setLearningOutcomes(formattedOutcomes);
+      }
+      
+      // Process personas from key_figures
+      if (aiData.key_figures && Array.isArray(aiData.key_figures)) {
+        const studentRole = aiData.student_role?.toLowerCase() || '';
+        
+        const filteredFigures = aiData.key_figures.filter((figure: any) => {
+          const figureName = figure.name?.toLowerCase() || '';
+          const figureRole = figure.role?.toLowerCase() || '';
+          
+          // Skip if this figure matches the student role exactly
+          if (studentRole && (figureName.includes(studentRole) || figureRole.includes(studentRole))) {
+            return false;
+          }
+          
+          // Skip if this figure has a role that suggests they're the main protagonist
+          const protagonistRoles = ['protagonist', 'main character', 'lead', 'principal', 'central figure'];
+          if (protagonistRoles.some(role => figureRole.includes(role))) {
+            return false;
+          }
+          
+          return true;
+        });
+        
+        const newPersonas = filteredFigures.map((figure: any, index: number) => {
+          // Format goals properly
+          let formattedGoals = 'Goals not specified in the case study.';
+          if (Array.isArray(figure.primary_goals) && figure.primary_goals.length > 0) {
+            formattedGoals = figure.primary_goals.map((goal: string) => `• ${goal}`).join('\n');
+          } else if (typeof figure.primary_goals === 'string' && figure.primary_goals.trim()) {
+            const goals = figure.primary_goals.split(/[;\n]/).map((goal: string) => goal.trim()).filter((goal: string) => goal.length > 0);
+            if (goals.length > 1) {
+              formattedGoals = goals.map((goal: string) => `• ${goal}`).join('\n');
+            } else {
+              formattedGoals = `• ${figure.primary_goals}`;
+            }
+          }
+          
+          return {
+            id: `persona-${Date.now()}-${index}`,
+            name: figure.name || `Person ${index + 1}`,
+            position: figure.role || 'Unknown',
+            description: formatDescription(figure.background || figure.correlation || 'No background information available.'),
+            primaryGoals: formattedGoals,
+            traits: {
+              analytical: figure.personality_traits?.analytical || 5,
+              creative: figure.personality_traits?.creative || 5,
+              assertive: figure.personality_traits?.assertive || 5,
+              collaborative: figure.personality_traits?.collaborative || 5,
+              detail_oriented: figure.personality_traits?.detail_oriented || 5,
+              risk_taking: figure.personality_traits?.risk_taking || 5,
+              empathetic: figure.personality_traits?.empathetic || 5,
+              decisive: figure.personality_traits?.decisive || 5
+            },
+            defaultTraits: {
+              analytical: 5,
+              creative: 5,
+              assertive: 5,
+              collaborative: 5,
+              detail_oriented: 5,
+              risk_taking: 5,
+              empathetic: 5,
+              decisive: 5
+            }
+          };
+        });
+        
+        setPersonas(newPersonas);
+      } else {
+        setPersonas([]);
+      }
+      
+      // Process scenes from AI results
+      if (aiData.scenes && Array.isArray(aiData.scenes)) {
+        const processedScenes = aiData.scenes
+          .sort((a: any, b: any) => (a.sequence_order || 0) - (b.sequence_order || 0))
+          .map((scene: any, index: number) => ({
+            id: `scene-${Date.now()}-${index}`,
+            title: scene.title || `Scene ${index + 1}`,
+            description: scene.description || '',
+            personas_involved: scene.personas_involved || [],
+            user_goal: scene.user_goal || '',
+            sequence_order: scene.sequence_order || index + 1,
+            image_url: scene.image_url || '',
+            successMetric: scene.successMetric || '',
+            timeout_turns: scene.timeout_turns !== undefined && scene.timeout_turns !== null ? scene.timeout_turns : 15
+          }));
+        
+        setScenes(processedScenes);
+      } else {
+        setScenes([]);
+      }
+      
+      setAutofillResult(result);
+      markAsUnsaved();
+    }
+  } catch (err: any) {
+    console.error("Autofill with progress error:", err);
+    setAutofillError(err.message || "Unknown error occurred during autofill");
+  }
+};
+
+const handleFieldUpdate = (fieldName: string, fieldValue: any) => {
+  console.log('Updating field:', fieldName, fieldValue);
+  
+  switch (fieldName) {
+    case 'title':
+      setName(fieldValue);
+      markAsUnsaved();
+      break;
+    case 'description':
+      const formattedDescription = formatDescription(fieldValue);
+      setDescription(formattedDescription);
+      markAsUnsaved();
+      break;
+    case 'student_role':
+      // Update student role in autofillResult
+      setAutofillResult(prev => ({
+        ...prev,
+        student_role: fieldValue
+      }));
+      markAsUnsaved();
+      break;
+    case 'personas':
+      // Filter out personas that match the student role
+      const filteredFigures = fieldValue.filter((figure: any) => {
+        const figureName = (figure.name || '').toLowerCase();
+        const figureRole = (figure.role || '').toLowerCase();
+        const studentRole = (fieldValue.student_role || '').toLowerCase();
+        
+        // Skip if this figure matches the student role exactly
+        if (studentRole && (figureName.includes(studentRole) || figureRole.includes(studentRole))) {
+          return false;
+        }
+        
+        // Skip if this figure has a role that suggests they're the main protagonist
+        const protagonistRoles = ['protagonist', 'main character', 'lead', 'principal', 'central figure'];
+        if (protagonistRoles.some(role => figureRole.includes(role))) {
+          return false;
+        }
+        
+        return true;
+      });
+      
+      const newPersonas = filteredFigures.map((figure: any, index: number) => {
+        // Format goals properly
+        let formattedGoals = 'Goals not specified in the case study.';
+        if (Array.isArray(figure.primary_goals) && figure.primary_goals.length > 0) {
+          formattedGoals = figure.primary_goals.map((goal: string) => `• ${goal}`).join('\n');
+        } else if (typeof figure.primary_goals === 'string' && figure.primary_goals.trim()) {
+          formattedGoals = figure.primary_goals;
+        }
+        
+        return {
+          id: `persona-${index}`,
+          name: figure.name || `Persona ${index + 1}`,
+          role: figure.role || 'Unknown Role',
+          background: figure.background || 'Background not specified in the case study.',
+          goals: formattedGoals,
+          personality: figure.personality_traits ? Object.entries(figure.personality_traits)
+            .map(([trait, value]) => `${trait}: ${value}/10`)
+            .join(', ') : 'Personality traits not specified in the case study.',
+          correlation: figure.correlation || 'Correlation not specified in the case study.',
+          isMainCharacter: figure.is_main_character || false
+        };
+      });
+      
+      setPersonas(newPersonas);
+      markAsUnsaved();
+      break;
+    case 'scenes':
+      if (Array.isArray(fieldValue)) {
+        const formattedScenes = fieldValue.map((scene: any, index: number) => ({
+          id: `scene-${index}`,
+          title: scene.title || `Scene ${index + 1}`,
+          description: scene.description || 'Description not provided.',
+          personasInvolved: scene.personas_involved || [],
+          userGoal: scene.user_goal || 'Goal not specified.',
+          sequenceOrder: scene.sequence_order || index + 1,
+          imageUrl: scene.image_url || '',
+          successMetric: scene.success_metric || 'Success metric not specified.',
+          goal: scene.goal || 'Goal not specified.',
+          // Preserve all other AI-generated fields
+          ...scene
+        }));
+        console.log('Scenes updated with images:', formattedScenes.map(s => ({ 
+          title: s.title, 
+          imageUrl: s.imageUrl,
+          hasImage: !!s.imageUrl 
+        })));
+        setScenes(formattedScenes);
+        markAsUnsaved();
+      }
+      break;
+          case 'learning_outcomes':
+            if (Array.isArray(fieldValue)) {
+              setLearningOutcomes(fieldValue);
+              markAsUnsaved();
+            }
+            break;
+          case 'ai_enhancement_complete':
+            // Mark AI enhancement as complete when backend signals completion
+            console.log('AI enhancement completed by backend');
+            setAiEnhancementComplete(true);
+            markAsUnsaved();
+            break;
+          default:
+            console.log('Unknown field:', fieldName);
+  }
+};
+
+const handleAutofill = async () => {
    if (!uploadedFile) return;
    setAutofillLoading(true);
    setAutofillError(null);
@@ -911,11 +1231,11 @@ export default function ScenarioBuilder() {
          processedScenes.forEach((scene: any, index: number) => {
            console.log(`Scene ${index + 1}: ${scene.title}`);
            console.log(`  Goal: ${scene.user_goal}`);
-           console.log(`  Personas: ${scene.personas_involved.join(', ')}`);
+           console.log(`  Personas: ${scene.personas_involved?.join(', ') || 'None'}`);
            console.log(`  Image: ${scene.image_url ? 'Generated' : 'None'}`);
          });
          setScenes(processedScenes);
-         console.log("Processed scenes:", processedScenes.map((s: any) => ({ title: s.title, personas_involved: s.personas_involved })));
+         console.log("Processed scenes:", processedScenes.map((s: any) => ({ title: s.title, personas_involved: s.personas_involved || [] })));
        } else {
          console.log("[DEBUG] No scenes found in aiData, creating empty scenes array");
          setScenes([]);
@@ -1586,16 +1906,16 @@ return (
              <button
                className="bg-black text-white rounded px-4 py-2 font-medium shadow hover:bg-gray-800 transition border border-black h-10 w-60whitespace-nowrap"
                onClick={() => {
-                 // Prioritize Teaching Notes file for autofill, but allow Business Case Study only
-                 if (teachingNotesFile) {
+                 // Use the new progress tracking for Business Case Study
+                 if (uploadedFile) {
+                   handleAutofillWithProgress();
+                 } else if (teachingNotesFile) {
                    handleAutofillWithTeachingNotes();
-                 } else if (uploadedFile) {
-                   handleAutofill();
                  } else {
                    console.log("No files uploaded for autofill");
                  }
                }}
-               disabled={autofillLoading}
+               disabled={isParsingWithProgress || autofillLoading}
              >
                <Sparkles className="mr-2 h-4 w-5 text-white inline" />
                Use and autofill
@@ -1604,8 +1924,52 @@ return (
          )}
        </div>
 
-         {/* Show loading progress */}
-         {autofillLoading && (
+
+      {/* Show simulation builder progress */}
+      <SimulationBuilderProgress
+        name={name}
+        description={description}
+        studentRole={studentRole}
+        personas={personas}
+        scenes={scenes}
+        learningOutcomes={learningOutcomes}
+        isProcessing={isParsingWithProgress}
+        isAIEnhancementComplete={aiEnhancementComplete || (!isParsingWithProgress && sessionId && !parsingError)}
+        completionStatus={completionStatus}
+        hasAutofillResult={!!autofillResult}
+        nameCompleted={dbCompletionFields.nameCompleted}
+        descriptionCompleted={dbCompletionFields.descriptionCompleted}
+        studentRoleCompleted={dbCompletionFields.studentRoleCompleted}
+        personasCompleted={dbCompletionFields.personasCompleted}
+        scenesCompleted={dbCompletionFields.scenesCompleted}
+        imagesCompleted={dbCompletionFields.imagesCompleted}
+        learningOutcomesCompleted={dbCompletionFields.learningOutcomesCompleted}
+        aiEnhancementCompleted={dbCompletionFields.aiEnhancementCompleted}
+        className="mt-4"
+      />
+
+      {/* Hidden PDF progress tracker for field updates */}
+      {(isParsingWithProgress || sessionId) && (
+        <div style={{ display: 'none' }}>
+          <PDFProgressTrackerHTTP
+            sessionId={sessionId || ''}
+            onComplete={(result) => {
+              console.log('PDF parsing completed:', result);
+            }}
+            onError={(error) => {
+              console.error('PDF parsing error:', error);
+              setAutofillError(error);
+            }}
+            onFieldUpdate={(fieldName, fieldValue) => {
+              console.log('Field update received:', fieldName, fieldValue);
+              handleFieldUpdate(fieldName, fieldValue);
+            }}
+          />
+        </div>
+      )}
+         
+         {/* Show legacy loading progress for Teaching Notes */}
+         {autofillLoading && !isParsingWithProgress && (
            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
              <div className="flex items-center justify-between mb-2">
                <span className="text-sm font-medium text-blue-800">{autofillStep}</span>
@@ -1667,6 +2031,22 @@ return (
                      className="mt-1 w-full overflow-visible rounded-none z-10 p-2 min-h-[200px] resize-y whitespace-pre-wrap"
                      style={{ minHeight: '200px', maxHeight: '400px' }}
                    />
+                 </div>
+                 <div className="overflow-visible focus-within:overflow-visible">
+                   <Label htmlFor="studentRole">Student Role</Label>
+                   <Input 
+                     id="studentRole" 
+                     value={studentRole} 
+                     onChange={e => {
+                       setStudentRole(e.target.value);
+                       markAsUnsaved();
+                     }} 
+                     placeholder="e.g., Ng'ang'a Wanjohi (CEO of KasKazi Network), Business Analyst, Strategic Advisor"
+                     className="mt-1 w-full box-border p-2" 
+                   />
+                   <p className="text-sm text-muted-foreground mt-1">
+                     The role the student will assume in this simulation. This could be a specific character from the case study or a business position.
+                   </p>
                  </div>
                  <div className="overflow-visible focus-within:overflow-visible">
                    <Label htmlFor="learning-outcomes">Learning Outcomes</Label>

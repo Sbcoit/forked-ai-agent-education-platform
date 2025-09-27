@@ -5,11 +5,13 @@ Provides IP-based rate limiting for anonymous operations using in-memory storage
 
 import time
 import threading
-from typing import Optional, Dict, Any
+import asyncio
+from typing import Optional, Dict, Any, Callable
 from datetime import datetime, timedelta, timezone
 from fastapi import Request, HTTPException
 from pydantic import BaseModel
 from collections import defaultdict, deque
+from functools import wraps
 
 class RateLimitConfig(BaseModel):
     """Configuration for rate limiting"""
@@ -260,3 +262,31 @@ def check_test_login_rate_limit(request: Request) -> RateLimitResult:
         )
     
     return result
+
+def async_retry(retries: int = 3, delay: float = 1.0):
+    """
+    Decorator for retrying async functions with exponential backoff
+    
+    Args:
+        retries: Number of retry attempts
+        delay: Initial delay between retries in seconds
+    """
+    def decorator(func: Callable):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < retries:
+                        wait_time = delay * (2 ** attempt)  # Exponential backoff
+                        await asyncio.sleep(wait_time)
+                    else:
+                        raise last_exception
+            
+            return None
+        return wrapper
+    return decorator

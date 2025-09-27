@@ -534,7 +534,7 @@ export default function Dashboard() {
                 {simulations
                   .filter(sim => activeFilter === "All" || sim.status === activeFilter)
                   .map((simulation) => (
-                  <Card key={simulation.id} className="bg-white border border-gray-200 hover:shadow-lg transition-shadow">
+                  <Card key={`${simulation.id}-${simulation.status}`} className="bg-white border border-gray-200 hover:shadow-lg transition-shadow">
                     <CardHeader className="pb-4 px-4 sm:px-6 pt-4 sm:pt-6">
                       {/* Header Container - Title and Status */}
                       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">

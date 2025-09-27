@@ -37,6 +37,8 @@ interface Scenario {
   student_role?: string
   created_at: string
   is_public: boolean
+  status?: string
+  is_draft?: boolean
 }
 
 interface Persona {
@@ -105,11 +107,12 @@ const ScenarioSelector = ({
     }
   }, [user, authLoading])
 
-  const fetchScenarios = async () => {
-    try {
-      const response = await apiClient.apiRequest("/api/scenarios/", {}, true) // silentAuthError = true
-      if (response.ok) {
-        const data = await response.json()
+    const fetchScenarios = async () => {
+      try {
+        // For test-simulations page, show all scenarios (both draft and active) for the professor
+        const response = await apiClient.apiRequest("/api/scenarios/", {}, true) // silentAuthError = true
+        if (response.ok) {
+          const data = await response.json()
         // Filter scenarios that have both personas and scenes
         const validScenarios = data.filter((s: any) => 
           s.personas && s.personas.length > 0 && 
@@ -193,8 +196,12 @@ const ScenarioSelector = ({
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
                     <h3 className="font-semibold">{scenario.title}</h3>
-                    {scenario.is_public && (
+                    {scenario.is_draft ? (
+                      <Badge variant="secondary" className="text-xs bg-yellow-100 text-yellow-800">Draft</Badge>
+                    ) : scenario.is_public ? (
                       <Badge variant="secondary" className="text-xs bg-green-100 text-green-800">Active</Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-800">Private</Badge>
                     )}
                   </div>
                   
@@ -222,24 +229,53 @@ const ScenarioSelector = ({
                   <Badge variant="outline" className="text-xs">
                     ID: {scenario.unique_id || scenario.id}
                   </Badge>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      if (!window.confirm(`Delete scenario '${scenario.title}'? This cannot be undone.`)) return;
-                      try {
-                        const res = await apiClient.apiRequest(`/api/scenarios/unique/${scenario.unique_id}`, { method: 'DELETE' });
-                        if (!res.ok) throw new Error('Failed to delete');
-                        setScenarios(scenarios => scenarios.filter(s => s.unique_id !== scenario.unique_id));
-                        if (selectedScenario === scenario.id) setSelectedScenario(null);
-                      } catch (err) {
-                        alert('Failed to delete scenario.');
-                      }
-                    }}
-                  >
-                    Delete
-                  </Button>
+                  <div className="flex gap-2">
+                    {scenario.is_draft && (
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!window.confirm(`Activate scenario '${scenario.title}'? This will make it available to students.`)) return;
+                          try {
+                            const res = await apiClient.apiRequest(`/api/publishing/scenarios/${scenario.id}/status`, {
+                              method: 'PUT',
+                              body: JSON.stringify({ status: 'active' })
+                            });
+                            if (!res.ok) throw new Error('Failed to activate');
+                            // Update the scenario in the list
+                            setScenarios(scenarios => scenarios.map(s => 
+                              s.id === scenario.id 
+                                ? { ...s, is_draft: false, is_public: true, status: 'active' }
+                                : s
+                            ));
+                          } catch (err) {
+                            alert('Failed to activate scenario.');
+                          }
+                        }}
+                      >
+                        Activate
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!window.confirm(`Delete scenario '${scenario.title}'? This cannot be undone.`)) return;
+                        try {
+                          const res = await apiClient.apiRequest(`/api/publishing/scenarios/unique/${scenario.unique_id}`, { method: 'DELETE' });
+                          if (!res.ok) throw new Error('Failed to delete');
+                          setScenarios(scenarios => scenarios.filter(s => s.unique_id !== scenario.unique_id));
+                          if (selectedScenario === scenario.id) setSelectedScenario(null);
+                        } catch (err) {
+                          alert('Failed to delete scenario.');
+                        }
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -514,7 +550,7 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
       setSimulationData(data)
       
       // Try to fetch all scenes for the scenario
-      const scenesRes = await apiClient.apiRequest(`/api/scenarios/${scenarioId}/full`, {}, true); // Add silentAuthError = true
+      const scenesRes = await apiClient.apiRequest(`/api/publishing/scenarios/${scenarioId}/full`, {}, true); // Add silentAuthError = true
       if (scenesRes.ok) {
         const scenarioDetail = await scenesRes.json();
         console.log("[DEBUG] Scenario detail response:", scenarioDetail);
@@ -832,80 +868,155 @@ ${involvedPersonas.map(persona => `• @${persona.name.toLowerCase().replace(/\s
   //   fetchGradingData();
   // }
 
-  // Grading Modal
+  // Enhanced Grading Modal
   {showGrading && gradingData && (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-lg p-8 max-w-4xl w-full overflow-y-auto max-h-[90vh]">
-        <h2 className="text-2xl font-bold mb-4 text-center">Simulation Grading & Feedback</h2>
-        <div className="mb-6">
-          <div className="text-lg font-semibold">Overall Score: <span className="text-blue-600">{gradingData.overall_score}</span></div>
-          <div className="text-gray-700 mt-2">{gradingData.overall_feedback}</div>
-        </div>
-        {gradingData.scenes && gradingData.scenes.map((scene: any, idx: number) => (
-          <div key={scene.id} className="mb-6 border-b pb-4">
-            <div className="font-semibold text-blue-700">{scene.title}</div>
-            <div className="text-sm text-gray-500 mb-2">{scene.objective}</div>
-            <div className="mb-2">
-              <span className="font-medium">Your Responses:</span>
-              <div
-                style={{
-                  maxHeight: '120px',
-                  overflowY: 'auto',
-                  background: '#f9fafb',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '0.375rem',
-                  padding: '0.5rem',
-                  marginTop: '0.5rem',
-                  fontSize: '0.95rem',
-                  whiteSpace: 'pre-wrap',
-                  width: '100%',
-                  fontFamily: 'inherit',
-                  resize: 'none',
-                  color: '#222'
-                }}
-                tabIndex={-1}
-                aria-readonly="true"
-              >
-                {scene.user_responses && scene.user_responses.length > 0
-                  ? scene.user_responses.map((msg: any) => `• ${msg.content}`).join('\n\n')
-                  : <span className="text-gray-400">No responses.</span>}
-              </div>
-            </div>
-            <div className="text-sm text-green-700 mb-1">Score: {scene.score}</div>
-            <div className="text-gray-700">{scene.feedback}</div>
-            {scene.teaching_notes && (
-              <div className="mt-2 text-xs text-gray-500 italic">Teaching Notes: {scene.teaching_notes}</div>
-            )}
+      <div className="bg-white rounded-lg shadow-lg p-8 max-w-6xl w-full overflow-y-auto max-h-[90vh]">
+        <h2 className="text-3xl font-bold mb-6 text-center text-gray-800">Business Simulation Assessment</h2>
+        
+        {/* Overall Performance Section */}
+        <div className="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg border border-blue-200">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-semibold text-blue-800">Overall Performance</h3>
+            <div className="text-3xl font-bold text-blue-600">{gradingData.overall_score}/100</div>
           </div>
-        ))}
-                    <div className="flex justify-center mt-6">
-              <button className="btn btn-primary" onClick={() => {
-                console.log("[DEBUG] Closing grading modal");
-                setShowGrading(false);
-                setGradingHasBeenShown(true);
-                setInputBlocked(false);
-                setCanSubmitForGrading(false);
-                setHasSubmittedForGrading(false);
-                
-                // Update the completion message to show the "View Grading" button
-                setMessages(prev => {
-                  console.log("[DEBUG] Current messages before update:", prev);
-                  console.log("[DEBUG] Looking for completion message with text containing '🎉 Simulation complete!'");
-                  const updatedMessages = prev.map(msg => {
-                    console.log("[DEBUG] Checking message:", msg.text.substring(0, 50), "showViewGrading:", msg.showViewGrading, "type:", msg.type);
-                    if (msg.text.includes("🎉 Simulation complete!") && msg.type === 'system') {
-                      console.log("[DEBUG] FOUND COMPLETION MESSAGE! Updating showViewGrading to true");
-                      const updatedMsg = { ...msg, showViewGrading: true };
-                      console.log("[DEBUG] Updated message:", updatedMsg);
-                      return updatedMsg;
-                    }
-                    return msg;
-                  });
-                  console.log("[DEBUG] Final updated messages:", updatedMessages);
-                  return updatedMessages;
-                });
-              }}>Close</button>
+          <div className="text-gray-700 text-base leading-relaxed">{gradingData.overall_feedback}</div>
+          
+          {/* Enhanced feedback sections if available */}
+          {gradingData.key_strengths && (
+            <div className="mt-4">
+              <h4 className="font-semibold text-green-700 mb-2">Key Strengths:</h4>
+              <ul className="list-disc list-inside text-gray-700 space-y-1">
+                {gradingData.key_strengths.map((strength: string, idx: number) => (
+                  <li key={idx}>{strength}</li>
+                ))}
+              </ul>
             </div>
+          )}
+          
+          {gradingData.development_areas && (
+            <div className="mt-4">
+              <h4 className="font-semibold text-orange-700 mb-2">Areas for Development:</h4>
+              <ul className="list-disc list-inside text-gray-700 space-y-1">
+                {gradingData.development_areas.map((area: string, idx: number) => (
+                  <li key={idx}>{area}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          
+          {gradingData.business_acumen_assessment && (
+            <div className="mt-4 p-4 bg-white rounded border border-gray-200">
+              <h4 className="font-semibold text-purple-700 mb-2">Business Acumen Assessment:</h4>
+              <p className="text-gray-700">{gradingData.business_acumen_assessment}</p>
+            </div>
+          )}
+          
+          {gradingData.recommendations && (
+            <div className="mt-4">
+              <h4 className="font-semibold text-indigo-700 mb-2">Recommendations for Continued Learning:</h4>
+              <ul className="list-disc list-inside text-gray-700 space-y-1">
+                {gradingData.recommendations.map((rec: string, idx: number) => (
+                  <li key={idx}>{rec}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* Scene-by-Scene Analysis */}
+        <div className="mb-6">
+          <h3 className="text-xl font-semibold text-gray-800 mb-4">Scene-by-Scene Analysis</h3>
+          {gradingData.scenes && gradingData.scenes.map((scene: any, idx: number) => (
+            <div key={scene.id} className="mb-6 border border-gray-200 rounded-lg p-6 bg-gray-50">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-semibold text-blue-700 text-lg">{scene.title}</div>
+                <div className="text-lg font-bold text-green-600">{scene.score}/100</div>
+              </div>
+              <div className="text-sm text-gray-600 mb-3">{scene.objective}</div>
+              
+              <div className="mb-4">
+                <span className="font-medium text-gray-700">Your Responses:</span>
+                <div className="mt-2 p-3 bg-white rounded border border-gray-200 max-h-32 overflow-y-auto">
+                  {scene.user_responses && scene.user_responses.length > 0
+                    ? scene.user_responses.map((msg: any, msgIdx: number) => (
+                        <div key={msgIdx} className="mb-2 text-sm text-gray-700">
+                          <span className="font-medium">{msgIdx + 1}.</span> {msg.content}
+                        </div>
+                      ))
+                    : <span className="text-gray-400 italic">No responses recorded.</span>}
+                </div>
+              </div>
+              
+              <div className="text-gray-700 leading-relaxed">{scene.feedback}</div>
+              
+              {/* Enhanced scene feedback if available */}
+              {scene.strengths && (
+                <div className="mt-3">
+                  <h5 className="font-semibold text-green-600 mb-1">Strengths:</h5>
+                  <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
+                    {scene.strengths.map((strength: string, strengthIdx: number) => (
+                      <li key={strengthIdx}>{strength}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              
+              {scene.improvements && (
+                <div className="mt-3">
+                  <h5 className="font-semibold text-orange-600 mb-1">Areas for Improvement:</h5>
+                  <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
+                    {scene.improvements.map((improvement: string, impIdx: number) => (
+                      <li key={impIdx}>{improvement}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              
+              {scene.business_insights && (
+                <div className="mt-3 p-3 bg-blue-50 rounded border border-blue-200">
+                  <h5 className="font-semibold text-blue-700 mb-1">Business Insights:</h5>
+                  <p className="text-sm text-gray-700">{scene.business_insights}</p>
+                </div>
+              )}
+              
+              {scene.teaching_notes && (
+                <div className="mt-3 text-xs text-gray-500 italic bg-yellow-50 p-2 rounded border border-yellow-200">
+                  <strong>Teaching Notes:</strong> {scene.teaching_notes}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        
+        <div className="flex justify-center mt-6">
+          <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg transition-colors duration-200" onClick={() => {
+            console.log("[DEBUG] Closing grading modal");
+            setShowGrading(false);
+            setGradingHasBeenShown(true);
+            setInputBlocked(false);
+            setCanSubmitForGrading(false);
+            setHasSubmittedForGrading(false);
+            
+            // Update the completion message to show the "View Grading" button
+            setMessages(prev => {
+              console.log("[DEBUG] Current messages before update:", prev);
+              console.log("[DEBUG] Looking for completion message with text containing '🎉 Simulation complete!'");
+              const updatedMessages = prev.map(msg => {
+                console.log("[DEBUG] Checking message:", msg.text.substring(0, 50), "showViewGrading:", msg.showViewGrading, "type:", msg.type);
+                if (msg.text.includes("🎉 Simulation complete!") && msg.type === 'system') {
+                  console.log("[DEBUG] FOUND COMPLETION MESSAGE! Updating showViewGrading to true");
+                  const updatedMsg = { ...msg, showViewGrading: true };
+                  console.log("[DEBUG] Updated message:", updatedMsg);
+                  return updatedMsg;
+                }
+                return msg;
+              });
+              console.log("[DEBUG] Final updated messages:", updatedMessages);
+              return updatedMessages;
+            });
+          }}>Close Assessment</button>
+        </div>
       </div>
     </div>
   )}

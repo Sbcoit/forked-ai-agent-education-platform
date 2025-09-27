@@ -1,139 +1,86 @@
-# CodeRabbit Configuration for AI Agent Education Platform
-# This file configures CodeRabbit's behavior for code reviews
+# CodeRabbit Configuration
+# This file configures how CodeRabbit reviews your code
 
 # Global settings
+global:
+  # Review frequency
+  review_frequency: "every_pr"
+  
+  # Languages to focus on
+  languages:
+    - python
+    - typescript
+    - javascript
+    - sql
+    - yaml
+    - json
+
+# Path-specific settings
+paths:
+  # Backend Python code
+  "backend/**/*.py":
+    focus:
+      - code_quality
+      - security
+      - performance
+      - best_practices
+    ignore:
+      - "**/__pycache__/**"
+      - "**/migrations/**"
+      - "**/venv/**"
+
+  # Frontend TypeScript/JavaScript
+  "frontend/**/*.{ts,tsx,js,jsx}":
+    focus:
+      - code_quality
+      - performance
+      - accessibility
+      - best_practices
+    ignore:
+      - "**/node_modules/**"
+      - "**/dist/**"
+      - "**/build/**"
+
+  # Database files
+  "backend/database/**/*.py":
+    focus:
+      - security
+      - data_integrity
+      - performance
+      - migrations
+
+  # API endpoints
+  "backend/api/**/*.py":
+    focus:
+      - security
+      - error_handling
+      - input_validation
+      - documentation
+
+# Review settings
 review:
-  # Enable comprehensive code reviews
-  comprehensive: true
+  # Minimum confidence level for suggestions
+  min_confidence: 0.7
   
-  # Focus on these areas during reviews
-  focus:
-    - "security"
-    - "performance"
-    - "maintainability"
-    - "best-practices"
-    - "accessibility"
+  # Maximum number of comments per PR
+  max_comments: 20
   
-  # Review settings
-  settings:
-    # Enable detailed feedback
-    detailed: true
-    
-    # Include suggestions for improvements
-    suggestions: true
-    
-    # Check for potential bugs
-    bugs: true
-    
-    # Review documentation
-    documentation: true
-    
-    # Check code style and formatting
-    style: true
+  # Include suggestions for:
+  suggestions:
+    - code_improvements
+    - security_issues
+    - performance_optimizations
+    - best_practices
+    - documentation
+    - test_coverage
 
-# Language-specific settings
-languages:
-  python:
-    # Enable type checking suggestions
-    type_checking: true
-    
-    # Check for Python best practices
-    best_practices: true
-    
-    # Review imports and dependencies
-    imports: true
-    
-    # Check for security vulnerabilities
-    security: true
-    
-  typescript:
-    # Enable TypeScript-specific checks
-    strict_mode: true
-    
-    # Review component patterns
-    patterns: true
-    
-    # Check for React best practices
-    react: true
-    
-    # Review accessibility
-    accessibility: true
-    
-  javascript:
-    # Enable modern JavaScript features review
-    modern_features: true
-    
-    # Check for performance issues
-    performance: true
-
-# File patterns to include/exclude
-files:
-  include:
-    - "backend/**/*.py"
-    - "frontend/**/*.{ts,tsx,js,jsx}"
-    - "docs/**/*.md"
-    - "*.{yml,yaml,json}"
-    - "requirements.txt"
-    - "package.json"
-    - "*.md"
-  
-  exclude:
-    - "**/node_modules/**"
-    - "**/__pycache__/**"
-    - "**/venv/**"
-    - "**/.git/**"
-    - "**/dist/**"
-    - "**/build/**"
-    - "**/*.min.js"
-    - "**/*.min.css"
-
-# Project-specific settings
-project:
-  # This is an AI/ML education platform
-  domain: "ai-education"
-  
-  # Key technologies used
-  technologies:
-    - "python"
-    - "fastapi"
-    - "postgresql"
-    - "react"
-    - "typescript"
-    - "tailwind"
-    - "langchain"
-    - "openai"
-  
-  # Focus areas for this project
-  focus_areas:
-    - "database-migrations"
-    - "api-design"
-    - "ai-agent-architecture"
-    - "user-authentication"
-    - "data-security"
-    - "performance-optimization"
-
-# Custom review prompts
-prompts:
-  # Custom prompts for specific file types
-  database:
-    - "Review database schema changes for migration safety"
-    - "Check for potential data integrity issues"
-    - "Ensure proper indexing for performance"
-  
-  api:
-    - "Review API endpoint design and security"
-    - "Check for proper error handling"
-    - "Ensure consistent response formats"
-  
-  frontend:
-    - "Review component reusability and performance"
-    - "Check for accessibility compliance"
-    - "Ensure responsive design principles"
-
-# Notification settings
-notifications:
-  # Only notify on significant issues
-  threshold: "medium"
-  
-  # Include summary in comments
-  summary: true
+# Ignore patterns
+ignore:
+  - "**/*.log"
+  - "**/package-lock.json"
+  - "**/pnpm-lock.yaml"
+  - "**/requirements.txt"
+  - "**/.env*"
+  - "**/node_modules/**"
+  - "**/venv/**"
+  - "**/__pycache__/**"

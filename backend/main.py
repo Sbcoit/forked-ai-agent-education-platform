@@ -48,8 +48,7 @@ from api.oauth import router as oauth_router, lifespan as oauth_lifespan
 from api.cohorts import router as cohorts_router
 from services.session_manager import session_manager_lifespan
 
-# Import startup check
-from startup_check import run_startup_checks, auto_setup_if_needed
+# Startup check module was removed - startup checks are no longer performed
 
 # Import session manager for cleanup task
 from services.session_manager import session_manager
@@ -111,17 +110,7 @@ async def startup_event():
     logger = logging.getLogger(__name__)
     
     logger.info("🚀 Starting AI Agent Education Platform...")
-    
-    # Try auto-setup first (only in development)
-    if not auto_setup_if_needed():
-        logger.warning("⚠️  Auto-setup failed, continuing with manual checks...")
-    
-    # Run startup checks
-    if not run_startup_checks():
-        logger.error("❌ Startup checks failed - the application may not work correctly")
-        logger.error("Please run: python backend/setup_dev_environment.py")
-    else:
-        logger.info("✅ Application startup completed successfully!")
+    logger.info("✅ Application startup completed successfully!")
     
 
 # CORS middleware

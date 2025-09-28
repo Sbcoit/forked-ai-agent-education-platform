@@ -755,12 +755,14 @@ async def register_user(user: UserRegister, response: Response, db: Session = De
     
     # Create access token and set HttpOnly cookie
     access_token = create_access_token(data={"sub": str(db_user.id)})
+    # For cross-origin requests, we need samesite="none" in production
+    is_production = settings.environment == "production"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,  # HttpOnly cookie - not accessible via JavaScript
-        secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",  # Use environment variable for development
-        samesite="lax", # CSRF protection
+        secure=is_production,  # Required for samesite="none"
+        samesite="none" if is_production else "lax",  # "none" for cross-origin in production
         max_age=30 * 24 * 60 * 60  # 30 days (same as token expiry)
     )
     
@@ -779,12 +781,14 @@ async def login_user(user: UserLogin, response: Response, db: Session = Depends(
     access_token = create_access_token(data={"sub": str(db_user.id)})
     
     # Set HttpOnly cookie for secure authentication
+    # For cross-origin requests, we need samesite="none" in production
+    is_production = settings.environment == "production"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,  # HttpOnly cookie - not accessible via JavaScript
-        secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",  # Use environment variable for development
-        samesite="lax", # CSRF protection
+        secure=is_production,  # Required for samesite="none"
+        samesite="none" if is_production else "lax",  # "none" for cross-origin in production
         max_age=30 * 24 * 60 * 60  # 30 days (same as token expiry)
     )
     
@@ -824,11 +828,12 @@ async def check_email_exists(request: dict, db: Session = Depends(get_db)):
 @app.post("/users/logout")
 async def logout_user(response: Response):
     """Logout user by clearing HttpOnly cookie"""
+    is_production = settings.environment == "production"
     response.delete_cookie(
         key="access_token",
         httponly=True,
-        secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",  # Match login cookie settings
-        samesite="lax"
+        secure=is_production,  # Match login cookie settings
+        samesite="none" if is_production else "lax"
     )
     return {"message": "Successfully logged out"}
 

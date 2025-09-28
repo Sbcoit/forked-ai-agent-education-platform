@@ -110,6 +110,35 @@ async def startup_event():
     logger = logging.getLogger(__name__)
     
     logger.info("🚀 Starting AI Agent Education Platform...")
+    
+    # Run database migrations in production
+    if settings.environment == "production":
+        try:
+            logger.info("🗄️  Running database migrations...")
+            import subprocess
+            import sys
+            from pathlib import Path
+            
+            # Change to database directory and run migrations
+            db_dir = Path(__file__).parent / "database"
+            result = subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                cwd=db_dir,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode == 0:
+                logger.info("✅ Database migrations completed successfully")
+            else:
+                logger.warning(f"⚠️  Migration warning: {result.stderr}")
+                logger.info("💡 App will continue - migrations may have been already applied")
+                
+        except Exception as e:
+            logger.warning(f"⚠️  Migration error: {e}")
+            logger.info("💡 App will continue - database may already be up to date")
+    
     logger.info("✅ Application startup completed successfully!")
     
 

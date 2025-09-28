@@ -9,4 +9,7 @@ restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 
 [environments.production]
-variables = { ENVIRONMENT = "production" }
+variables = { 
+  ENVIRONMENT = "production",
+  PYTHONPATH = "/app"
+}

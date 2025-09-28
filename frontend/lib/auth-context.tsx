@@ -178,7 +178,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (process.env.NODE_ENV === 'development') {
           console.log('Checking authentication status...')
         }
-        const currentUser = await apiClient.getCurrentUser()
+        
+        // Add retry logic to handle race condition where cookie isn't available immediately
+        let currentUser = null
+        let retries = 3
+        
+        while (retries > 0 && !currentUser) {
+          try {
+            currentUser = await apiClient.getCurrentUser()
+            if (currentUser) break
+          } catch (error) {
+            console.log(`Auth check attempt ${4 - retries} failed, retrying...`)
+          }
+          
+          // Wait briefly before retry to allow cookie to be set
+          if (retries > 1) {
+            await new Promise(resolve => setTimeout(resolve, 500))
+          }
+          retries--
+        }
         if (currentUser) {
           if (process.env.NODE_ENV === 'development') {
             console.log('User authenticated successfully:', currentUser.email)

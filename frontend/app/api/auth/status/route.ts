@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
   try {
-    const response = await fetch('http://localhost:8000/auth/auth/status', {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/auth/auth/status`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

@@ -17,7 +17,10 @@ export default function GoogleCallbackPage() {
 
         if (token && userData) {
           // Set the cookie in the main window context
-          document.cookie = `access_token=${token}; path=/; domain=localhost; max-age=1800; secure=false; samesite=lax`
+          const isProduction = process.env.NODE_ENV === 'production'
+          const domain = isProduction ? '.railway.app' : 'localhost'
+          const secure = isProduction ? 'secure' : ''
+          document.cookie = `access_token=${token}; path=/; domain=${domain}; max-age=1800; ${secure}; samesite=lax`
           console.log('Frontend callback: Set access_token cookie')
 
           // Parse user data

@@ -69,7 +69,7 @@ export default function RoleSelectionPage() {
       console.log('Role selection: Selecting role:', role)
       
       // Call the backend to complete the OAuth with the selected role
-      const response = await fetch('http://localhost:8000/auth/google/select-role', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/auth/google/select-role`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -92,7 +92,10 @@ export default function RoleSelectionPage() {
 
       // Set the cookie in the main window context
       if (result.access_token) {
-        document.cookie = `access_token=${result.access_token}; path=/; domain=localhost; max-age=1800; secure=false; samesite=lax`
+        const isProduction = process.env.NODE_ENV === 'production'
+        const domain = isProduction ? '.railway.app' : 'localhost'
+        const secure = isProduction ? 'secure' : ''
+        document.cookie = `access_token=${result.access_token}; path=/; domain=${domain}; max-age=1800; ${secure}; samesite=lax`
         console.log('Role selection: Set access_token cookie')
       }
 

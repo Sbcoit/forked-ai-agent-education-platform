@@ -121,9 +121,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!lastActivity) {
       // No activity timestamp means this is a fresh session, set current time and don't logout
       if (process.env.NODE_ENV === 'development') {
-        console.log('Fresh session detected, setting activity timestamp')
+        console.log('Fresh session detected, setting activity timestamp (client-side only)')
       }
-      updateLastActivity()
+      updateLastActivityLocal() // Use local-only update to avoid API call during initialization
       return false
     }
     
@@ -147,7 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.log(`User active within last ${Math.round(timeSinceActivity / 60000)} minutes, staying logged in`)
     }
     return false
-  }, [updateLastActivity])
+  }, [updateLastActivityLocal])
 
   // Initialize auth state on mount
   useEffect(() => {

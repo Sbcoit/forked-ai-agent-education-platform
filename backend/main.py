@@ -116,9 +116,9 @@ async def startup_event():
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173", "http://127.0.0.1:51231"],  # Include all possible frontend URLs
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -700,9 +700,9 @@ async def register_user(user: UserRegister, response: Response, db: Session = De
         key="access_token",
         value=access_token,
         httponly=True,  # HttpOnly cookie - not accessible via JavaScript
-        secure=os.getenv("COOKIE_SECURE", "true").lower() == "true",  # Use environment variable
+        secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",  # Use environment variable for development
         samesite="lax", # CSRF protection
-        max_age=30 * 60  # 30 minutes (same as token expiry)
+        max_age=30 * 24 * 60 * 60  # 30 days (same as token expiry)
     )
     
     return db_user
@@ -724,9 +724,9 @@ async def login_user(user: UserLogin, response: Response, db: Session = Depends(
         key="access_token",
         value=access_token,
         httponly=True,  # HttpOnly cookie - not accessible via JavaScript
-        secure=True,    # Only send over HTTPS in production
+        secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",  # Use environment variable for development
         samesite="lax", # CSRF protection
-        max_age=30 * 60  # 30 minutes (same as token expiry)
+        max_age=30 * 24 * 60 * 60  # 30 days (same as token expiry)
     )
     
     return UserLoginResponse(
@@ -768,7 +768,7 @@ async def logout_user(response: Response):
     response.delete_cookie(
         key="access_token",
         httponly=True,
-        secure=True,
+        secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",  # Match login cookie settings
         samesite="lax"
     )
     return {"message": "Successfully logged out"}

@@ -1,7 +1,7 @@
 # AI Agent Education Platform - Consolidated .gitignore
 
 # Environment files
-.env
+.env 
 .env.local
 .env.development.local
 .env.test.local

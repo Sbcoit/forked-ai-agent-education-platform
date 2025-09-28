@@ -10,7 +10,8 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql://localhost:5432/ai_agent_platform"
+    # Use DATABASE_URL from environment (Railway provides this), fallback to localhost for development
+    database_url: str = os.getenv("DATABASE_URL", "postgresql://localhost:5432/ai_agent_platform")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     serper_api_key: str = os.getenv("SERPER_API_KEY", "")

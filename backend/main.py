@@ -110,15 +110,74 @@ async def startup_event():
     logger = logging.getLogger(__name__)
     
     logger.info("🚀 Starting AI Agent Education Platform...")
+    
+    # Run database migrations in production
+    if settings.environment == "production":
+        try:
+            logger.info("🗄️  Running database migrations...")
+            import subprocess
+            import sys
+            from pathlib import Path
+            
+            # Change to database directory and run migrations
+            db_dir = Path(__file__).parent / "database"
+            result = subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                cwd=db_dir,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode == 0:
+                logger.info("✅ Database migrations completed successfully")
+            else:
+                logger.warning(f"⚠️  Migration warning: {result.stderr}")
+                logger.info("💡 App will continue - migrations may have been already applied")
+                
+        except Exception as e:
+            logger.warning(f"⚠️  Migration error: {e}")
+            logger.info("💡 App will continue - database may already be up to date")
+    
     logger.info("✅ Application startup completed successfully!")
     
 
-# CORS middleware
+# CORS middleware - Dynamic origins based on environment
+def get_cors_origins():
+    """Get CORS origins based on environment"""
+    base_origins = [
+        "http://localhost:3000", 
+        "http://localhost:5173", 
+        "http://127.0.0.1:3000", 
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:51231"
+    ]
+    
+    # Add production origins from environment variable
+    cors_origins = os.getenv("CORS_ORIGINS")
+    if cors_origins:
+        # Split by comma and add each origin
+        additional_origins = [origin.strip() for origin in cors_origins.split(",")]
+        base_origins.extend(additional_origins)
+    
+    # Add production origins
+    if settings.environment == "production":
+        base_origins.extend([
+            "https://trustworthy-perfection-production.up.railway.app",  # Your frontend URL
+        ])
+    
+    # Add custom frontend URL from environment if set
+    frontend_url = os.getenv("FRONTEND_BASE_URL")
+    if frontend_url:
+        base_origins.append(frontend_url)
+    
+    return base_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
+    allow_origins=get_cors_origins(),
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -700,9 +759,9 @@ async def register_user(user: UserRegister, response: Response, db: Session = De
         key="access_token",
         value=access_token,
         httponly=True,  # HttpOnly cookie - not accessible via JavaScript
-        secure=os.getenv("COOKIE_SECURE", "true").lower() == "true",  # Use environment variable
+        secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",  # Use environment variable for development
         samesite="lax", # CSRF protection
-        max_age=30 * 60  # 30 minutes (same as token expiry)
+        max_age=30 * 24 * 60 * 60  # 30 days (same as token expiry)
     )
     
     return db_user
@@ -724,9 +783,9 @@ async def login_user(user: UserLogin, response: Response, db: Session = Depends(
         key="access_token",
         value=access_token,
         httponly=True,  # HttpOnly cookie - not accessible via JavaScript
-        secure=True,    # Only send over HTTPS in production
+        secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",  # Use environment variable for development
         samesite="lax", # CSRF protection
-        max_age=30 * 60  # 30 minutes (same as token expiry)
+        max_age=30 * 24 * 60 * 60  # 30 days (same as token expiry)
     )
     
     return UserLoginResponse(
@@ -768,7 +827,7 @@ async def logout_user(response: Response):
     response.delete_cookie(
         key="access_token",
         httponly=True,
-        secure=True,
+        secure=os.getenv("COOKIE_SECURE", "false").lower() == "true",  # Match login cookie settings
         samesite="lax"
     )
     return {"message": "Successfully logged out"}

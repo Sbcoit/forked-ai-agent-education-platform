@@ -10,19 +10,28 @@ An innovative educational platform that transforms business case studies into im
 
 ## 🚀 Quick Start
 
-### Prerequisites
-- **Node.js** 18+ and **pnpm**
-- **Python** 3.11+
-- **PostgreSQL** 14+
-- **Redis** (optional, for caching)
+### 🐳 Option 1: Docker Compose (Recommended)
 
-### 1. Clone the Repository
+The fastest way to get started! This will set up PostgreSQL and Redis automatically.
+
+#### Prerequisites
+- **Docker** and **Docker Compose**
+- **Node.js** 18+ and **pnpm** (for frontend)
+- **Python** 3.11+ (for backend)
+
+#### 1. Clone and Setup
 ```bash
 git clone <repository-url>
-cd forked-ai-agent-education-platform
+cd n-aible_EdTech_Sims
+
+# Start database services
+docker-compose up -d
+
+# Wait for services to be ready (about 30 seconds)
+docker-compose logs postgres redis
 ```
 
-### 2. Backend Setup
+#### 2. Backend Setup
 ```bash
 cd backend
 
@@ -35,11 +44,36 @@ pip install -r requirements.txt
 
 # Set up environment variables
 cp ../env_template.txt .env
-# Edit .env with your actual values (database, API keys, etc.)
+```
 
-# Set up database (PostgreSQL)
-python setup_dev_environment.py
+**Edit `.env` file with these Docker-ready values:**
+```bash
+# Database (Docker PostgreSQL)
+DATABASE_URL=postgresql://username:password@localhost:5432/ai_agent_platform
 
+# Redis (Docker Redis)
+REDIS_URL=redis://localhost:6379
+
+# Required API Keys (get from providers)
+OPENAI_API_KEY=your_openai_api_key_here
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+
+# Security
+SECRET_KEY=your_super_secret_key_here_at_least_32_chars
+
+# Development settings
+ENVIRONMENT=development
+CORS_ORIGINS=http://localhost:3000
+COOKIE_SECURE=false
+
+# Optional: Google OAuth (leave as placeholders for now)
+GOOGLE_CLIENT_ID=REPLACE_WITH_YOUR_GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET=REPLACE_WITH_YOUR_GOOGLE_CLIENT_SECRET
+GOOGLE_REDIRECT_URI=http://localhost:3000/auth/google/callback
+```
+
+#### 3. Initialize Database
+```bash
 # Run database migrations
 alembic upgrade head
 
@@ -47,21 +81,49 @@ alembic upgrade head
 python main.py
 ```
 
-### 3. Frontend Setup
+#### 4. Frontend Setup
 ```bash
-cd frontend
+cd ../frontend
 
-# Install dependencies (using pnpm)
+# Install dependencies
 pnpm install
 
-# Start the development server
+# Start development server
 pnpm dev
 ```
 
-### 4. Access the Application
+#### 5. Access the Application
 - **Frontend**: http://localhost:3000
 - **Backend API**: http://localhost:8000
 - **API Documentation**: http://localhost:8000/docs
+- **Database**: localhost:5432 (username/password)
+- **Redis**: localhost:6379
+
+---
+
+### 💻 Option 2: Manual Setup (Advanced)
+
+If you prefer to set up PostgreSQL and Redis manually:
+
+#### Prerequisites
+- **Node.js** 18+ and **pnpm**
+- **Python** 3.11+
+- **PostgreSQL** 14+ (with pgvector extension)
+- **Redis** 6+
+
+#### Setup Steps
+```bash
+# 1. Clone repository
+git clone <repository-url>
+cd n-aible_EdTech_Sims
+
+# 2. Set up PostgreSQL database
+createdb ai_agent_platform
+psql ai_agent_platform -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+# 3. Follow backend and frontend setup from Option 1
+# (Skip docker-compose step, configure DATABASE_URL for your local PostgreSQL)
+```
 
 ## 📋 Environment Variables
 
@@ -131,6 +193,22 @@ If you encounter any issues:
 
 ## 🏃‍♂️ Development Commands
 
+### Docker Services
+```bash
+# Start all services (PostgreSQL + Redis)
+docker-compose up -d
+
+# View service logs
+docker-compose logs -f postgres redis
+
+# Stop all services
+docker-compose down
+
+# Reset database (removes all data!)
+docker-compose down -v
+docker-compose up -d
+```
+
 ### Backend
 ```bash
 # Start development server with auto-reload
@@ -163,6 +241,53 @@ pnpm start
 # Run linting
 pnpm lint
 ```
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+#### Authentication Problems
+- **Login redirects back to login page**: Check the [Authentication Troubleshooting Guide](docs/AUTHENTICATION_TROUBLESHOOTING.md)
+- **"Could not validate credentials"**: Clear browser cookies and login again
+- **Google OAuth "Load failed"**: Configure Google OAuth credentials in `.env`
+
+#### Database Issues
+```bash
+# Check if PostgreSQL is running
+docker-compose ps postgres
+
+# View PostgreSQL logs
+docker-compose logs postgres
+
+# Reset database completely
+docker-compose down -v && docker-compose up -d
+alembic upgrade head
+```
+
+#### Backend Issues
+```bash
+# Check if all required environment variables are set
+python -c "from database.connection import settings; print('✅ Config loaded successfully')"
+
+# Test database connection
+python -c "from database.connection import engine; engine.execute('SELECT 1')"
+```
+
+#### Frontend Issues
+```bash
+# Clear Next.js cache
+rm -rf .next
+pnpm dev
+
+# Check if backend is accessible
+curl http://localhost:8000/docs
+```
+
+### Getting Help
+1. Check the [documentation](docs/) directory
+2. Review the [Authentication Troubleshooting Guide](docs/AUTHENTICATION_TROUBLESHOOTING.md)
+3. Ensure Docker services are running: `docker-compose ps`
+4. Check logs: `docker-compose logs`
 
 ---
 

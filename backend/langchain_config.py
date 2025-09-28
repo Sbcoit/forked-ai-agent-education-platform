@@ -172,7 +172,8 @@ langchain_manager.cache
 # Export commonly used components
 llm = langchain_manager.llm
 embeddings = langchain_manager.embeddings
-vectorstore = langchain_manager.vectorstore
+# Don't initialize vectorstore at module level - it will try to connect to DB
+# vectorstore = langchain_manager.vectorstore  # Access via langchain_manager.vectorstore when needed
 cache = langchain_manager.cache
 
 def get_langchain_manager() -> LangChainManager:

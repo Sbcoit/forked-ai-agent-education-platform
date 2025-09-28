@@ -5,7 +5,7 @@ from pathlib import Path
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
-
+from pgvector.sqlalchemy import Vector
 from alembic import context
 
 # Add the backend directory to the Python path

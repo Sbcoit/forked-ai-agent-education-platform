@@ -115,7 +115,7 @@ export default function SignupPage() {
     try {
       // First, check if email already exists
       console.log("🔍 Checking if email already exists:", formData.email)
-      const checkResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/users/check-email`, {
+      const checkResponse = await fetch('/api/auth/check-email', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

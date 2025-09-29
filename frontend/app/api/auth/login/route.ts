@@ -12,24 +12,21 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify(body),
     })
 
-    // Get the set-cookie header from backend response
-    // Get all Set-Cookie headers using getSetCookie() with fallback
-    const setCookieHeaders = 
-      (response.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie?.() ??
-      (response.headers.get('set-cookie') ? [response.headers.get('set-cookie') as string] : [])
-    
     const data = await response.json()
     
-    // Forward all Set-Cookie headers from backend to browser
+    // Create NextResponse with the data
     const nextResponse = NextResponse.json(data, { status: response.status })
     
-    // If backend set a cookie, forward it to the browser
-    // Forward all cookies to the client
-    for (const cookie of setCookieHeaders) {
-      nextResponse.headers.append('set-cookie', cookie)
-    }
+    // Forward all Set-Cookie headers from backend to browser
+    const setCookieHeaders = response.headers.getSetCookie?.() || []
+    setCookieHeaders.forEach(cookie => {
+      nextResponse.headers.append('Set-Cookie', cookie)
+    })
     
     return nextResponse
+  } catch (error) {
+    console.error('Login error:', error)
+    return NextResponse.json(
       { error: 'Failed to login' },
       { status: 500 }
     )

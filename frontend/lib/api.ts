@@ -148,10 +148,20 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAut
 export const apiClient = {
   // Auth methods
   login: async (credentials: LoginCredentials): Promise<{ user: User; access_token: string }> => {
-    const response = await apiRequest('/users/login', {
+    // Use Next.js API route for proper cookie handling
+    const response = await fetch('/api/auth/login', {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify(credentials),
+      credentials: 'include', // Include cookies
     })
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      throw new Error(errorData.detail || errorData.message || 'Login failed')
+    }
     
     const data = await response.json()
     // Token is now handled server-side via HttpOnly cookies
@@ -164,13 +174,24 @@ export const apiClient = {
     debugLog('API register called with data:', sanitizedData)
     
     try {
-      console.log('🔍 About to make registration request to:', buildApiUrl('/users/register'))
-      const response = await apiRequest('/users/register', {
+      // Use Next.js API route instead of direct backend call for proper cookie handling
+      console.log('🔍 About to make registration request via Next.js API route')
+      const response = await fetch('/api/auth/register', {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(data),
+        credentials: 'include', // Include cookies
       })
       
       console.log('✅ Registration response received:', response.status, response.statusText)
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || errorData.message || 'Registration failed')
+      }
+      
       const responseData = await response.json()
       console.log('✅ Registration data parsed successfully')
       // Token is now handled server-side via HttpOnly cookies

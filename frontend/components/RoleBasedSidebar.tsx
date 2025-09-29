@@ -10,7 +10,8 @@ import {
   BookOpen,
   Bell,
   Settings,
-  MessageSquare
+  MessageSquare,
+  MessageCircle
 } from "lucide-react"
 
 interface RoleBasedSidebarProps {
@@ -80,8 +81,30 @@ export default function RoleBasedSidebar({ currentPath = "/dashboard" }: RoleBas
         })}
       </nav>
       
-      {/* User Role Indicator */}
+      {/* Feedback Button - Just the Animated Speech Bubble */}
       <div className="mt-auto mb-4">
+        <a
+          href="https://n-aible.canny.io/feedback"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="p-3 hover:bg-gray-800 rounded-lg transition-all duration-300 group relative block"
+          title="Send Feedback"
+        >
+          <MessageCircle className="h-7 w-7 text-white animate-bounce" style={{animationDuration: '2s'}} />
+          
+          {/* Enhanced Tooltip */}
+          <div className="absolute left-full ml-3 px-3 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 pointer-events-none whitespace-nowrap z-10 shadow-xl">
+            <div className="flex items-center gap-2">
+              <span>💡</span>
+              <span>Send Feedback</span>
+            </div>
+            <div className="text-xs text-blue-200 mt-1">Help us improve!</div>
+          </div>
+        </a>
+      </div>
+      
+      {/* User Role Indicator */}
+      <div className="mb-4">
         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
           isProfessor 
             ? "bg-blue-600 text-white" 

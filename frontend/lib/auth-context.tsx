@@ -39,6 +39,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = React.useState<User | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
 
+  // Check authentication status on mount
+  React.useEffect(() => {
+    const checkAuthStatus = async () => {
+      try {
+        const response = await fetch('/api/auth/status')
+        const data = await response.json()
+        
+        if (data.authenticated && data.user) {
+          setUser(data.user)
+          updateLastActivityLocal() // Initialize activity tracking
+        }
+      } catch (error) {
+        console.error('Failed to check auth status:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    checkAuthStatus()
+  }, [])
+
   // Track user activity for inactivity-based logout
   const updateLastActivityLocal = React.useCallback(() => {
     const timestamp = Date.now().toString()

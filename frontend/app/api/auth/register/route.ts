@@ -17,10 +17,6 @@ export async function POST(request: NextRequest) {
     })
 
     console.log('Register API route: Backend response status:', response.status)
-
-    // Get the set-cookie header from backend response
-    const setCookieHeader = response.headers.get('set-cookie')
-    console.log('Register API route: Set-Cookie header:', setCookieHeader ? 'present' : 'missing')
     
     const data = await response.json()
     console.log('Register API route: Response data received')
@@ -28,11 +24,12 @@ export async function POST(request: NextRequest) {
     // Create NextResponse with the data
     const nextResponse = NextResponse.json(data, { status: response.status })
     
-    // If backend set a cookie, forward it to the browser
-    if (setCookieHeader) {
-      // Parse the cookie and set it on the NextResponse
-      nextResponse.headers.set('set-cookie', setCookieHeader)
-    }
+    // Forward all Set-Cookie headers from backend to browser
+    const setCookieHeaders = response.headers.getSetCookie?.() || []
+    console.log('Register API route: Set-Cookie headers count:', setCookieHeaders.length)
+    setCookieHeaders.forEach(cookie => {
+      nextResponse.headers.append('Set-Cookie', cookie)
+    })
     
     return nextResponse
   } catch (error) {

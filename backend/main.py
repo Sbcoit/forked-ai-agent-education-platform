@@ -146,6 +146,8 @@ async def startup_event():
 def get_cors_origins():
     """Get CORS origins based on environment"""
     base_origins = [
+        "https://trustworthy-perfection-production.up.railway.app",
+        "https://frontend-development-b10e.up.railway.app",
         "http://localhost:3000", 
         "http://localhost:5173", 
         "http://127.0.0.1:3000", 
@@ -156,22 +158,31 @@ def get_cors_origins():
     # Add production origins from environment variable
     cors_origins = os.getenv("CORS_ORIGINS")
     if cors_origins:
-        # Split by comma and add each origin
-        additional_origins = [origin.strip() for origin in cors_origins.split(",")]
+        # Split by comma and add each origin, removing trailing slashes
+        additional_origins = [origin.strip().rstrip('/') for origin in cors_origins.split(",")]
         base_origins.extend(additional_origins)
     
     # Add production origins
     if settings.environment == "production":
         base_origins.extend([
-            "https://trustworthy-perfection-production.up.railway.app",  # Your frontend URL
+            "https://frontend-development-b10e.up.railway.app",
+            "https://trustworthy-perfection-production.up.railway.app"  # Your frontend URL
         ])
     
     # Add custom frontend URL from environment if set
     frontend_url = os.getenv("FRONTEND_BASE_URL")
     if frontend_url:
-        base_origins.append(frontend_url)
+        base_origins.append(frontend_url.rstrip('/'))
     
-    return base_origins
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_origins = []
+    for origin in base_origins:
+        if origin not in seen:
+            seen.add(origin)
+            unique_origins.append(origin)
+    
+    return unique_origins
 
 app.add_middleware(
     CORSMiddleware,
@@ -757,14 +768,25 @@ async def register_user(user: UserRegister, response: Response, db: Session = De
     access_token = create_access_token(data={"sub": str(db_user.id)})
     # For cross-origin requests, we need samesite="none" in production
     is_production = settings.environment == "production"
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,  # HttpOnly cookie - not accessible via JavaScript
-        secure=is_production,  # Required for samesite="none"
-        samesite="none" if is_production else "lax",  # "none" for cross-origin in production
-        max_age=30 * 24 * 60 * 60  # 30 days (same as token expiry)
-    )
+    
+    # Cookie expiry matches JWT token expiry (30 minutes)
+    from utilities.auth import ACCESS_TOKEN_EXPIRE_MINUTES
+    cookie_max_age = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert minutes to seconds
+    
+    cookie_params = {
+        "key": "access_token",
+        "value": access_token,
+        "httponly": True,  # HttpOnly cookie - not accessible via JavaScript
+        "secure": is_production,  # Required for samesite="none"
+        "samesite": "none" if is_production else "lax",  # "none" for cross-origin in production
+        "path": "/",
+        "max_age": cookie_max_age  # Matches token expiry
+    }
+    
+    # Don't set domain in production - let browser handle it
+    # Setting domain incorrectly causes cookies to fail
+    
+    response.set_cookie(**cookie_params)
     
     return db_user
 
@@ -783,14 +805,25 @@ async def login_user(user: UserLogin, response: Response, db: Session = Depends(
     # Set HttpOnly cookie for secure authentication
     # For cross-origin requests, we need samesite="none" in production
     is_production = settings.environment == "production"
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,  # HttpOnly cookie - not accessible via JavaScript
-        secure=is_production,  # Required for samesite="none"
-        samesite="none" if is_production else "lax",  # "none" for cross-origin in production
-        max_age=30 * 24 * 60 * 60  # 30 days (same as token expiry)
-    )
+    
+    # Cookie expiry matches JWT token expiry (30 minutes)
+    from utilities.auth import ACCESS_TOKEN_EXPIRE_MINUTES
+    cookie_max_age = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert minutes to seconds
+    
+    cookie_params = {
+        "key": "access_token",
+        "value": access_token,
+        "httponly": True,  # HttpOnly cookie - not accessible via JavaScript
+        "secure": is_production,  # Required for samesite="none"
+        "samesite": "none" if is_production else "lax",  # "none" for cross-origin in production
+        "path": "/",
+        "max_age": cookie_max_age  # Matches token expiry
+    }
+    
+    # Don't set domain in production - let browser handle it
+    # Setting domain incorrectly causes cookies to fail
+    
+    response.set_cookie(**cookie_params)
     
     return UserLoginResponse(
         access_token="",  # Empty token - authentication via HttpOnly cookie only
@@ -829,12 +862,19 @@ async def check_email_exists(request: dict, db: Session = Depends(get_db)):
 async def logout_user(response: Response):
     """Logout user by clearing HttpOnly cookie"""
     is_production = settings.environment == "production"
-    response.delete_cookie(
-        key="access_token",
-        httponly=True,
-        secure=is_production,  # Match login cookie settings
-        samesite="none" if is_production else "lax"
-    )
+    
+    cookie_params = {
+        "key": "access_token",
+        "httponly": True,
+        "secure": is_production,  # Match login cookie settings
+        "samesite": "none" if is_production else "lax",
+        "path": "/"
+    }
+    
+    # Don't set domain in production - let browser handle it
+    # Setting domain incorrectly causes cookies to fail
+    
+    response.delete_cookie(**cookie_params)
     return {"message": "Successfully logged out"}
 
 @app.get("/users/me", response_model=UserResponse)

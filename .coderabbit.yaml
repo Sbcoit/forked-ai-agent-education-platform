@@ -65,10 +65,7 @@ review:
   # Auto-review only PRs targeting these branches
   auto_review:
     enabled: true
-    targets:
-      branches:
-        - main
-        - develop-v1
+
 
 # Ignore patterns
 ignore:

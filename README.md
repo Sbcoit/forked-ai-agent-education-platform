@@ -10,6 +10,8 @@ An innovative educational platform that transforms business case studies into im
 
 ## 🚀 Quick Start
 
+my silly change 
+
 ### 🐳 Option 1: Docker Compose (Recommended)
 
 The fastest way to get started! This will set up PostgreSQL and Redis automatically.
@@ -78,7 +80,7 @@ GOOGLE_REDIRECT_URI=http://localhost:3000/auth/google/callback
 alembic upgrade head
 
 # Start the backend server
-python main.py
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 #### 4. Frontend Setup
@@ -212,7 +214,7 @@ docker-compose up -d
 ### Backend
 ```bash
 # Start development server with auto-reload
-python main.py
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 # Run database migrations
 alembic upgrade head

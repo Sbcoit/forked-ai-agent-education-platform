@@ -69,7 +69,7 @@ export default function RoleSelectionPage() {
       console.log('Role selection: Selecting role:', role)
       
       // Call the backend to complete the OAuth with the selected role
-      const response = await fetch('http://localhost:8000/auth/google/select-role', {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/auth/google/select-role`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -90,11 +90,10 @@ export default function RoleSelectionPage() {
       const result = await response.json()
       console.log('Role selection: Success:', result)
 
-      // Set the cookie in the main window context
-      if (result.access_token) {
-        document.cookie = `access_token=${result.access_token}; path=/; domain=localhost; max-age=1800; secure=false; samesite=lax`
-        console.log('Role selection: Set access_token cookie')
-      }
+      // NOTE: Backend has already set HttpOnly cookie in the response
+      // We should NOT manually set cookies here as it conflicts with backend settings
+      // The access_token in the response is only for frontend state management
+      console.log('Role selection: Cookie already set by backend in response headers')
 
       // Store user data in sessionStorage for immediate access
       if (result.user) {

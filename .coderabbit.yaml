@@ -3,10 +3,7 @@
 
 # Global settings
 global:
-  # Review frequency
   review_frequency: "every_pr"
-  
-  # Languages to focus on
   languages:
     - python
     - typescript
@@ -17,7 +14,6 @@ global:
 
 # Path-specific settings
 paths:
-  # Backend Python code
   "backend/**/*.py":
     focus:
       - code_quality
@@ -29,7 +25,6 @@ paths:
       - "**/migrations/**"
       - "**/venv/**"
 
-  # Frontend TypeScript/JavaScript
   "frontend/**/*.{ts,tsx,js,jsx}":
     focus:
       - code_quality
@@ -41,7 +36,6 @@ paths:
       - "**/dist/**"
       - "**/build/**"
 
-  # Database files
   "backend/database/**/*.py":
     focus:
       - security
@@ -49,7 +43,6 @@ paths:
       - performance
       - migrations
 
-  # API endpoints
   "backend/api/**/*.py":
     focus:
       - security
@@ -59,13 +52,8 @@ paths:
 
 # Review settings
 review:
-  # Minimum confidence level for suggestions
   min_confidence: 0.7
-  
-  # Maximum number of comments per PR
   max_comments: 20
-  
-  # Include suggestions for:
   suggestions:
     - code_improvements
     - security_issues
@@ -73,6 +61,14 @@ review:
     - best_practices
     - documentation
     - test_coverage
+
+  # Auto-review only PRs targeting these branches
+  auto_review:
+    enabled: true
+    targets:
+      branches:
+        - "*"
+
 
 # Ignore patterns
 ignore:

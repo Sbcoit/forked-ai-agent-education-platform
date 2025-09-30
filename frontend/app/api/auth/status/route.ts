@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(request: NextRequest) {
   try {
-    const response = await fetch('http://localhost:8000/auth/auth/status', {
+    // Forward cookies from the incoming request to the backend
+    const cookieHeader = request.headers.get('cookie') || ''
+    
+    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/auth/auth/status`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
+        'Cookie': cookieHeader, // Forward the cookies to the backend
       },
       credentials: 'include',
     })

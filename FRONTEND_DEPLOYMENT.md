@@ -5,7 +5,7 @@
 - ✅ Railway account with frontend service configured
 - ✅ Frontend service points to `/frontend` directory
 
-## 🔧 **Step 1: Environment Variables**
+## 🔧 **Step 1: Environment Variables**  silly cahnge 
 
 In your Railway **frontend service**, set these environment variables:
 

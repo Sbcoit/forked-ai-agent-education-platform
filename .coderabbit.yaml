@@ -65,6 +65,9 @@ review:
   # Auto-review only PRs targeting these branches
   auto_review:
     enabled: true
+    targets:
+      branches:
+        - "*"
 
 
 # Ignore patterns

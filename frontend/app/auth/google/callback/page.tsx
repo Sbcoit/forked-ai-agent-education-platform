@@ -16,12 +16,10 @@ export default function GoogleCallbackPage() {
         console.log('Frontend callback: Received token and user data')
 
         if (token && userData) {
-          // Set the cookie in the main window context
-          const isProduction = process.env.NODE_ENV === 'production'
-          const domain = isProduction ? '.railway.app' : 'localhost'
-          const secure = isProduction ? 'secure' : ''
-          document.cookie = `access_token=${token}; path=/; domain=${domain}; max-age=1800; ${secure}; samesite=lax`
-          console.log('Frontend callback: Set access_token cookie')
+          // NOTE: Backend has already set HttpOnly cookie during OAuth callback redirect
+          // We should NOT manually set cookies here as it conflicts with backend settings
+          // The token parameter is only used for frontend state management
+          console.log('Frontend callback: Cookie already set by backend during redirect')
 
           // Parse user data
           const responseData = JSON.parse(decodeURIComponent(userData))

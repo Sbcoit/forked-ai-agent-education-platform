@@ -244,16 +244,29 @@ def create_role_selection_redirect(role_selection_data: dict) -> RedirectRespons
 
 def set_auth_cookie(response: Response, access_token: str):
     """Set authentication cookie with proper security settings"""
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,  # HttpOnly cookie - not accessible via JavaScript
-        secure=IS_PRODUCTION,  # Secure flag for HTTPS in production
-        samesite="lax",  # CSRF protection
-        domain=COOKIE_DOMAIN,
-        path="/",
-        max_age=30 * 60  # 30 minutes (same as token expiry)
-    )
+    # In production, use samesite="none" for cross-origin cookies
+    # In development, use samesite="lax" for local testing
+    
+    # Cookie expiry matches JWT token expiry (30 minutes)
+    from utilities.auth import ACCESS_TOKEN_EXPIRE_MINUTES
+    cookie_max_age = ACCESS_TOKEN_EXPIRE_MINUTES * 60  # Convert minutes to seconds
+    
+    cookie_params = {
+        "key": "access_token",
+        "value": access_token,
+        "httponly": True,  # HttpOnly cookie - not accessible via JavaScript
+        "secure": IS_PRODUCTION,  # Secure flag for HTTPS in production
+        "samesite": "none" if IS_PRODUCTION else "lax",  # Cross-origin support in production
+        "path": "/",
+        "max_age": cookie_max_age  # Matches token expiry
+    }
+    
+    # Only set domain if explicitly configured and in production
+    # Setting domain incorrectly can prevent cookies from working
+    if IS_PRODUCTION and COOKIE_DOMAIN and COOKIE_DOMAIN != 'localhost':
+        cookie_params["domain"] = COOKIE_DOMAIN
+    
+    response.set_cookie(**cookie_params)
 
 async def periodic_cleanup():
     """Periodic cleanup task that runs every 5 minutes"""

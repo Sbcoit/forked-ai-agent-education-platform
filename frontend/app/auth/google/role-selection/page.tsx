@@ -90,14 +90,10 @@ export default function RoleSelectionPage() {
       const result = await response.json()
       console.log('Role selection: Success:', result)
 
-      // Set the cookie in the main window context
-      if (result.access_token) {
-        const isProduction = process.env.NODE_ENV === 'production'
-        const domain = isProduction ? '.railway.app' : 'localhost'
-        const secure = isProduction ? 'secure' : ''
-        document.cookie = `access_token=${result.access_token}; path=/; domain=${domain}; max-age=1800; ${secure}; samesite=lax`
-        console.log('Role selection: Set access_token cookie')
-      }
+      // NOTE: Backend has already set HttpOnly cookie in the response
+      // We should NOT manually set cookies here as it conflicts with backend settings
+      // The access_token in the response is only for frontend state management
+      console.log('Role selection: Cookie already set by backend in response headers')
 
       // Store user data in sessionStorage for immediate access
       if (result.user) {

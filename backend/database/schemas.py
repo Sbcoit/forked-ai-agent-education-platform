@@ -361,7 +361,7 @@ class UserLogin(BaseModel):
 
 class UserLoginResponse(BaseModel):
     access_token: str
-    token_type: str = "bearer"
+    token_type: str = "cookie"  # HttpOnly cookie authentication
     user: UserResponse
 
 class PasswordChange(BaseModel):

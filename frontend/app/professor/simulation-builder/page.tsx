@@ -324,10 +324,10 @@ export default function ScenarioBuilder() {
      }
    }
 
-   if (user && !authLoading) {
-     loadDraftData()
-   }
- }, [user, authLoading])
+  if (user && !authLoading) {
+    loadDraftData()
+  }
+}, [user, authLoading])
  
  // Show loading while auth is being checked
  if (authLoading) {

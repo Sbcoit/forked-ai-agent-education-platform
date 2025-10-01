@@ -31,6 +31,7 @@ router = APIRouter(prefix="/professor/cohorts", tags=["Professor Cohorts"])
 
 # --- COHORT CRUD ENDPOINTS ---
 
+@router.get("", response_model=List[CohortListResponse])
 @router.get("/", response_model=List[CohortListResponse])
 async def get_cohorts(
     current_user: User = Depends(require_professor),

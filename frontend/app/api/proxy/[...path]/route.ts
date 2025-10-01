@@ -119,8 +119,26 @@ async function proxyRequest(
     // Make the request to the backend
     console.log('🚀 Proxy making request to:', fullUrl)
     console.log('🚀 Proxy request headers:', headers)
-    let response = await fetch(fullUrl, fetchOptions)
+    
+    // Configure fetch to NOT follow redirects automatically to preserve cookies
+    const fetchOptionsWithRedirect = {
+      ...fetchOptions,
+      redirect: 'manual' as RequestRedirect
+    }
+    
+    let response = await fetch(fullUrl, fetchOptionsWithRedirect)
     console.log('🔍 Proxy response status:', response.status)
+    
+    // Handle redirects manually to preserve cookies
+    if (response.status === 307 || response.status === 301 || response.status === 302) {
+      const location = response.headers.get('location')
+      if (location) {
+        console.log('🔄 Handling redirect manually to preserve cookies:', location)
+        // Make a new request to the redirect URL with the same headers (including cookies)
+        response = await fetch(location, fetchOptions)
+        console.log('🔍 Proxy redirect response status:', response.status)
+      }
+    }
 
     // If backend indicates method not allowed, retry once with a trailing slash
     // This helps when backend routes are defined with trailing slashes only

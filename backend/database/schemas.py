@@ -80,15 +80,24 @@ class ScenarioPersonaCreate(BaseModel):
 
 class ScenarioPersonaResponse(BaseModel):
     id: int
-    scenario_id: int
+    scenario_id: Optional[int] = None
     name: str
     role: str
-    background: Optional[str]
-    correlation: Optional[str]
-    primary_goals: Optional[List[str]]
-    personality_traits: Optional[Dict[str, Any]]
-    created_at: datetime
-    updated_at: datetime
+    background: Optional[str] = None
+    correlation: Optional[str] = None
+    primary_goals: Optional[List[str]] = None
+    personality_traits: Optional[Dict[str, Any]] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    
+    @validator('primary_goals', pre=True)
+    def convert_primary_goals(cls, v):
+        """Convert string primary_goals to list"""
+        if isinstance(v, str):
+            # Split by bullet points or newlines
+            goals = [g.strip().lstrip('•').strip() for g in v.split('\n') if g.strip()]
+            return [g for g in goals if g]  # Remove empty strings
+        return v
     
     class Config:
         from_attributes = True
@@ -108,20 +117,20 @@ class ScenarioSceneCreate(BaseModel):
 
 class ScenarioSceneResponse(BaseModel):
     id: int
-    scenario_id: int
+    scenario_id: Optional[int] = None
     title: str
     description: str
-    user_goal: Optional[str]
+    user_goal: Optional[str] = None
     scene_order: int
-    estimated_duration: Optional[int]
-    image_url: Optional[str]
-    image_prompt: Optional[str]
+    estimated_duration: Optional[int] = None
+    image_url: Optional[str] = None
+    image_prompt: Optional[str] = None
     # New fields
     timeout_turns: Optional[int] = None
     success_metric: Optional[str] = None
     personas_involved: Optional[List[str]] = None  # Add personas_involved field
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     personas: Optional[List[ScenarioPersonaResponse]] = None
     
     class Config:

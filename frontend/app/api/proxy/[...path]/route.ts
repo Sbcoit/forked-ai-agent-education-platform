@@ -64,14 +64,6 @@ async function proxyRequest(
     const searchParams = request.nextUrl.searchParams.toString()
     const fullUrl = searchParams ? `${backendUrl}?${searchParams}` : backendUrl
     
-    console.log('🔍 Proxy forwarding request:', {
-      method,
-      originalPath: request.nextUrl.pathname,
-      pathWithSlash,
-      backendUrl,
-      fullUrl,
-      searchParams
-    })
     
     // Prepare headers
     const headers: Record<string, string> = {}
@@ -87,15 +79,9 @@ async function proxyRequest(
     
     // Get cookies from the incoming request
     const cookies = request.cookies.getAll()
-    console.log('🔍 Cookies received from request:', cookies)
-    console.log('🔍 Cookie count:', cookies.length)
-    
     if (cookies.length > 0) {
       const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ')
       headers['Cookie'] = cookieString
-      console.log('🔍 Forwarding cookies:', cookieString)
-    } else {
-      console.log('⚠️ No cookies found in request!')
     }
     
     // Prepare fetch options
@@ -116,10 +102,6 @@ async function proxyRequest(
       }
     }
     
-    // Make the request to the backend
-    console.log('🚀 Proxy making request to:', fullUrl)
-    console.log('🚀 Proxy request headers:', headers)
-    
     // Configure fetch to NOT follow redirects automatically to preserve cookies
     const fetchOptionsWithRedirect = {
       ...fetchOptions,
@@ -127,16 +109,13 @@ async function proxyRequest(
     }
     
     let response = await fetch(fullUrl, fetchOptionsWithRedirect)
-    console.log('🔍 Proxy response status:', response.status)
     
     // Handle redirects manually to preserve cookies
     if (response.status === 307 || response.status === 301 || response.status === 302) {
       const location = response.headers.get('location')
       if (location) {
-        console.log('🔄 Handling redirect manually to preserve cookies:', location)
         // Make a new request to the redirect URL with the same headers (including cookies)
         response = await fetch(location, fetchOptions)
-        console.log('🔍 Proxy redirect response status:', response.status)
       }
     }
 
@@ -154,8 +133,6 @@ async function proxyRequest(
     // Log 500 errors for debugging
     if (response.status === 500) {
       console.error(`Backend 500 error for ${method} ${fullUrl}`)
-      const errorText = await response.text()
-      console.error(`Backend error response:`, errorText)
     }
     
     // Get response data

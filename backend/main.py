@@ -335,6 +335,7 @@ async def get_scenarios(
         print(f"[ERROR] Failed to fetch scenarios: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch scenarios: {str(e)}")
 
+@app.get("/api/scenarios/drafts")
 @app.get("/api/scenarios/drafts/")
 async def get_draft_scenarios(
     current_user: User = Depends(get_current_user),

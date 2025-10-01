@@ -11,7 +11,7 @@ interface SimulationBuilderProgressProps {
   studentRole?: string;
   personas: any[];
   scenes: any[];
-  learningOutcomes: any[];
+  learningOutcomes: string;
   isProcessing?: boolean; // Add processing state
   isAIEnhancementComplete?: boolean; // Add AI enhancement completion state
   completionStatus?: { [key: string]: boolean }; // Optional completion status from database
@@ -71,7 +71,7 @@ const SimulationBuilderProgress: React.FC<SimulationBuilderProgressProps> = ({
     { name: "Scenes", completed: scenes?.length > 0 || hasAutofillResult },
     { name: "Images", completed: scenes?.some(scene => scene.image_url) || hasAutofillResult },
     { name: "Learning Outcomes", completed: learningOutcomes?.length > 0 || (hasAutofillResult && !isProcessing) },
-    { name: "AI Enhancement", completed: isAIEnhancementComplete || (hasAutofillResult && learningOutcomes?.length > 0) },
+    { name: "AI Enhancement", completed: !!isAIEnhancementComplete || (hasAutofillResult && (learningOutcomes?.length > 0)) },
   ];
 
   // Debug logging for images

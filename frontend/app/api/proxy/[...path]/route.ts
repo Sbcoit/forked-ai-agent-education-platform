@@ -98,7 +98,18 @@ async function proxyRequest(
     }
     
     // Make the request to the backend
-    const response = await fetch(fullUrl, fetchOptions)
+    let response = await fetch(fullUrl, fetchOptions)
+
+    // If backend indicates method not allowed, retry once with a trailing slash
+    // This helps when backend routes are defined with trailing slashes only
+    if (response.status === 405 && !fullUrl.endsWith('/')) {
+      try {
+        const retryUrl = `${fullUrl}/`
+        response = await fetch(retryUrl, fetchOptions)
+      } catch (_) {
+        // Ignore retry failure; original response will be handled below
+      }
+    }
     
     // Get response data
     const contentType = response.headers.get('content-type')

@@ -156,7 +156,9 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAut
     })
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
+      // Clone the response to avoid consuming the body
+      const responseClone = response.clone()
+      const errorData = await responseClone.json().catch(() => ({}))
       
       // Handle specific authentication errors
       if (response.status === 401) {

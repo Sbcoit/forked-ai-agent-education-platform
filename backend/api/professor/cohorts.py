@@ -299,7 +299,7 @@ async def create_cohort(
 async def update_cohort(
     cohort_unique_id: str,
     cohort_data: CohortUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Update a cohort"""
@@ -341,7 +341,7 @@ async def update_cohort(
 @router.delete("/{cohort_unique_id}")
 async def delete_cohort(
     cohort_unique_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Delete a cohort and all related data"""
@@ -397,7 +397,7 @@ async def delete_cohort(
 @router.get("/{cohort_unique_id}/students", response_model=List[CohortStudentResponse])
 async def get_cohort_students(
     cohort_unique_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Get all students in a cohort"""
@@ -432,7 +432,7 @@ async def get_cohort_students(
 async def add_student_to_cohort(
     cohort_id: int,
     student_data: CohortStudentCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Add a student to a cohort"""
@@ -484,7 +484,7 @@ async def update_student_enrollment(
     cohort_unique_id: str,
     student_id: int,
     student_data: CohortStudentUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Update a student's enrollment status in a cohort"""
@@ -538,7 +538,7 @@ async def update_student_enrollment(
 @router.get("/{cohort_unique_id}/simulations", response_model=List[CohortSimulationResponse])
 async def get_cohort_simulations(
     cohort_unique_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Get all simulations assigned to a cohort"""
@@ -605,7 +605,7 @@ async def get_cohort_simulations(
 async def assign_simulation_to_cohort(
     cohort_id: int,
     simulation_data: CohortSimulationCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Assign a simulation to a cohort"""
@@ -693,7 +693,7 @@ async def assign_simulation_to_cohort(
 async def remove_simulation_from_cohort(
     cohort_id: int,
     simulation_assignment_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Remove a simulation assignment from a cohort"""

@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 from database.connection import get_db
 from utilities.auth import get_current_user, require_admin
+from middleware.role_auth import require_professor
 from utilities.debug_logging import debug_log
 from database.models import (
     Cohort, CohortStudent, CohortSimulation, User, UserProgress, Scenario, generate_cohort_id
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/professor/cohorts", tags=["Professor Cohorts"])
 
 @router.get("/", response_model=List[CohortListResponse])
 async def get_cohorts(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -179,7 +180,7 @@ async def get_all_cohorts_admin(
 @router.get("/{cohort_unique_id}", response_model=CohortResponse)
 async def get_cohort(
     cohort_unique_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Get a specific cohort with students and simulations"""
@@ -246,7 +247,7 @@ async def get_cohort(
 @router.post("/", response_model=CohortResponse)
 async def create_cohort(
     cohort_data: CohortCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Create a new cohort"""

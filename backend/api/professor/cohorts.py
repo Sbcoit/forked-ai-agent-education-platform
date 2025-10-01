@@ -31,6 +31,34 @@ router = APIRouter(prefix="/professor/cohorts", tags=["Professor Cohorts"])
 
 # --- COHORT CRUD ENDPOINTS ---
 
+@router.get("/test-auth")
+async def test_auth(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Test endpoint to debug authentication"""
+    return {
+        "message": "Authentication successful",
+        "user_id": current_user.id,
+        "user_email": current_user.email,
+        "user_role": current_user.role,
+        "user_active": current_user.is_active
+    }
+
+@router.get("/test-professor-auth")
+async def test_professor_auth(
+    current_user: User = Depends(require_professor),
+    db: Session = Depends(get_db)
+):
+    """Test endpoint to debug professor authentication"""
+    return {
+        "message": "Professor authentication successful",
+        "user_id": current_user.id,
+        "user_email": current_user.email,
+        "user_role": current_user.role,
+        "user_active": current_user.is_active
+    }
+
 @router.get("/", response_model=List[CohortListResponse])
 async def get_cohorts(
     current_user: User = Depends(require_professor),

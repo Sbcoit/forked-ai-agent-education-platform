@@ -51,25 +51,41 @@ export function usePDFParsingWithProgress() {
       // Add session_id parameter
       formData.append('session_id', sessionId)
 
-      console.log('Starting PDF parsing with progress tracking...')
-      console.log('Session ID:', sessionId)
-      console.log('Main file:', file.name)
-      console.log('Context files:', contextFiles.map(f => f.name))
-      console.log('Save to DB:', saveToDb)
+      // Development-only logging (disabled in production to prevent information leakage)
+      const isDev = process.env.NODE_ENV === 'development'
+      
+      if (isDev) {
+        console.log('🚀 Starting PDF parsing with progress tracking...')
+        console.log('📄 File size:', file.size, 'bytes')
+        console.log('📚 Context files count:', contextFiles.length)
+      }
 
-      const response = await fetch(buildApiUrl('/parse-pdf-with-progress'), {
+      const url = buildApiUrl('/parse-pdf-with-progress')
+
+      const response = await fetch(url, {
         method: 'POST',
         body: formData,
         credentials: 'include',
       })
 
+      if (isDev) {
+        console.log('📡 Response status:', response.status, response.statusText)
+      }
+
       if (!response.ok) {
         const errorText = await response.text()
-        throw new Error(`HTTP ${response.status}: ${errorText}`)
+        // Only log detailed error in development
+        if (isDev) {
+          console.error('❌ PDF parsing request failed:', response.status, response.statusText)
+        }
+        throw new Error(`Failed to process PDF (HTTP ${response.status})`)
       }
 
       const resultData: ParsePDFResult = await response.json()
-      console.log('PDF parsing response:', resultData)
+      
+      if (isDev) {
+        console.log('✅ PDF parsing completed successfully')
+      }
 
       if (resultData.success) {
         setSessionId(resultData.session_id || null)

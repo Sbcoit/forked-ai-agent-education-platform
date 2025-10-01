@@ -51,19 +51,28 @@ export default function PDFProgressTracker({
   const pollProgress = async () => {
     if (!sessionId) return;
 
+    // Development-only logging
+    const isDev = process.env.NODE_ENV === 'development'
+
     try {
       const response = await fetch(buildApiUrl(`/pdf-progress/${sessionId}`));
       
       if (!response.ok) {
         if (response.status === 404) {
-          // Session not found yet, keep polling
+          // Session not found yet, keep polling (expected during initialization)
           return;
         }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        if (isDev) {
+          console.error(`❌ Progress polling failed:`, response.status)
+        }
+        throw new Error(`Failed to fetch progress (HTTP ${response.status})`);
       }
 
       const data = await response.json();
-      console.log('Progress update received:', data);
+      
+      if (isDev && data.current_stage) {
+        console.log(`📊 Progress: ${data.overall_progress}% - ${data.current_stage}`)
+      }
       
       setProgressData(data);
       setPollingError(null);
@@ -73,7 +82,9 @@ export default function PDFProgressTracker({
         for (const [fieldName, fieldValue] of Object.entries(data.field_updates)) {
           const updateKey = `${fieldName}-${JSON.stringify(fieldValue)}`;
           if (!lastFieldUpdatesRef.current.has(updateKey)) {
-            console.log('Field update received:', fieldName, fieldValue);
+            if (isDev) {
+              console.log(`📝 Field update: ${fieldName}`)
+            }
             onFieldUpdate?.(fieldName, fieldValue);
             lastFieldUpdatesRef.current.add(updateKey);
           }
@@ -82,20 +93,26 @@ export default function PDFProgressTracker({
 
       // Check for completion
       if (data.completed) {
-        console.log('Processing completed');
+        if (isDev) {
+          console.log('✅ Processing completed')
+        }
         onComplete?.(data.result);
         stopPolling();
       }
 
       // Check for error
       if (data.error) {
-        console.error('Processing error:', data.error);
+        if (isDev) {
+          console.error('❌ Processing error:', data.error)
+        }
         onError?.(data.error);
         stopPolling();
       }
 
     } catch (error) {
-      console.error('Progress polling error:', error);
+      if (isDev) {
+        console.error('❌ Progress polling error:', error)
+      }
       setPollingError(error instanceof Error ? error.message : 'Unknown error');
     }
   };

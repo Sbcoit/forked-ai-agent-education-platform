@@ -40,6 +40,31 @@ from .pdf_progress import progress_manager
 secure_print_api_key_status("LLAMAPARSE_API_KEY", LLAMAPARSE_API_KEY)
 secure_print_api_key_status("OPENAI_API_KEY", OPENAI_API_KEY)
 
+# Validate LlamaParse API key configuration
+def validate_llamaparse_config():
+    """Validate LlamaParse configuration and provide helpful error messages"""
+    if not LLAMAPARSE_API_KEY:
+        debug_log("[ERROR] LLAMAPARSE_API_KEY is not configured")
+        return False, "LlamaParse API key is not configured. Please set LLAMAPARSE_API_KEY environment variable."
+    
+    if len(LLAMAPARSE_API_KEY) < 20:
+        debug_log("[ERROR] LLAMAPARSE_API_KEY appears to be too short")
+        return False, "LlamaParse API key appears to be invalid (too short). Please check your API key."
+    
+    if not LLAMAPARSE_API_KEY.startswith(('llx-', 'll-')):
+        debug_log("[WARNING] LLAMAPARSE_API_KEY doesn't start with expected prefix")
+        # This is just a warning, not an error, as API key formats might change
+    
+    debug_log(f"[SUCCESS] LlamaParse API key configured (length: {len(LLAMAPARSE_API_KEY)})")
+    return True, "LlamaParse API key is properly configured"
+
+# Validate configuration on startup
+_is_valid, _config_message = validate_llamaparse_config()
+if not _is_valid:
+    debug_log(f"[CONFIG_ERROR] {_config_message}")
+else:
+    debug_log(f"[CONFIG_SUCCESS] {_config_message}")
+
 router = APIRouter()
 
 # Performance optimization constants
@@ -127,6 +152,7 @@ async def extract_text_from_file(file: UploadFile) -> str:
     except Exception as e:
         return f"[File: {file.filename}]\n[Could not extract text: {e}]\n"
 
+
 # Global semaphore for LlamaParse requests
 _llamaparse_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLAMAPARSE)
 
@@ -134,7 +160,30 @@ _llamaparse_semaphore = asyncio.Semaphore(MAX_CONCURRENT_LLAMAPARSE)
 async def parse_with_llamaparse(file: UploadFile, session_id: str = None) -> str:
     """Send a file to LlamaParse and return the parsed markdown content with rate limiting."""
     if not LLAMAPARSE_API_KEY:
+        debug_log("[ERROR] LlamaParse API key not configured")
         raise HTTPException(status_code=500, detail="LlamaParse API key not configured.")
+    
+    # Validate file before processing
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="File must have a filename.")
+    
+    # Check file size (LlamaParse limit is 50MB)
+    file_size = 0
+    try:
+        contents = await file.read()
+        file_size = len(contents)
+        await file.seek(0)  # Reset file pointer
+    except Exception as e:
+        debug_log(f"[ERROR] Could not read file {file.filename}: {e}")
+        raise HTTPException(status_code=400, detail=f"Could not read file: {e}")
+    
+    if file_size > 50 * 1024 * 1024:  # 50MB limit
+        raise HTTPException(status_code=400, detail="File size exceeds 50MB limit.")
+    
+    if file_size == 0:
+        raise HTTPException(status_code=400, detail="File is empty.")
+    
+    debug_log(f"[LLAMAPARSE] Processing file: {file.filename}, size: {file_size} bytes")
     
     async with _llamaparse_semaphore:  # Rate limiting
         debug_log(f"[OPTIMIZED] Starting LlamaParse for {file.filename}")
@@ -232,9 +281,48 @@ async def parse_with_llamaparse(file: UploadFile, session_id: str = None) -> str
                             
                         elif status == "FAILED":
                             error_msg = status_data.get("error", "Unknown error")
-                            if session_id:
-                                progress_manager.error_processing(session_id, f"LlamaParse job failed: {error_msg}")
-                            raise HTTPException(status_code=500, detail=f"LlamaParse job failed: {error_msg}")
+                            error_code = status_data.get("error_code", "")
+                            
+                            # Handle specific error codes with user-friendly messages
+                            if error_code == "PDF_IS_PROTECTED":
+                                user_message = f"The PDF '{file.filename}' is password protected. Please remove the password and upload again."
+                                if session_id:
+                                    progress_manager.error_processing(session_id, user_message)
+                                raise HTTPException(status_code=400, detail=user_message)
+                            elif error_code == "FILE_TOO_LARGE":
+                                user_message = f"The file '{file.filename}' is too large. Maximum size is 50MB."
+                                if session_id:
+                                    progress_manager.error_processing(session_id, user_message)
+                                raise HTTPException(status_code=400, detail=user_message)
+                            elif error_code == "INVALID_FILE_TYPE":
+                                user_message = f"The file '{file.filename}' format is not supported."
+                                if session_id:
+                                    progress_manager.error_processing(session_id, user_message)
+                                raise HTTPException(status_code=400, detail=user_message)
+                            elif error_code == "PDF_CONVERSION_ERROR":
+                                # Log detailed error information for debugging
+                                debug_log(f"[PDF_CONVERSION_ERROR] File: {file.filename}, Size: {file_size} bytes, Content-Type: {file.content_type}")
+                                debug_log(f"[PDF_CONVERSION_ERROR] Full error response: {status_data}")
+                                
+                                # Try to provide more specific error message
+                                if file_size > 10 * 1024 * 1024:  # 10MB
+                                    user_message = f"PDF conversion failed for '{file.filename}'. Large files (>10MB) may cause conversion issues. Please try with a smaller file or contact support."
+                                elif file.content_type and file.content_type != "application/pdf":
+                                    user_message = f"PDF conversion failed for '{file.filename}'. File type '{file.content_type}' may not be supported. Please ensure you're uploading a valid PDF file."
+                                else:
+                                    # Get job_id from status_data if available
+                                    job_id = status_data.get("job_id", job_id)
+                                    user_message = f"PDF conversion failed for '{file.filename}'. This may be due to: 1) Corrupted PDF file, 2) Password-protected PDF, 3) Unsupported PDF format, 4) Server processing issues. Please try uploading a different PDF file or contact support with job ID: {job_id}"
+                                
+                                if session_id:
+                                    progress_manager.error_processing(session_id, user_message)
+                                raise HTTPException(status_code=422, detail=user_message)
+                            else:
+                                # Generic error with original error message
+                                user_message = f"PDF processing failed: {error_msg}"
+                                if session_id:
+                                    progress_manager.error_processing(session_id, user_message)
+                                raise HTTPException(status_code=500, detail=user_message)
                         
                         # Dynamic wait time
                         wait_time = wait_times[min(attempt, len(wait_times) - 1)]
@@ -248,8 +336,60 @@ async def parse_with_llamaparse(file: UploadFile, session_id: str = None) -> str
                     if e.response.status_code == 429:  # Rate limited
                         await asyncio.sleep(5)  # Wait longer for rate limits
                         raise e  # Let retry decorator handle it
-                    raise HTTPException(status_code=e.response.status_code, detail=f"LlamaParse API error: {e}")
                     
+                    # Try to extract detailed error from LlamaParse response
+                    try:
+                        error_data = e.response.json()
+                        error_code = error_data.get("error_code", "")
+                        error_message = error_data.get("error", error_data.get("message", str(e)))
+                        
+                        # Handle specific error codes with user-friendly messages
+                        if error_code == "PDF_IS_PROTECTED":
+                            user_message = f"The PDF '{file.filename}' is password protected. Please remove the password and upload again."
+                            if session_id:
+                                progress_manager.error_processing(session_id, user_message)
+                            raise HTTPException(status_code=400, detail=user_message)
+                        elif error_code == "FILE_TOO_LARGE":
+                            user_message = f"The file '{file.filename}' is too large. Maximum size is 50MB."
+                            if session_id:
+                                progress_manager.error_processing(session_id, user_message)
+                            raise HTTPException(status_code=400, detail=user_message)
+                        elif error_code == "INVALID_FILE_TYPE":
+                            user_message = f"The file '{file.filename}' format is not supported."
+                            if session_id:
+                                progress_manager.error_processing(session_id, user_message)
+                            raise HTTPException(status_code=400, detail=user_message)
+                        elif error_code == "PDF_CONVERSION_ERROR":
+                            # Log detailed error information for debugging
+                            debug_log(f"[PDF_CONVERSION_ERROR] File: {file.filename}, Size: {file_size} bytes, Content-Type: {file.content_type}")
+                            debug_log(f"[PDF_CONVERSION_ERROR] Full error response: {error_data}")
+                            
+                            # Try to provide more specific error message
+                            if file_size > 10 * 1024 * 1024:  # 10MB
+                                user_message = f"PDF conversion failed for '{file.filename}'. Large files (>10MB) may cause conversion issues. Please try with a smaller file or contact support."
+                            elif file.content_type and file.content_type != "application/pdf":
+                                user_message = f"PDF conversion failed for '{file.filename}'. File type '{file.content_type}' may not be supported. Please ensure you're uploading a valid PDF file."
+                            else:
+                                # Get job_id from error_data if available
+                                job_id = error_data.get("job_id", "unknown")
+                                user_message = f"PDF conversion failed for '{file.filename}'. This may be due to: 1) Corrupted PDF file, 2) Password-protected PDF, 3) Unsupported PDF format, 4) Server processing issues. Please try uploading a different PDF file or contact support with job ID: {job_id}"
+                            
+                            if session_id:
+                                progress_manager.error_processing(session_id, user_message)
+                            raise HTTPException(status_code=422, detail=user_message)
+                        else:
+                            # Generic LlamaParse error
+                            user_message = f"PDF parsing service error: {error_message}"
+                            if session_id:
+                                progress_manager.error_processing(session_id, user_message)
+                            raise HTTPException(status_code=e.response.status_code, detail=user_message)
+                    except (ValueError, KeyError, AttributeError):
+                        # Couldn't parse error response, use generic message
+                        raise HTTPException(status_code=e.response.status_code, detail=f"LlamaParse API error: {e}")
+                    
+        except HTTPException:
+            # Re-raise HTTPExceptions as-is (they already have proper error messages)
+            raise
         except Exception as e:
             debug_log(f"[ERROR] LlamaParse failed for {file.filename}: {str(e)}")
             raise
@@ -323,6 +463,64 @@ async def parse_pdf_fast_autofill(
             "student_role": fallback["student_role"],
             "personas": fallback["key_figures"],
             "key_figures": fallback["key_figures"]
+        }
+
+@router.get("/api/llamaparse-health/")
+async def llamaparse_health_check():
+    """Health check endpoint for LlamaParse configuration"""
+    try:
+        # Check API key configuration
+        if not LLAMAPARSE_API_KEY:
+            return {
+                "status": "error",
+                "message": "LLAMAPARSE_API_KEY is not configured",
+                "details": "Please set the LLAMAPARSE_API_KEY environment variable in Railway"
+            }
+        
+        if len(LLAMAPARSE_API_KEY) < 20:
+            return {
+                "status": "error", 
+                "message": "LLAMAPARSE_API_KEY appears to be invalid",
+                "details": f"API key length: {len(LLAMAPARSE_API_KEY)} characters (expected: 20+)"
+            }
+        
+        # Test API connection
+        headers = {"Authorization": f"Bearer {LLAMAPARSE_API_KEY}"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            try:
+                # Try to reach the API endpoint
+                response = await client.get("https://api.cloud.llamaindex.ai/health", headers=headers)
+                return {
+                    "status": "healthy",
+                    "message": "LlamaParse API is reachable",
+                    "api_key_length": len(LLAMAPARSE_API_KEY),
+                    "api_response_status": response.status_code
+                }
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 401:
+                    return {
+                        "status": "error",
+                        "message": "Invalid API key - authentication failed",
+                        "details": "Please check your LLAMAPARSE_API_KEY"
+                    }
+                else:
+                    return {
+                        "status": "error",
+                        "message": f"API request failed (status: {e.response.status_code})",
+                        "details": str(e)
+                    }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "message": "Cannot connect to LlamaParse API",
+                    "details": str(e)
+                }
+                
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": "Health check failed",
+            "details": str(e)
         }
 
 @router.get("/api/get-default-personas/")

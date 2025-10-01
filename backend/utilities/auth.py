@@ -82,9 +82,15 @@ async def get_current_user(
         detail="Could not validate credentials",
     )
     
+    # Debug: Log request headers
+    print(f"[DEBUG] get_current_user - Request headers: {dict(request.headers)}")
+    print(f"[DEBUG] get_current_user - Request cookies: {request.cookies}")
+    
     # Extract token from HttpOnly cookie only
     token = extract_token_from_request(request)
+    print(f"[DEBUG] get_current_user - Extracted token: {token[:20] + '...' if token else None}")
     if token is None:
+        print("[DEBUG] get_current_user - No token found, raising credentials_exception")
         raise credentials_exception
     
     payload = verify_token(token)

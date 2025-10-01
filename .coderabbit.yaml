@@ -68,8 +68,6 @@ review:
     targets:
       branches:
         - ".*"
-
-
 # Ignore patterns
 ignore:
   - "**/*.log"

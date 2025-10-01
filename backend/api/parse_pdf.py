@@ -211,7 +211,9 @@ async def parse_with_llamaparse(file: UploadFile, session_id: str = None) -> str
             async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
                 try:
                     # Upload with retry logic built into decorator
+                    debug_log(f"[LLAMAPARSE] Uploading file: {file.filename}, size: {len(contents)} bytes, type: {file.content_type}")
                     upload_response = await client.post(LLAMAPARSE_API_URL, headers=headers, files=files)
+                    debug_log(f"[LLAMAPARSE] Upload response status: {upload_response.status_code}")
                     upload_response.raise_for_status()
                     
                     # Update progress: Upload complete
@@ -304,6 +306,7 @@ async def parse_with_llamaparse(file: UploadFile, session_id: str = None) -> str
                                 # Log detailed error information for debugging
                                 debug_log(f"[PDF_CONVERSION_ERROR] File: {file.filename}, Size: {file_size} bytes, Content-Type: {file.content_type}")
                                 debug_log(f"[PDF_CONVERSION_ERROR] Full error response: {status_data}")
+                                debug_log(f"[PDF_CONVERSION_ERROR] Job ID: {job_id}")
                                 
                                 # Enhanced error analysis and user guidance
                                 error_details = status_data.get("error_details", {})
@@ -326,6 +329,7 @@ Troubleshooting steps:
 3. Try converting the PDF to a different format first
 4. Check if the PDF opens correctly in a PDF viewer
 5. For large files, try compressing the PDF first
+6. Try a different PDF file to test if the issue is file-specific
 
 If the issue persists, please contact support with job ID: {job_id}"""
                                 

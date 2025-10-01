@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 from database.connection import get_db
 from utilities.auth import get_current_user, require_admin
+from middleware.role_auth import require_professor
 from utilities.debug_logging import debug_log
 from database.models import (
     Cohort, CohortStudent, CohortSimulation, User, UserProgress, Scenario, generate_cohort_id
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/professor/cohorts", tags=["Professor Cohorts"])
 
 @router.get("/", response_model=List[CohortListResponse])
 async def get_cohorts(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
@@ -179,7 +180,7 @@ async def get_all_cohorts_admin(
 @router.get("/{cohort_unique_id}", response_model=CohortResponse)
 async def get_cohort(
     cohort_unique_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Get a specific cohort with students and simulations"""
@@ -246,7 +247,7 @@ async def get_cohort(
 @router.post("/", response_model=CohortResponse)
 async def create_cohort(
     cohort_data: CohortCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Create a new cohort"""
@@ -298,7 +299,7 @@ async def create_cohort(
 async def update_cohort(
     cohort_unique_id: str,
     cohort_data: CohortUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Update a cohort"""
@@ -340,7 +341,7 @@ async def update_cohort(
 @router.delete("/{cohort_unique_id}")
 async def delete_cohort(
     cohort_unique_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Delete a cohort and all related data"""
@@ -396,7 +397,7 @@ async def delete_cohort(
 @router.get("/{cohort_unique_id}/students", response_model=List[CohortStudentResponse])
 async def get_cohort_students(
     cohort_unique_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Get all students in a cohort"""
@@ -431,7 +432,7 @@ async def get_cohort_students(
 async def add_student_to_cohort(
     cohort_id: int,
     student_data: CohortStudentCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Add a student to a cohort"""
@@ -483,7 +484,7 @@ async def update_student_enrollment(
     cohort_unique_id: str,
     student_id: int,
     student_data: CohortStudentUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Update a student's enrollment status in a cohort"""
@@ -537,7 +538,7 @@ async def update_student_enrollment(
 @router.get("/{cohort_unique_id}/simulations", response_model=List[CohortSimulationResponse])
 async def get_cohort_simulations(
     cohort_unique_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Get all simulations assigned to a cohort"""
@@ -604,7 +605,7 @@ async def get_cohort_simulations(
 async def assign_simulation_to_cohort(
     cohort_id: int,
     simulation_data: CohortSimulationCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Assign a simulation to a cohort"""
@@ -692,7 +693,7 @@ async def assign_simulation_to_cohort(
 async def remove_simulation_from_cohort(
     cohort_id: int,
     simulation_assignment_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_professor),
     db: Session = Depends(get_db)
 ):
     """Remove a simulation assignment from a cohort"""

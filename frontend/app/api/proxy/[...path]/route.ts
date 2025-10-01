@@ -49,9 +49,13 @@ async function proxyRequest(
   method: string
 ) {
   try {
-    // Reconstruct the full path
+    // Reconstruct the full path - preserve trailing slash if present in original URL
     const path = pathSegments.join('/')
-    const backendUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/${path}`
+    const originalPath = request.nextUrl.pathname.replace('/api/proxy/', '')
+    const hasTrailingSlash = originalPath.endsWith('/') && originalPath !== '/'
+    const pathWithSlash = hasTrailingSlash && !path.endsWith('/') ? `${path}/` : path
+    
+    const backendUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/${pathWithSlash}`
     
     // Get search params from the original request
     const searchParams = request.nextUrl.searchParams.toString()

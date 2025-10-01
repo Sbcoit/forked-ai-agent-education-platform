@@ -216,7 +216,7 @@ export default function ProfessorNotifications() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <RoleBasedSidebar />
+      <RoleBasedSidebar currentPath="/professor/notifications" />
       
       <div className="ml-20 p-6">
         {/* Header */}

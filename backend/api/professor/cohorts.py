@@ -26,7 +26,7 @@ from database.schemas import (
     CohortSimulationCreate, CohortSimulationUpdate, CohortSimulationResponse
 )
 
-router = APIRouter(prefix="/cohorts", tags=["Cohorts"])
+router = APIRouter(prefix="/professor/cohorts", tags=["Professor Cohorts"])
 
 # --- COHORT CRUD ENDPOINTS ---
 
@@ -62,6 +62,69 @@ async def get_cohorts(
             query = query.filter(Cohort.is_active == True)
         elif status == "inactive":
             query = query.filter(Cohort.is_active == False)
+    
+    # Order by creation date (newest first)
+    query = query.order_by(desc(Cohort.created_at))
+    
+    # Create subqueries for counts
+    student_count_subquery = db.query(
+        CohortStudent.cohort_id,
+        func.count(CohortStudent.id).label('student_count')
+    ).filter(
+        CohortStudent.status == "approved"
+    ).group_by(CohortStudent.cohort_id).subquery()
+    
+    simulation_count_subquery = db.query(
+        CohortSimulation.cohort_id,
+        func.count(CohortSimulation.id).label('simulation_count')
+    ).group_by(CohortSimulation.cohort_id).subquery()
+    
+    # Main query with left joins to get counts in single query
+    cohorts_with_counts = query.outerjoin(
+        student_count_subquery,
+        Cohort.id == student_count_subquery.c.cohort_id
+    ).outerjoin(
+        simulation_count_subquery,
+        Cohort.id == simulation_count_subquery.c.cohort_id
+    ).add_columns(
+        coalesce(student_count_subquery.c.student_count, 0).label('student_count'),
+        coalesce(simulation_count_subquery.c.simulation_count, 0).label('simulation_count')
+    ).offset(skip).limit(limit).all()
+    
+    # Build response with counts from single query
+    result = []
+    for cohort_row in cohorts_with_counts:
+        cohort = cohort_row[0]  # The Cohort object is first in the tuple
+        student_count = cohort_row[1]  # student_count from coalesce
+        simulation_count = cohort_row[2]  # simulation_count from coalesce
+        
+        result.append(CohortListResponse(
+            id=cohort.id,
+            unique_id=cohort.unique_id,
+            title=cohort.title,
+            description=cohort.description,
+            course_code=cohort.course_code,
+            semester=cohort.semester,
+            year=cohort.year,
+            max_students=cohort.max_students,
+            is_active=cohort.is_active,
+            created_by=cohort.created_by,
+            created_at=cohort.created_at,
+            student_count=student_count,
+            simulation_count=simulation_count
+        ))
+    
+    return result
+
+@router.get("/admin/all", response_model=List[CohortListResponse])
+async def get_all_cohorts_admin(
+    current_user: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000)
+):
+    """Admin-only endpoint to get all cohorts across all users"""
+    query = db.query(Cohort).order_by(desc(Cohort.created_at))
     
     # Create subqueries for counts
     student_count_subquery = db.query(
@@ -128,7 +191,7 @@ async def get_cohort(
     if cohort.created_by != current_user.id and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized to view this cohort")
     
-    # Get students with user details
+    # Get students with user details using eager loading
     students_query = db.query(CohortStudent, User).join(
         User, CohortStudent.student_id == User.id
     ).filter(CohortStudent.cohort_id == cohort.id)
@@ -402,6 +465,60 @@ async def add_student_to_cohort(
     )
     
     db.add(cohort_student)
+    db.commit()
+    db.refresh(cohort_student)
+    
+    return CohortStudentResponse(
+        id=cohort_student.id,
+        student_id=cohort_student.student_id,
+        student_name=student.full_name,
+        student_email=student.email,
+        status=cohort_student.status,
+        enrollment_date=cohort_student.enrollment_date,
+        approved_at=cohort_student.approved_at
+    )
+
+@router.put("/{cohort_unique_id}/students/{student_id}", response_model=CohortStudentResponse)
+async def update_student_enrollment(
+    cohort_unique_id: str,
+    student_id: int,
+    student_data: CohortStudentUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update a student's enrollment status in a cohort"""
+    # Check if cohort exists and user has access
+    cohort = db.query(Cohort).filter(Cohort.unique_id == cohort_unique_id).first()
+    if not cohort:
+        raise HTTPException(status_code=404, detail="Cohort not found")
+    
+    if cohort.created_by != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to manage this cohort")
+    
+    # Check if student enrollment exists
+    cohort_student = db.query(CohortStudent).filter(
+        CohortStudent.cohort_id == cohort.id,
+        CohortStudent.student_id == student_id
+    ).first()
+    
+    if not cohort_student:
+        raise HTTPException(status_code=404, detail="Student not enrolled in this cohort")
+    
+    # Get student user details
+    student = db.query(User).filter(User.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    # Update enrollment status
+    update_data = student_data.dict(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(cohort_student, field, value)
+    
+    # Set approval timestamp if status is being changed to approved
+    if student_data.status == "approved" and cohort_student.status != "approved":
+        cohort_student.approved_at = datetime.utcnow()
+        cohort_student.approved_by = current_user.id
+    
     db.commit()
     db.refresh(cohort_student)
     

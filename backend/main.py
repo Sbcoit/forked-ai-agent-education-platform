@@ -45,7 +45,7 @@ from api.pdf_progress import router as progress_router
 from api.simulation import router as simulation_router
 from api.publishing import router as publishing_router
 from api.oauth import router as oauth_router, lifespan as oauth_lifespan
-from api.cohorts import router as cohorts_router
+from api.professor.cohorts import router as cohorts_router
 from services.session_manager import session_manager_lifespan
 
 # Startup check module was removed - startup checks are no longer performed

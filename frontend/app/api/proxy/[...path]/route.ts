@@ -79,6 +79,32 @@ async function proxyRequest(
       headers['Cookie'] = cookies.map(c => `${c.name}=${c.value}`).join('; ')
     }
     
+    // Forward Authorization header if present
+    const authorization = request.headers.get('authorization')
+    if (authorization) {
+      headers['Authorization'] = authorization
+    }
+    
+    // Forward other important headers
+    const userAgent = request.headers.get('user-agent')
+    if (userAgent) {
+      headers['User-Agent'] = userAgent
+    }
+    
+    const accept = request.headers.get('accept')
+    if (accept) {
+      headers['Accept'] = accept
+    }
+    
+    const acceptLanguage = request.headers.get('accept-language')
+    if (acceptLanguage) {
+      headers['Accept-Language'] = acceptLanguage
+    }
+    
+    // Debug: Log headers being forwarded
+    console.log('🔍 Proxy forwarding headers:', Object.keys(headers))
+    console.log('🔍 Proxy forwarding cookies:', cookies.length > 0 ? 'Yes' : 'No')
+    
     // Prepare fetch options
     const fetchOptions: RequestInit = {
       method,
@@ -98,6 +124,8 @@ async function proxyRequest(
     }
     
     // Make the request to the backend
+    console.log('🚀 Proxy making request to:', fullUrl)
+    console.log('🚀 Proxy request headers:', headers)
     let response = await fetch(fullUrl, fetchOptions)
 
     // If backend indicates method not allowed, retry once with a trailing slash

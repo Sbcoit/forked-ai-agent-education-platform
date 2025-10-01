@@ -31,34 +31,6 @@ router = APIRouter(prefix="/professor/cohorts", tags=["Professor Cohorts"])
 
 # --- COHORT CRUD ENDPOINTS ---
 
-@router.get("/test-auth")
-async def test_auth(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """Test endpoint to debug authentication"""
-    return {
-        "message": "Authentication successful",
-        "user_id": current_user.id,
-        "user_email": current_user.email,
-        "user_role": current_user.role,
-        "user_active": current_user.is_active
-    }
-
-@router.get("/test-professor-auth")
-async def test_professor_auth(
-    current_user: User = Depends(require_professor),
-    db: Session = Depends(get_db)
-):
-    """Test endpoint to debug professor authentication"""
-    return {
-        "message": "Professor authentication successful",
-        "user_id": current_user.id,
-        "user_email": current_user.email,
-        "user_role": current_user.role,
-        "user_active": current_user.is_active
-    }
-
 @router.get("/", response_model=List[CohortListResponse])
 async def get_cohorts(
     current_user: User = Depends(require_professor),
@@ -69,81 +41,70 @@ async def get_cohorts(
     status: Optional[str] = Query(None)
 ):
     """Get all cohorts with optional filtering"""
-    query = db.query(Cohort)
-    
-    # Filter by creator (users can only see their own cohorts unless admin)
-    if current_user.role != "admin":
-        query = query.filter(Cohort.created_by == current_user.id)
-    
-    # Apply search filter
-    if search:
-        query = query.filter(
-            or_(
-                Cohort.title.ilike(f"%{search}%"),
-                Cohort.description.ilike(f"%{search}%"),
-                Cohort.course_code.ilike(f"%{search}%")
-            )
-        )
-    
-    # Apply status filter
-    if status:
-        if status == "active":
-            query = query.filter(Cohort.is_active == True)
-        elif status == "inactive":
-            query = query.filter(Cohort.is_active == False)
-    
-    # Order by creation date (newest first)
-    query = query.order_by(desc(Cohort.created_at))
-    
-    # Create subqueries for counts
-    student_count_subquery = db.query(
-        CohortStudent.cohort_id,
-        func.count(CohortStudent.id).label('student_count')
-    ).filter(
-        CohortStudent.status == "approved"
-    ).group_by(CohortStudent.cohort_id).subquery()
-    
-    simulation_count_subquery = db.query(
-        CohortSimulation.cohort_id,
-        func.count(CohortSimulation.id).label('simulation_count')
-    ).group_by(CohortSimulation.cohort_id).subquery()
-    
-    # Main query with left joins to get counts in single query
-    cohorts_with_counts = query.outerjoin(
-        student_count_subquery,
-        Cohort.id == student_count_subquery.c.cohort_id
-    ).outerjoin(
-        simulation_count_subquery,
-        Cohort.id == simulation_count_subquery.c.cohort_id
-    ).add_columns(
-        coalesce(student_count_subquery.c.student_count, 0).label('student_count'),
-        coalesce(simulation_count_subquery.c.simulation_count, 0).label('simulation_count')
-    ).offset(skip).limit(limit).all()
-    
-    # Build response with counts from single query
-    result = []
-    for cohort_row in cohorts_with_counts:
-        cohort = cohort_row[0]  # The Cohort object is first in the tuple
-        student_count = cohort_row[1]  # student_count from coalesce
-        simulation_count = cohort_row[2]  # simulation_count from coalesce
+    try:
+        query = db.query(Cohort)
         
-        result.append(CohortListResponse(
-            id=cohort.id,
-            unique_id=cohort.unique_id,
-            title=cohort.title,
-            description=cohort.description,
-            course_code=cohort.course_code,
-            semester=cohort.semester,
-            year=cohort.year,
-            max_students=cohort.max_students,
-            is_active=cohort.is_active,
-            created_by=cohort.created_by,
-            created_at=cohort.created_at,
-            student_count=student_count,
-            simulation_count=simulation_count
-        ))
-    
-    return result
+        # Filter by creator (users can only see their own cohorts unless admin)
+        if current_user.role != "admin":
+            query = query.filter(Cohort.created_by == current_user.id)
+        
+        # Apply search filter
+        if search:
+            query = query.filter(
+                or_(
+                    Cohort.title.ilike(f"%{search}%"),
+                    Cohort.description.ilike(f"%{search}%"),
+                    Cohort.course_code.ilike(f"%{search}%")
+                )
+            )
+        
+        # Apply status filter
+        if status:
+            if status == "active":
+                query = query.filter(Cohort.is_active == True)
+            elif status == "inactive":
+                query = query.filter(Cohort.is_active == False)
+        
+        # Order by creation date (newest first)
+        query = query.order_by(desc(Cohort.created_at))
+        
+        # Get basic cohorts first
+        cohorts = query.offset(skip).limit(limit).all()
+        
+        # Build response with simple counts
+        result = []
+        for cohort in cohorts:
+            # Get student count
+            student_count = db.query(CohortStudent).filter(
+                CohortStudent.cohort_id == cohort.id,
+                CohortStudent.status == "approved"
+            ).count()
+            
+            # Get simulation count
+            simulation_count = db.query(CohortSimulation).filter(
+                CohortSimulation.cohort_id == cohort.id
+            ).count()
+            
+            result.append(CohortListResponse(
+                id=cohort.id,
+                unique_id=cohort.unique_id,
+                title=cohort.title,
+                description=cohort.description,
+                course_code=cohort.course_code,
+                semester=cohort.semester,
+                year=cohort.year,
+                max_students=cohort.max_students,
+                is_active=cohort.is_active,
+                created_by=cohort.created_by,
+                created_at=cohort.created_at,
+                student_count=student_count,
+                simulation_count=simulation_count
+            ))
+        
+        return result
+    except Exception as e:
+        debug_log(f"Error in get_cohorts: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.get("/admin/all", response_model=List[CohortListResponse])
 async def get_all_cohorts_admin(

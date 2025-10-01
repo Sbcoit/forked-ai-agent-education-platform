@@ -19,7 +19,7 @@ import RoleBasedSidebar from "@/components/RoleBasedSidebar";
 import SimulationBuilderProgress from "@/components/SimulationBuilderProgress"
 import PDFProgressTrackerHTTP from "@/components/PDFProgressTrackerHTTP"
 import { usePDFParsingWithProgress } from "@/hooks/usePDFParsingWithProgress"
-import { apiClient } from "@/lib/api"
+import { apiClient, buildApiUrl } from "@/lib/api"
 
 
 // Simple Modal component
@@ -205,15 +205,16 @@ export default function ScenarioBuilder() {
            }
            
            // Load database boolean completion fields
-           setDbCompletionFields({
-             nameCompleted: draftData.name_completed || false,
-             descriptionCompleted: draftData.description_completed || false,
-             personasCompleted: draftData.personas_completed || false,
-             scenesCompleted: draftData.scenes_completed || false,
-             imagesCompleted: draftData.images_completed || false,
-             learningOutcomesCompleted: draftData.learning_outcomes_completed || false,
-             aiEnhancementCompleted: draftData.ai_enhancement_completed || false
-           });
+          setDbCompletionFields({
+            nameCompleted: draftData.name_completed || false,
+            descriptionCompleted: draftData.description_completed || false,
+            studentRoleCompleted: draftData.student_role_completed || false,
+            personasCompleted: draftData.personas_completed || false,
+            scenesCompleted: draftData.scenes_completed || false,
+            imagesCompleted: draftData.images_completed || false,
+            learningOutcomesCompleted: draftData.learning_outcomes_completed || false,
+            aiEnhancementCompleted: draftData.ai_enhancement_completed || false
+          });
            
            // Handle learning objectives - check if it's an array or string
            if (Array.isArray(draftData.learning_objectives)) {
@@ -921,7 +922,7 @@ const handleFieldUpdate = (fieldName: string, fieldValue: any) => {
       break;
     case 'student_role':
       // Update student role in autofillResult
-      setAutofillResult(prev => ({
+      setAutofillResult((prev: any) => ({
         ...prev,
         student_role: fieldValue
       }));
@@ -1000,7 +1001,7 @@ const handleFieldUpdate = (fieldName: string, fieldValue: any) => {
       break;
           case 'learning_outcomes':
             if (Array.isArray(fieldValue)) {
-              setLearningOutcomes(fieldValue);
+              setLearningOutcomes(formatLearningOutcomes(fieldValue as string[]));
               markAsUnsaved();
             }
             break;
@@ -1934,8 +1935,8 @@ return (
         scenes={scenes}
         learningOutcomes={learningOutcomes}
         isProcessing={isParsingWithProgress}
-        isAIEnhancementComplete={aiEnhancementComplete || (!isParsingWithProgress && sessionId && !parsingError)}
-        completionStatus={completionStatus}
+        isAIEnhancementComplete={!!(aiEnhancementComplete || (!isParsingWithProgress && sessionId && !parsingError))}
+        completionStatus={completionStatus || undefined}
         hasAutofillResult={!!autofillResult}
         nameCompleted={dbCompletionFields.nameCompleted}
         descriptionCompleted={dbCompletionFields.descriptionCompleted}
@@ -2170,12 +2171,10 @@ return (
                          return sortedScenesWithIndices.map(({ scene, originalIdx }, sortedIdx) => {
                            // Use a combination of id and index as key to ensure uniqueness
                            const uniqueKey = scene.id ? `scene-${scene.id}` : `scene-temp-${sortedIdx}`;
-                           return (
-                             <div key={uniqueKey} className="relative w-full">
-                               <div onClick={() => setEditingSceneIdx(originalIdx)} style={{ cursor: 'pointer' }}>
-                                 {console.log("DEBUG: autofillResult:", autofillResult)}
-                                 {console.log("DEBUG: student_role:", autofillResult?.student_role)}
-                                 <SceneCard
+                          return (
+                            <div key={uniqueKey} className="relative w-full">
+                              <div onClick={() => setEditingSceneIdx(originalIdx)} style={{ cursor: 'pointer' }}>
+                                <SceneCard
                                    scene={scene}
                                    onSave={updatedScene => handleSaveScene(originalIdx, updatedScene)}
                                    onDelete={() => handleDeleteScene(originalIdx)}
@@ -2215,10 +2214,8 @@ return (
      )}
      
      {/* Modal for editing scene */}
-     {editingSceneIdx !== null && (
+    {editingSceneIdx !== null && (
        <SceneModal isOpen={true} onClose={() => setEditingSceneIdx(null)}>
-         {console.log("DEBUG EDIT MODE: autofillResult:", autofillResult)}
-         {console.log("DEBUG EDIT MODE: student_role:", autofillResult?.student_role)}
          <SceneCard
            scene={scenes[editingSceneIdx]}
            onSave={updatedScene => handleSaveScene(editingSceneIdx, updatedScene)}

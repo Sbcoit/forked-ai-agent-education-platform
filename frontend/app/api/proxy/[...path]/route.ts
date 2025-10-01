@@ -110,6 +110,13 @@ async function proxyRequest(
         // Ignore retry failure; original response will be handled below
       }
     }
+
+    // Log 500 errors for debugging
+    if (response.status === 500) {
+      console.error(`Backend 500 error for ${method} ${fullUrl}`)
+      const errorText = await response.text()
+      console.error(`Backend error response:`, errorText)
+    }
     
     // Get response data
     const contentType = response.headers.get('content-type')

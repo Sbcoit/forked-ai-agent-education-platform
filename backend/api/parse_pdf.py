@@ -143,6 +143,7 @@ async def parse_file_flexible(file: UploadFile, session_id: str = None) -> str:
         debug_log(f"Unknown file type {file.content_type}, trying LlamaParse as fallback...")
         return await parse_with_llamaparse(file)
 
+
 async def extract_text_from_file(file: UploadFile) -> str:
     """Extract text from text-based files (TXT, MD, etc.)"""
     try:
@@ -304,15 +305,29 @@ async def parse_with_llamaparse(file: UploadFile, session_id: str = None) -> str
                                 debug_log(f"[PDF_CONVERSION_ERROR] File: {file.filename}, Size: {file_size} bytes, Content-Type: {file.content_type}")
                                 debug_log(f"[PDF_CONVERSION_ERROR] Full error response: {status_data}")
                                 
-                                # Try to provide more specific error message
+                                # Enhanced error analysis and user guidance
+                                error_details = status_data.get("error_details", {})
+                                job_id = status_data.get("job_id", job_id)
+                                
+                                # Check for specific error patterns
                                 if file_size > 10 * 1024 * 1024:  # 10MB
-                                    user_message = f"PDF conversion failed for '{file.filename}'. Large files (>10MB) may cause conversion issues. Please try with a smaller file or contact support."
+                                    user_message = f"PDF conversion failed for '{file.filename}'. Large files (>10MB) may cause conversion issues. Please try with a smaller file or contact support with job ID: {job_id}"
                                 elif file.content_type and file.content_type != "application/pdf":
                                     user_message = f"PDF conversion failed for '{file.filename}'. File type '{file.content_type}' may not be supported. Please ensure you're uploading a valid PDF file."
+                                elif file_size < 1024:  # Less than 1KB - likely corrupted
+                                    user_message = f"PDF conversion failed for '{file.filename}'. The file appears to be corrupted or empty. Please check the file and try again."
                                 else:
-                                    # Get job_id from status_data if available
-                                    job_id = status_data.get("job_id", job_id)
-                                    user_message = f"PDF conversion failed for '{file.filename}'. This may be due to: 1) Corrupted PDF file, 2) Password-protected PDF, 3) Unsupported PDF format, 4) Server processing issues. Please try uploading a different PDF file or contact support with job ID: {job_id}"
+                                    # Provide comprehensive troubleshooting steps
+                                    user_message = f"""PDF conversion failed for '{file.filename}'. 
+
+Troubleshooting steps:
+1. Try uploading a different PDF file
+2. Ensure the PDF is not password-protected
+3. Try converting the PDF to a different format first
+4. Check if the PDF opens correctly in a PDF viewer
+5. For large files, try compressing the PDF first
+
+If the issue persists, please contact support with job ID: {job_id}"""
                                 
                                 if session_id:
                                     progress_manager.error_processing(session_id, user_message)

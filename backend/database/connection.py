@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     secret_key: str = os.getenv("SECRET_KEY", "your-secret-key-here")
     environment: str = os.getenv("ENVIRONMENT", "development")
     cors_origins: str = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173")
-    llamaparse_api_key: Optional[str] = None
+    llamaparse_api_key: Optional[str] = os.getenv("LLAMAPARSE_API_KEY", None)
     gemini_api_key: Optional[str] = None
     
     # Google OAuth settings

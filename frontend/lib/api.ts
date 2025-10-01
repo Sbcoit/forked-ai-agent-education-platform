@@ -413,7 +413,7 @@ export const apiClient = {
       // Fetch both published and draft scenarios
       const [publishedResponse, draftResponse] = await Promise.all([
         apiRequest('/api/publishing/scenarios/?status=active', { method: 'GET' }),
-        apiRequest('/api/publishing/scenarios/drafts/', { method: 'GET' })
+        apiRequest('/api/scenarios/drafts/', { method: 'GET' })
       ])
       
       if (!publishedResponse.ok || !draftResponse.ok) {
@@ -504,27 +504,27 @@ export const apiClient = {
 
   // Cohort methods
   getCohorts: async (): Promise<any[]> => {
-    const response = await apiRequest('/cohorts/')
+    const response = await apiRequest('/professor/cohorts/')
     return response.json()
   },
 
   getCohort: async (cohortId: string): Promise<any> => {
-    const response = await apiRequest(`/cohorts/${cohortId}`)
+    const response = await apiRequest(`/professor/cohorts/${cohortId}`)
     return response.json()
   },
 
   getCohortStudents: async (cohortId: string): Promise<any[]> => {
-    const response = await apiRequest(`/cohorts/${cohortId}/students`)
+    const response = await apiRequest(`/professor/cohorts/${cohortId}/students`)
     return response.json()
   },
 
   getCohortSimulations: async (cohortId: string): Promise<any[]> => {
-    const response = await apiRequest(`/cohorts/${cohortId}/simulations`)
+    const response = await apiRequest(`/professor/cohorts/${cohortId}/simulations`)
     return response.json()
   },
 
   assignSimulationToCohort: async (cohortId: number, simulationData: any): Promise<any> => {
-    const response = await apiRequest(`/cohorts/${cohortId}/simulations`, {
+    const response = await apiRequest(`/professor/cohorts/${cohortId}/simulations`, {
       method: 'POST',
       body: JSON.stringify(simulationData),
     })
@@ -532,14 +532,14 @@ export const apiClient = {
   },
 
   removeSimulationFromCohort: async (cohortId: number, simulationAssignmentId: number): Promise<any> => {
-    const response = await apiRequest(`/cohorts/${cohortId}/simulations/${simulationAssignmentId}`, {
+    const response = await apiRequest(`/professor/cohorts/${cohortId}/simulations/${simulationAssignmentId}`, {
       method: 'DELETE',
     })
     return response.json()
   },
 
   createCohort: async (cohortData: any): Promise<any> => {
-    const response = await apiRequest('/cohorts/', {
+    const response = await apiRequest('/professor/cohorts/', {
       method: 'POST',
       body: JSON.stringify(cohortData),
     })
@@ -547,7 +547,7 @@ export const apiClient = {
   },
 
   updateCohort: async (cohortId: string, cohortData: any): Promise<any> => {
-    const response = await apiRequest(`/cohorts/${cohortId}`, {
+    const response = await apiRequest(`/professor/cohorts/${cohortId}`, {
       method: 'PUT',
       body: JSON.stringify(cohortData),
     })
@@ -555,7 +555,7 @@ export const apiClient = {
   },
 
   deleteCohort: async (cohortId: string): Promise<void> => {
-    await apiRequest(`/cohorts/${cohortId}`, {
+    await apiRequest(`/professor/cohorts/${cohortId}`, {
       method: 'DELETE',
     })
   },

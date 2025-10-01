@@ -175,13 +175,18 @@ async def get_draft_scenarios(
         # Convert to response format - simplified
         scenario_responses = []
         for scenario in scenarios:
+            # Fix learning_objectives if it's a string (convert to list)
+            learning_objectives = scenario.learning_objectives or []
+            if isinstance(learning_objectives, str):
+                learning_objectives = [item.strip() for item in learning_objectives.split('\n') if item.strip()]
+            
             scenario_responses.append({
                 "id": scenario.id,
                 "title": scenario.title or "",
                 "description": scenario.description or "",
                 "challenge": scenario.challenge or "",
                 "industry": scenario.industry or "Business",
-                "learning_objectives": scenario.learning_objectives or [],
+                "learning_objectives": learning_objectives,
                 "student_role": scenario.student_role or "Business Analyst",
                 "category": scenario.category,
                 "difficulty_level": scenario.difficulty_level,

@@ -1,5 +1,8 @@
 // Real API client for connecting to the backend
 import { debugLog } from './debug'
+
+const isProduction = process.env.NODE_ENV === 'production'
+
 const getApiBaseUrl = () => {
   if (typeof window === 'undefined') {
     // Server-side rendering - return a placeholder
@@ -9,9 +12,29 @@ const getApiBaseUrl = () => {
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 }
 
-// Helper function to build API URLs
+/**
+ * Helper function to build API URLs
+ * 
+ * In production:
+ * - Routes requests through Next.js API proxy (/api/proxy/[...path]) to avoid CORS and cookie issues
+ * 
+ * In development:
+ * - Calls backend directly for faster iteration
+ * 
+ * @param endpoint - API endpoint - must match backend route exactly (e.g., '/users/me', '/api/publishing/scenarios/', '/cohorts/')
+ * @returns Full URL for the API request
+ */
 export const buildApiUrl = (endpoint: string): string => {
-  return `${getApiBaseUrl()}${endpoint}`
+  // Normalize endpoint: remove leading slash only
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint
+  
+  // In production, use the Next.js API proxy to avoid cross-domain cookie issues
+  if (isProduction && typeof window !== 'undefined') {
+    return `/api/proxy/${cleanEndpoint}`
+  }
+  
+  // In development, call backend directly
+  return `${getApiBaseUrl()}/${cleanEndpoint}`
 }
 
 export interface User {
@@ -95,7 +118,20 @@ export interface RegisterData {
 // This prevents XSS attacks from accessing authentication tokens
 // Client-side token management has been removed for security
 
-// Helper function to make authenticated API requests
+/**
+ * Helper function to make authenticated API requests
+ * 
+ * Handles:
+ * - Automatic URL building via buildApiUrl (normalizes endpoints, routes through proxy in production)
+ * - HttpOnly cookie credentials
+ * - Error handling for auth failures (401) and network errors
+ * - Silent auth error mode for checking authentication status without throwing
+ * 
+ * @param endpoint - API endpoint (will be normalized by buildApiUrl)
+ * @param options - Fetch options
+ * @param silentAuthError - If true, returns 401 response without throwing (for auth checks)
+ * @returns Response object
+ */
 const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAuthError: boolean = false): Promise<Response> => {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -144,11 +180,23 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAut
   }
 }
 
-// Real API client
+/**
+ * API Client for backend communication
+ * 
+ * Authentication Flow:
+ * - Login/Register use dedicated Next.js API routes (/api/auth/*) that handle cookie forwarding
+ * - All other endpoints use the proxy pattern (via buildApiUrl) in production
+ * - HttpOnly cookies are automatically included via credentials: 'include'
+ * 
+ * Endpoint Normalization:
+ * - All endpoints are normalized by buildApiUrl (strips /api/ prefix, adds proxy route in production)
+ * - Backend endpoints may have /api/ prefix or not - buildApiUrl handles both cases
+ */
 export const apiClient = {
   // Auth methods
   login: async (credentials: LoginCredentials): Promise<{ user: User; access_token: string }> => {
-    // Use Next.js API route for proper cookie handling
+    // Use dedicated Next.js API route for proper cookie handling
+    // This route forwards to backend /users/login and sets HttpOnly cookies
     const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: {
@@ -283,14 +331,14 @@ export const apiClient = {
 
   // Scenario methods
   getScenarios: async (): Promise<Scenario[]> => {
-    const response = await apiRequest('/api/scenarios/?status=active')
+    const response = await apiRequest('/api/publishing/scenarios/?status=active')
     return response.json()
   },
 
   getUserScenarios: async (userId: number): Promise<Scenario[]> => {
     // For now, return all scenarios since user-specific scenarios endpoint doesn't exist
     // TODO: Add user-specific scenarios endpoint to backend
-    const response = await apiRequest('/api/scenarios/?status=active')
+    const response = await apiRequest('/api/publishing/scenarios/?status=active')
     return response.json()
   },
 
@@ -310,7 +358,7 @@ export const apiClient = {
   },
 
   updateScenarioStatus: async (scenarioId: number, status: string): Promise<any> => {
-    const response = await apiRequest(`/api/scenarios/${scenarioId}/status`, {
+    const response = await apiRequest(`/api/publishing/scenarios/${scenarioId}/status`, {
       method: 'PUT',
       body: JSON.stringify({ status }),
     })
@@ -323,7 +371,7 @@ export const apiClient = {
   },
 
   deleteDraftScenario: async (scenarioId: number): Promise<any> => {
-    const response = await apiRequest(`/api/scenarios/drafts/${scenarioId}`, {
+    const response = await apiRequest(`/api/publishing/scenarios/drafts/${scenarioId}`, {
       method: 'DELETE',
     })
     
@@ -335,7 +383,7 @@ export const apiClient = {
   },
 
   getDraftScenario: async (scenarioId: number): Promise<any> => {
-    const response = await apiRequest(`/api/scenarios/drafts/${scenarioId}`, {
+    const response = await apiRequest(`/api/publishing/scenarios/drafts/${scenarioId}`, {
       method: 'GET',
     })
     
@@ -351,8 +399,8 @@ export const apiClient = {
     try {
       // Fetch both published and draft scenarios
       const [publishedResponse, draftResponse] = await Promise.all([
-        apiRequest('/api/scenarios/?status=active', { method: 'GET' }),
-        apiRequest('/api/scenarios/drafts/', { method: 'GET' })
+        apiRequest('/api/publishing/scenarios/?status=active', { method: 'GET' }),
+        apiRequest('/api/publishing/scenarios/drafts/', { method: 'GET' })
       ])
       
       if (!publishedResponse.ok || !draftResponse.ok) {
@@ -723,10 +771,5 @@ export const apiClient = {
       throw new Error('Failed to get cohorts')
     }
     return response.json()
-  },
-
-  // Generic authenticated request method
-  apiRequest: async (endpoint: string, options: RequestInit = {}, silentAuthError: boolean = false): Promise<Response> => {
-    return apiRequest(endpoint, options, silentAuthError)
   },
 } 

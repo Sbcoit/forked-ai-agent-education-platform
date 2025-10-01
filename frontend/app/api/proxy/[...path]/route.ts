@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// Ensure this runs as a Node.js function, not an edge function
+export const runtime = 'nodejs'
+
 /**
  * API Proxy Route - Forwards all authenticated requests to backend
  */
@@ -61,6 +64,15 @@ async function proxyRequest(
     const searchParams = request.nextUrl.searchParams.toString()
     const fullUrl = searchParams ? `${backendUrl}?${searchParams}` : backendUrl
     
+    console.log('🔍 Proxy forwarding request:', {
+      method,
+      originalPath: request.nextUrl.pathname,
+      pathWithSlash,
+      backendUrl,
+      fullUrl,
+      searchParams
+    })
+    
     // Prepare headers
     const headers: Record<string, string> = {}
     
@@ -75,35 +87,16 @@ async function proxyRequest(
     
     // Get cookies from the incoming request
     const cookies = request.cookies.getAll()
+    console.log('🔍 Cookies received from request:', cookies)
+    console.log('🔍 Cookie count:', cookies.length)
+    
     if (cookies.length > 0) {
-      headers['Cookie'] = cookies.map(c => `${c.name}=${c.value}`).join('; ')
+      const cookieString = cookies.map(c => `${c.name}=${c.value}`).join('; ')
+      headers['Cookie'] = cookieString
+      console.log('🔍 Forwarding cookies:', cookieString)
+    } else {
+      console.log('⚠️ No cookies found in request!')
     }
-    
-    // Forward Authorization header if present
-    const authorization = request.headers.get('authorization')
-    if (authorization) {
-      headers['Authorization'] = authorization
-    }
-    
-    // Forward other important headers
-    const userAgent = request.headers.get('user-agent')
-    if (userAgent) {
-      headers['User-Agent'] = userAgent
-    }
-    
-    const accept = request.headers.get('accept')
-    if (accept) {
-      headers['Accept'] = accept
-    }
-    
-    const acceptLanguage = request.headers.get('accept-language')
-    if (acceptLanguage) {
-      headers['Accept-Language'] = acceptLanguage
-    }
-    
-    // Debug: Log headers being forwarded
-    console.log('🔍 Proxy forwarding headers:', Object.keys(headers))
-    console.log('🔍 Proxy forwarding cookies:', cookies.length > 0 ? 'Yes' : 'No')
     
     // Prepare fetch options
     const fetchOptions: RequestInit = {
@@ -127,6 +120,7 @@ async function proxyRequest(
     console.log('🚀 Proxy making request to:', fullUrl)
     console.log('🚀 Proxy request headers:', headers)
     let response = await fetch(fullUrl, fetchOptions)
+    console.log('🔍 Proxy response status:', response.status)
 
     // If backend indicates method not allowed, retry once with a trailing slash
     // This helps when backend routes are defined with trailing slashes only

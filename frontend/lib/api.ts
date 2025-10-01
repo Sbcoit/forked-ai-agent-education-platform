@@ -38,8 +38,8 @@ export const buildApiUrl = (endpoint: string): string => {
   // Normalize endpoint: remove leading slash only
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint
   
-  // In production, use the Next.js API proxy to avoid cross-domain cookie issues
-  if (isProduction && typeof window !== 'undefined') {
+  // In production, ALWAYS use the Next.js API proxy to avoid cross-domain cookie issues
+  if (isProduction) {
     return `/api/proxy/${cleanEndpoint}`
   }
   

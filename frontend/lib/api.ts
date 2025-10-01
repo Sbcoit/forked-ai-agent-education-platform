@@ -17,12 +17,18 @@ const getApiBaseUrl = () => {
  * 
  * In production:
  * - Routes requests through Next.js API proxy (/api/proxy/[...path]) to avoid CORS and cookie issues
+ * - The proxy forwards the path AS-IS to the backend, so backend routes must include their /api/ prefix
  * 
  * In development:
  * - Calls backend directly for faster iteration
  * 
  * @param endpoint - API endpoint - must match backend route exactly (e.g., '/users/me', '/api/publishing/scenarios/', '/cohorts/')
  * @returns Full URL for the API request
+ * 
+ * Examples:
+ * - Frontend endpoint: '/api/publishing/scenarios/drafts'
+ * - Production: '/api/proxy/api/publishing/scenarios/drafts' (proxy forwards to backend '/api/publishing/scenarios/drafts')
+ * - Development: 'http://localhost:8000/api/publishing/scenarios/drafts'
  */
 export const buildApiUrl = (endpoint: string): string => {
   // Normalize endpoint: remove leading slash only
@@ -193,6 +199,9 @@ const apiRequest = async (endpoint: string, options: RequestInit = {}, silentAut
  * - Backend endpoints may have /api/ prefix or not - buildApiUrl handles both cases
  */
 export const apiClient = {
+  // Expose the raw apiRequest method for direct API calls
+  apiRequest,
+  
   // Auth methods
   login: async (credentials: LoginCredentials): Promise<{ user: User; access_token: string }> => {
     // Use dedicated Next.js API route for proper cookie handling

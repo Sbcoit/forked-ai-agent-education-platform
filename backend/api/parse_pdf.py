@@ -410,12 +410,12 @@ async def parse_with_llamaparse(file: UploadFile, session_id: str = None) -> str
                                 raise HTTPException(status_code=400, detail=user_message)
                             elif error_code == "PDF_CONVERSION_ERROR":
                                 # Log detailed error information for debugging
-                                debug_log(f"[PDF_CONVERSION_ERROR] File: {file.filename}, Size: {file_size} bytes, Content-Type: {file.content_type}")
+                                debug_log(f"[PDF_CONVERSION_ERROR] File: {file.filename}, Size: {len(final_contents)} bytes, Content-Type: {file.content_type}")
                                 debug_log(f"[PDF_CONVERSION_ERROR] Full error response: {status_data}")
                                 debug_log(f"[PDF_CONVERSION_ERROR] Job ID: {job_id}")
                                 
                                 # Additional debugging for PDF analysis
-                                debug_log(f"[PDF_CONVERSION_ERROR] File size category: {'Large' if file_size > 10 * 1024 * 1024 else 'Medium' if file_size > 1024 * 1024 else 'Small' if file_size > 1024 else 'Tiny'}")
+                                debug_log(f"[PDF_CONVERSION_ERROR] File size category: {'Large' if len(final_contents) > 10 * 1024 * 1024 else 'Medium' if len(final_contents) > 1024 * 1024 else 'Small' if len(final_contents) > 1024 else 'Tiny'}")
                                 debug_log(f"[PDF_CONVERSION_ERROR] Content type validation: {'Valid PDF' if file.content_type == 'application/pdf' else 'Invalid/Unknown type'}")
                                 debug_log(f"[PDF_CONVERSION_ERROR] File extension: {file.filename.split('.')[-1].lower() if '.' in file.filename else 'No extension'}")
                                 
@@ -424,14 +424,14 @@ async def parse_with_llamaparse(file: UploadFile, session_id: str = None) -> str
                                 job_id = status_data.get("job_id", job_id)
                                 
                                 # Check for specific error patterns
-                                if file_size > 10 * 1024 * 1024:  # 10MB
+                                if len(final_contents) > 10 * 1024 * 1024:  # 10MB
                                     user_message = f"PDF conversion failed for '{file.filename}'. Large files (>10MB) may cause conversion issues. Please try with a smaller file or contact support with job ID: {job_id}"
                                 elif file.content_type and file.content_type != "application/pdf":
                                     user_message = f"PDF conversion failed for '{file.filename}'. File type '{file.content_type}' may not be supported. Please ensure you're uploading a valid PDF file."
-                                elif file_size < 1024:  # Less than 1KB - likely corrupted
+                                elif len(final_contents) < 1024:  # Less than 1KB - likely corrupted
                                     user_message = f"PDF conversion failed for '{file.filename}'. The file appears to be corrupted or empty. Please check the file and try again."
-                                elif file_size > 50 * 1024 * 1024:  # 50MB - LlamaParse limit
-                                    user_message = f"PDF conversion failed for '{file.filename}'. File size ({file_size / (1024*1024):.1f}MB) exceeds LlamaParse's 50MB limit. Please compress the PDF or split it into smaller files."
+                                elif len(final_contents) > 50 * 1024 * 1024:  # 50MB - LlamaParse limit
+                                    user_message = f"PDF conversion failed for '{file.filename}'. File size ({len(final_contents) / (1024*1024):.1f}MB) exceeds LlamaParse's 50MB limit. Please compress the PDF or split it into smaller files."
                                 else:
                                     # Check for common PDF issues
                                     file_extension = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
@@ -499,11 +499,11 @@ If the issue persists, please contact support with job ID: {job_id}"""
                             raise HTTPException(status_code=400, detail=user_message)
                         elif error_code == "PDF_CONVERSION_ERROR":
                             # Log detailed error information for debugging
-                            debug_log(f"[PDF_CONVERSION_ERROR] File: {file.filename}, Size: {file_size} bytes, Content-Type: {file.content_type}")
+                            debug_log(f"[PDF_CONVERSION_ERROR] File: {file.filename}, Size: {len(final_contents)} bytes, Content-Type: {file.content_type}")
                             debug_log(f"[PDF_CONVERSION_ERROR] Full error response: {error_data}")
                             
                             # Try to provide more specific error message
-                            if file_size > 10 * 1024 * 1024:  # 10MB
+                            if len(final_contents) > 10 * 1024 * 1024:  # 10MB
                                 user_message = f"PDF conversion failed for '{file.filename}'. Large files (>10MB) may cause conversion issues. Please try with a smaller file or contact support."
                             elif file.content_type and file.content_type != "application/pdf":
                                 user_message = f"PDF conversion failed for '{file.filename}'. File type '{file.content_type}' may not be supported. Please ensure you're uploading a valid PDF file."
